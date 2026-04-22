@@ -312,7 +312,7 @@ export default function ServicioTecnico() {
                 fontSize: 14,
               }}
             >
-              PRUEBA 123 MJ
+              Resumen de servicio tecnico.
             </p>
           </div>
 
