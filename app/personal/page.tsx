@@ -30,7 +30,7 @@ export default function PersonalLoginPage() {
     }
 
     router.replace("/dashboard/servicio-tecnico");
-window.location.href = "/dashboard/servicio-tecnico";
+window.location.href = "/dashboard/servicio-tecnico?refresh=1";
   };
 
   return (
