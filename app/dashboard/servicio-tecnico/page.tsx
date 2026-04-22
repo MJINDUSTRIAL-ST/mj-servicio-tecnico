@@ -3,7 +3,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
 type Orden = {
@@ -70,18 +69,13 @@ function formatearFecha(fecha: string) {
 }
 
 export default function ServicioTecnico() {
-    const searchParams = useSearchParams();
   const router = useRouter();
 
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtroEstado, setFiltroEstado] = useState("Todas");
 
-  useEffect(() => {
-  if (searchParams.get("refresh")) {
-    window.location.replace("/dashboard/servicio-tecnico");
-  }
-}, []);
+
 
   useEffect(() => {
     const checkAuthAndFetch = async () => {
