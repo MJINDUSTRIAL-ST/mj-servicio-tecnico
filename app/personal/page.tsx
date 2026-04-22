@@ -29,7 +29,8 @@ export default function PersonalLoginPage() {
       return;
     }
 
-    router.push("/dashboard/servicio-tecnico");
+    router.replace("/dashboard/servicio-tecnico");
+window.location.href = "/dashboard/servicio-tecnico";
   };
 
   return (
