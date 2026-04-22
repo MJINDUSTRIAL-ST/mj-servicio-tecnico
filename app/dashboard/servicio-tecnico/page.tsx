@@ -361,7 +361,7 @@ export default function ServicioTecnico() {
                   fontSize: 14,
                 }}
               >
-                Resumen de servicio técnico.
+                DASHBOARD NUEVO MJ
               </p>
             </div>
 
