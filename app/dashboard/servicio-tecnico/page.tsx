@@ -28,89 +28,33 @@ const estadosFiltro = [
 function colorEstado(estado: string) {
   const e = (estado || "").toLowerCase();
 
-  if (e.includes("ingreso")) {
-    return {
-      fondo: "#dbeafe",
-      texto: "#1d4ed8",
-    };
-  }
-
+  if (e.includes("ingreso")) return { fondo: "#dbeafe", texto: "#1d4ed8" };
   if (e.includes("revisión") || e.includes("revision")) {
-    return {
-      fondo: "#ede9fe",
-      texto: "#6d28d9",
-    };
+    return { fondo: "#ede9fe", texto: "#6d28d9" };
   }
-
   if (e.includes("cotización") || e.includes("cotizacion")) {
-    return {
-      fondo: "#fef3c7",
-      texto: "#b45309",
-    };
+    return { fondo: "#fef3c7", texto: "#b45309" };
   }
-
   if (e.includes("mantenimiento")) {
-    return {
-      fondo: "#dcfce7",
-      texto: "#15803d",
-    };
+    return { fondo: "#dcfce7", texto: "#15803d" };
   }
-
   if (e.includes("reparación") || e.includes("reparacion")) {
-    return {
-      fondo: "#fee2e2",
-      texto: "#b91c1c",
-    };
+    return { fondo: "#fee2e2", texto: "#b91c1c" };
   }
+  if (e.includes("listo")) return { fondo: "#dcfce7", texto: "#166534" };
+  if (e.includes("entregado")) return { fondo: "#e5e7eb", texto: "#374151" };
 
-  if (e.includes("listo")) {
-    return {
-      fondo: "#dcfce7",
-      texto: "#166534",
-    };
-  }
-
-  if (e.includes("entregado")) {
-    return {
-      fondo: "#e5e7eb",
-      texto: "#374151",
-    };
-  }
-
-  return {
-    fondo: "#e5e7eb",
-    texto: "#374151",
-  };
+  return { fondo: "#e5e7eb", texto: "#374151" };
 }
 
 function colorPrioridad(prioridad: string) {
   const p = (prioridad || "").toLowerCase();
 
-  if (p.includes("alta")) {
-    return {
-      fondo: "#fee2e2",
-      texto: "#b91c1c",
-    };
-  }
+  if (p.includes("alta")) return { fondo: "#fee2e2", texto: "#b91c1c" };
+  if (p.includes("media")) return { fondo: "#dbeafe", texto: "#1d4ed8" };
+  if (p.includes("baja")) return { fondo: "#dcfce7", texto: "#166534" };
 
-  if (p.includes("media")) {
-    return {
-      fondo: "#dbeafe",
-      texto: "#1d4ed8",
-    };
-  }
-
-  if (p.includes("baja")) {
-    return {
-      fondo: "#dcfce7",
-      texto: "#166534",
-    };
-  }
-
-  return {
-    fondo: "#e5e7eb",
-    texto: "#374151",
-  };
+  return { fondo: "#e5e7eb", texto: "#374151" };
 }
 
 function formatearFecha(fecha: string) {
@@ -164,10 +108,9 @@ export default function ServicioTecnico() {
   const ordenesFiltradas = useMemo(() => {
     if (filtroEstado === "Todas") return ordenes;
 
-    return ordenes.filter((orden) => {
-      const estado = (orden.estado || "").toLowerCase();
-      return estado.includes(filtroEstado.toLowerCase());
-    });
+    return ordenes.filter((orden) =>
+      String(orden.estado || "").toLowerCase().includes(filtroEstado.toLowerCase())
+    );
   }, [ordenes, filtroEstado]);
 
   const totalActivas = ordenes.filter(
@@ -210,6 +153,9 @@ export default function ServicioTecnico() {
             display: "flex",
             flexDirection: "column",
             justifyContent: "space-between",
+            position: "sticky",
+            top: 0,
+            height: "100vh",
           }}
         >
           <div>
@@ -261,19 +207,22 @@ export default function ServicioTecnico() {
                 Dashboard
               </a>
 
-              <a
-                href="#"
+              <button
+                type="button"
                 style={{
-                  textDecoration: "none",
+                  background: "none",
+                  border: "none",
                   color: "#cbd5e1",
                   padding: "12px 14px",
                   borderRadius: 10,
                   fontWeight: 500,
                   fontSize: 14,
+                  textAlign: "left",
+                  cursor: "default",
                 }}
               >
                 Clientes
-              </a>
+              </button>
 
               <a
                 href="/dashboard/servicio-tecnico"
@@ -289,19 +238,22 @@ export default function ServicioTecnico() {
                 Servicio Técnico
               </a>
 
-              <a
-                href="#"
+              <button
+                type="button"
                 style={{
-                  textDecoration: "none",
+                  background: "none",
+                  border: "none",
                   color: "#cbd5e1",
                   padding: "12px 14px",
                   borderRadius: 10,
                   fontWeight: 500,
                   fontSize: 14,
+                  textAlign: "left",
+                  cursor: "default",
                 }}
               >
                 Ventas
-              </a>
+              </button>
             </div>
           </div>
 
@@ -361,7 +313,7 @@ export default function ServicioTecnico() {
                   fontSize: 14,
                 }}
               >
-                DASHBOARD NUEVO MJ
+                Resumen de servicio técnico.
               </p>
             </div>
 
@@ -400,22 +352,10 @@ export default function ServicioTecnico() {
                 border: "1px solid #e5e7eb",
               }}
             >
-              <div
-                style={{
-                  color: "#6b7280",
-                  fontSize: 13,
-                  marginBottom: 8,
-                }}
-              >
+              <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 8 }}>
                 Órdenes activas
               </div>
-              <div
-                style={{
-                  fontSize: 30,
-                  fontWeight: 700,
-                  color: "#111827",
-                }}
-              >
+              <div style={{ fontSize: 30, fontWeight: 700, color: "#111827" }}>
                 {totalActivas}
               </div>
             </div>
@@ -428,22 +368,10 @@ export default function ServicioTecnico() {
                 border: "1px solid #e5e7eb",
               }}
             >
-              <div
-                style={{
-                  color: "#6b7280",
-                  fontSize: 13,
-                  marginBottom: 8,
-                }}
-              >
+              <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 8 }}>
                 Clientes
               </div>
-              <div
-                style={{
-                  fontSize: 30,
-                  fontWeight: 700,
-                  color: "#111827",
-                }}
-              >
+              <div style={{ fontSize: 30, fontWeight: 700, color: "#111827" }}>
                 {totalClientes}
               </div>
             </div>
@@ -456,22 +384,10 @@ export default function ServicioTecnico() {
                 border: "1px solid #e5e7eb",
               }}
             >
-              <div
-                style={{
-                  color: "#6b7280",
-                  fontSize: 13,
-                  marginBottom: 8,
-                }}
-              >
+              <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 8 }}>
                 Listas entrega
               </div>
-              <div
-                style={{
-                  fontSize: 30,
-                  fontWeight: 700,
-                  color: "#111827",
-                }}
-              >
+              <div style={{ fontSize: 30, fontWeight: 700, color: "#111827" }}>
                 {totalListas}
               </div>
             </div>
@@ -484,22 +400,10 @@ export default function ServicioTecnico() {
                 border: "1px solid #e5e7eb",
               }}
             >
-              <div
-                style={{
-                  color: "#6b7280",
-                  fontSize: 13,
-                  marginBottom: 8,
-                }}
-              >
+              <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 8 }}>
                 Urgentes
               </div>
-              <div
-                style={{
-                  fontSize: 30,
-                  fontWeight: 700,
-                  color: "#111827",
-                }}
-              >
+              <div style={{ fontSize: 30, fontWeight: 700, color: "#111827" }}>
                 {totalUrgentes}
               </div>
             </div>
@@ -523,17 +427,15 @@ export default function ServicioTecnico() {
                 flexWrap: "wrap",
               }}
             >
-              <div>
-                <h2
-                  style={{
-                    margin: 0,
-                    fontSize: 22,
-                    color: "#111827",
-                  }}
-                >
-                  Órdenes recientes
-                </h2>
-              </div>
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: 22,
+                  color: "#111827",
+                }}
+              >
+                Órdenes recientes
+              </h2>
 
               <a
                 href="/dashboard/servicio-tecnico"
@@ -622,7 +524,6 @@ export default function ServicioTecnico() {
                         borderRadius: 16,
                         padding: 16,
                         cursor: "pointer",
-                        transition: "all 0.2s ease",
                       }}
                     >
                       <div
