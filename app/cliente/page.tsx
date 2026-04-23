@@ -36,6 +36,7 @@ export default function ClienteLoginPage() {
       return;
     }
 
+    // 🚀 SOLO LOGIN, SIN VALIDAR TABLA clientes
     router.push("/cliente/portal");
   };
 
@@ -71,20 +72,6 @@ export default function ClienteLoginPage() {
             >
               {mostrarPassword ? "Ocultar" : "Mostrar"}
             </button>
-          </div>
-
-          <div style={{ marginTop: 8, textAlign: "right" }}>
-            <a
-              href="/cliente/recuperar"
-              style={{
-                fontSize: 13,
-                color: "#94a3b8",
-                textDecoration: "underline",
-                cursor: "pointer",
-              }}
-            >
-              Olvidé mi contraseña
-            </a>
           </div>
 
           <button
