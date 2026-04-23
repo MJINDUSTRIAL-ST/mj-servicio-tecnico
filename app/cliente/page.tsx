@@ -40,22 +40,45 @@ export default function ClienteLoginPage() {
     setCargando(true);
     setError("");
 
-    const { data, error } = await supabase
-      .from("clientes")
-      .select("*")
-      .eq("email", email.trim().toLowerCase())
-      .eq("codigo_acceso", codigoAcceso.trim())
-      .single();
+  const emailLimpio = email.trim().toLowerCase();
+const codigoLimpio = codigoAcceso.trim();
 
-    setCargando(false);
+console.log("EMAIL INGRESADO:", emailLimpio);
+console.log("CODIGO INGRESADO:", codigoLimpio);
 
-    if (error || !data) {
-      setError("Correo o código de acceso incorrectos");
-      return;
-    }
+const { data, error } = await supabase
+  .from("clientes")
+  .select("*")
+  .ilike("email", emailLimpio)
+  .maybeSingle();
 
-    const cliente = data as Cliente;
+console.log("DATA LOGIN:", data);
+console.log("ERROR LOGIN:", error);
 
+setCargando(false);
+
+if (error) {
+  setError(`Error Supabase: ${error.message}`);
+  return;
+}
+
+if (!data) {
+  setError("No existe un cliente con ese correo");
+  return;
+}
+
+const cliente = data as Cliente;
+
+const codigoGuardado = String(cliente.codigo_acceso || "").trim().toUpperCase();
+const codigoIngresado = codigoLimpio.trim().toUpperCase();
+
+console.log("CODIGO GUARDADO:", codigoGuardado);
+console.log("CODIGO INGRESADO NORMALIZADO:", codigoIngresado);
+
+if (codigoGuardado !== codigoIngresado) {
+  setError("Código de acceso incorrecto");
+  return;
+}
     localStorage.setItem("cliente_logueado", JSON.stringify(cliente));
     router.push("/cliente/portal");
   };
