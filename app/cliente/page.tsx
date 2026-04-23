@@ -49,8 +49,9 @@ console.log("CODIGO INGRESADO:", codigoLimpio);
 const { data, error } = await supabase
   .from("clientes")
   .select("*")
-  .ilike("email", emailLimpio)
-  .maybeSingle();
+  .eq("email", emailLimpio)
+  .eq("codigo_acceso", codigoLimpio)
+  .maybeSingle()
 
 console.log("DATA LOGIN:", data);
 console.log("ERROR LOGIN:", error);
