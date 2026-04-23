@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
+import Sidebar from "../../components/Sidebar";
 
 type Orden = {
   id: string;
@@ -140,140 +141,7 @@ export default function ServicioTecnico() {
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <aside
-        style={{
-          position: "fixed",
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: 250,
-          backgroundColor: "#0f172a",
-          color: "white",
-          padding: "20px 16px",
-          boxSizing: "border-box",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "space-between",
-          zIndex: 20,
-        }}
-      >
-        <div>
-          <div
-            style={{
-              marginBottom: 28,
-              padding: "6px 8px",
-            }}
-          >
-            <div
-              style={{
-                display: "inline-block",
-                backgroundColor: "white",
-                padding: "8px 10px",
-                borderRadius: 8,
-              }}
-            >
-              <img
-                src="/logo.png"
-                alt="MJ Industrial"
-                style={{
-                  height: 26,
-                  display: "block",
-                  objectFit: "contain",
-                }}
-              />
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-            }}
-          >
-            <a
-              href="/dashboard/servicio-tecnico"
-              style={{
-                textDecoration: "none",
-                backgroundColor: "#2563eb",
-                color: "white",
-                padding: "12px 14px",
-                borderRadius: 10,
-                fontWeight: 600,
-                fontSize: 14,
-              }}
-            >
-              Dashboard
-            </a>
-
-           <a
-  href="/dashboard/clientes"
-  style={{
-    textDecoration: "none",
-    backgroundColor: "#2563eb", // azul activo
-    color: "white",
-    padding: "12px 14px",
-    borderRadius: 10,
-    fontWeight: 600,
-    fontSize: 14,
-    display: "block",
-  }}
->
-  Clientes
-</a>
-
-            <a
-              href="/dashboard/servicio-tecnico"
-              style={{
-                textDecoration: "none",
-                color: "#cbd5e1",
-                padding: "12px 14px",
-                borderRadius: 10,
-                fontWeight: 500,
-                fontSize: 14,
-              }}
-            >
-              Servicio Técnico
-            </a>
-
-            <button
-              type="button"
-              style={{
-                background: "none",
-                border: "none",
-                color: "#cbd5e1",
-                padding: "12px 14px",
-                borderRadius: 10,
-                fontWeight: 500,
-                fontSize: 14,
-                textAlign: "left",
-                cursor: "default",
-              }}
-            >
-              Ventas
-            </button>
-          </div>
-        </div>
-
-        <button
-          onClick={async () => {
-            await supabase.auth.signOut();
-            router.push("/personal");
-          }}
-          style={{
-            background: "none",
-            border: "1px solid rgba(255,255,255,0.12)",
-            color: "#cbd5e1",
-            padding: "12px 14px",
-            borderRadius: 10,
-            cursor: "pointer",
-            textAlign: "left",
-            fontSize: 14,
-          }}
-        >
-          Cerrar sesión
-        </button>
-      </aside>
+<Sidebar />
 
       <main
         style={{
