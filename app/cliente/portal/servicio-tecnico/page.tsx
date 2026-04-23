@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { supabase } from "@/app/lib/supabase";
+import { supabase } from "../../../lib/supabase";
 
 export default function ServicioTecnicoPage() {
   const ordenes = [
