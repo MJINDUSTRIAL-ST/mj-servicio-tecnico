@@ -206,22 +206,21 @@ export default function ServicioTecnico() {
               Dashboard
             </a>
 
-            <button
-              type="button"
-              style={{
-                background: "none",
-                border: "none",
-                color: "#cbd5e1",
-                padding: "12px 14px",
-                borderRadius: 10,
-                fontWeight: 500,
-                fontSize: 14,
-                textAlign: "left",
-                cursor: "default",
-              }}
-            >
-              Clientes
-            </button>
+           <a
+  href="/dashboard/clientes"
+  style={{
+    textDecoration: "none",
+    backgroundColor: "#2563eb", // azul activo
+    color: "white",
+    padding: "12px 14px",
+    borderRadius: 10,
+    fontWeight: 600,
+    fontSize: 14,
+    display: "block",
+  }}
+>
+  Clientes
+</a>
 
             <a
               href="/dashboard/servicio-tecnico"
