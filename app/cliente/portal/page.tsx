@@ -17,15 +17,18 @@ export default function ClientePortalHomePage() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
+      // 🔥 LEER USUARIO DESDE LOCALSTORAGE
+      const clienteGuardado = localStorage.getItem("cliente_logueado");
 
-      if (!sessionData.session) {
+      if (!clienteGuardado) {
         router.push("/cliente");
         return;
       }
 
-      const email = sessionData.session.user.email;
+      const cliente = JSON.parse(clienteGuardado);
+      const email = cliente.email;
 
+      // 🔥 CONSULTA NORMAL
       const { data, error } = await supabase
         .from("ordenes")
         .select("id, estado")
@@ -41,8 +44,9 @@ export default function ClientePortalHomePage() {
     fetchData();
   }, [router]);
 
-  // 🔥 métricas dinámicas
+  // métricas
   const totalOrdenes = ordenes.length;
+
   const listoEntrega = ordenes.filter(
     (o) => o.estado === "Listo" || o.estado === "Listo p/Entrega"
   ).length;
@@ -56,23 +60,23 @@ export default function ClientePortalHomePage() {
       <h1 className="text-4xl font-bold tracking-tight">
         Bienvenido al Portal de Clientes 👋
       </h1>
+
       <p className="mt-3 text-lg text-slate-500">
         MJ Industrial — Servicio Técnico Industrial
       </p>
 
       <div className="mt-8 rounded-2xl bg-blue-50 p-6 text-blue-900">
         <h2 className="text-2xl font-bold">¿Cómo usar el portal?</h2>
+
         <ul className="mt-4 list-disc space-y-2 pl-5 text-base">
           <li>
-            En <strong>Servicio Técnico</strong> puedes consultar el estado de
-            tus equipos en reparación o mantención.
+            En <strong>Servicio Técnico</strong> puedes consultar el estado de tus equipos.
           </li>
           <li>
-            En <strong>Mis Compras</strong> puedes revisar el historial de tus
-            pedidos y compras.
+            En <strong>Mis Compras</strong> puedes revisar el historial de pedidos.
           </li>
           <li>
-            Haz clic en cualquier módulo para ver el detalle completo.
+            Haz clic en cualquier módulo para ver el detalle.
           </li>
         </ul>
       </div>
@@ -83,7 +87,7 @@ export default function ClientePortalHomePage() {
         <div className="mt-8 grid gap-6 md:grid-cols-2">
           <Link
             href="/cliente/portal/servicio-tecnico"
-            className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-md"
+            className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md"
           >
             <p className="text-sm font-semibold text-orange-500">
               Servicio Técnico
@@ -110,7 +114,7 @@ export default function ClientePortalHomePage() {
 
           <Link
             href="/cliente/portal/mis-compras"
-            className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-md"
+            className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md"
           >
             <p className="text-sm font-semibold text-blue-500">
               Mis Compras
