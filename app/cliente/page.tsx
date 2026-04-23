@@ -4,83 +4,38 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
 
-type Cliente = {
-  id: string;
-  nombre: string;
-  rut: string | null;
-  telefono: string;
-  email: string | null;
-  empresa: string | null;
-  direccion: string | null;
-  codigo_acceso: string;
-  created_at: string;
-};
-
 export default function ClienteLoginPage() {
   const router = useRouter();
 
   const [email, setEmail] = useState("");
-  const [codigoAcceso, setCodigoAcceso] = useState("");
-  const [mostrarCodigo, setMostrarCodigo] = useState(false);
+  const [password, setPassword] = useState("");
+  const [mostrarPassword, setMostrarPassword] = useState(false);
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
-  e.preventDefault();
+    e.preventDefault();
 
-  console.log("LOGIN CLICK");
-  console.log("EMAIL:", email);
-  console.log("CODIGO:", codigoAcceso);
-
-  if (!email || !codigoAcceso) {
-    setError("Completa todos los campos");
-    return;
-  }
+    if (!email || !password) {
+      setError("Completa todos los campos");
+      return;
+    }
 
     setCargando(true);
     setError("");
 
-  const emailLimpio = email.trim().toLowerCase();
-const codigoLimpio = codigoAcceso.trim();
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password: password.trim(),
+    });
 
-console.log("EMAIL INGRESADO:", emailLimpio);
-console.log("CODIGO INGRESADO:", codigoLimpio);
+    setCargando(false);
 
-const { data, error } = await supabase
-  .from("clientes")
-  .select("*")
-  .eq("email", emailLimpio)
-  .eq("codigo_acceso", codigoLimpio)
-  .maybeSingle()
+    if (error) {
+      setError("Correo o contraseña incorrectos");
+      return;
+    }
 
-console.log("DATA LOGIN:", data);
-console.log("ERROR LOGIN:", error);
-
-setCargando(false);
-
-if (error) {
-  setError(`Error Supabase: ${error.message}`);
-  return;
-}
-
-if (!data) {
-  setError("No existe un cliente con ese correo");
-  return;
-}
-
-const cliente = data as Cliente;
-
-const codigoGuardado = String(cliente.codigo_acceso || "").trim().toUpperCase();
-const codigoIngresado = codigoLimpio.trim().toUpperCase();
-
-console.log("CODIGO GUARDADO:", codigoGuardado);
-console.log("CODIGO INGRESADO NORMALIZADO:", codigoIngresado);
-
-if (codigoGuardado !== codigoIngresado) {
-  setError("Código de acceso incorrecto");
-  return;
-}
-    localStorage.setItem("cliente_logueado", JSON.stringify(cliente));
     router.push("/cliente/portal");
   };
 
@@ -102,19 +57,19 @@ if (codigoGuardado !== codigoIngresado) {
 
           <div className="relative">
             <input
-              type={mostrarCodigo ? "text" : "password"}
-              placeholder="Código de acceso"
+              type={mostrarPassword ? "text" : "password"}
+              placeholder="Contraseña"
               className="p-3 rounded-lg bg-white/10 outline-none w-full pr-24"
-              value={codigoAcceso}
-              onChange={(e) => setCodigoAcceso(e.target.value)}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
             />
 
             <button
               type="button"
-              onClick={() => setMostrarCodigo(!mostrarCodigo)}
+              onClick={() => setMostrarPassword(!mostrarPassword)}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-white/70 text-sm"
             >
-              {mostrarCodigo ? "Ocultar" : "Mostrar"}
+              {mostrarPassword ? "Ocultar" : "Mostrar"}
             </button>
           </div>
 
@@ -128,7 +83,7 @@ if (codigoGuardado !== codigoIngresado) {
                 cursor: "pointer",
               }}
             >
-              Olvidé mi código de acceso
+              Olvidé mi contraseña
             </a>
           </div>
 

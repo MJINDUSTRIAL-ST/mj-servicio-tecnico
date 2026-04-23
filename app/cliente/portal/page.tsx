@@ -17,18 +17,17 @@ export default function ClientePortalHomePage() {
 
   useEffect(() => {
     const fetchData = async () => {
-      // 🔥 LEER USUARIO DESDE LOCALSTORAGE
-      const clienteGuardado = localStorage.getItem("cliente_logueado");
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-      if (!clienteGuardado) {
+      if (!session) {
         router.push("/cliente");
         return;
       }
 
-      const cliente = JSON.parse(clienteGuardado);
-      const email = cliente.email;
+      const email = session.user.email;
 
-      // 🔥 CONSULTA NORMAL
       const { data, error } = await supabase
         .from("ordenes")
         .select("id, estado")
@@ -44,7 +43,6 @@ export default function ClientePortalHomePage() {
     fetchData();
   }, [router]);
 
-  // métricas
   const totalOrdenes = ordenes.length;
 
   const listoEntrega = ordenes.filter(
@@ -55,25 +53,43 @@ export default function ClientePortalHomePage() {
     (o) => o.estado === "Cotización"
   ).length;
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push("/cliente");
+  };
+
   return (
     <div className="mx-auto max-w-4xl">
-      <h1 className="text-4xl font-bold tracking-tight">
-        Bienvenido al Portal de Clientes 👋
-      </h1>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-4xl font-bold tracking-tight">
+            Bienvenido al Portal de Clientes 👋
+          </h1>
 
-      <p className="mt-3 text-lg text-slate-500">
-        MJ Industrial — Servicio Técnico Industrial
-      </p>
+          <p className="mt-3 text-lg text-slate-500">
+            MJ Industrial — Servicio Técnico Industrial
+          </p>
+        </div>
+
+        <button
+          onClick={handleLogout}
+          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+        >
+          Cerrar sesión
+        </button>
+      </div>
 
       <div className="mt-8 rounded-2xl bg-blue-50 p-6 text-blue-900">
         <h2 className="text-2xl font-bold">¿Cómo usar el portal?</h2>
 
         <ul className="mt-4 list-disc space-y-2 pl-5 text-base">
           <li>
-            En <strong>Servicio Técnico</strong> puedes consultar el estado de tus equipos.
+            En <strong>Servicio Técnico</strong> puedes consultar el estado de
+            tus equipos.
           </li>
           <li>
-            En <strong>Mis Compras</strong> puedes revisar el historial de pedidos.
+            En <strong>Mis Compras</strong> puedes revisar el historial de tus
+            pedidos.
           </li>
           <li>
             Haz clic en cualquier módulo para ver el detalle.
@@ -93,9 +109,7 @@ export default function ClientePortalHomePage() {
               Servicio Técnico
             </p>
 
-            <h3 className="mt-3 text-3xl font-bold">
-              {totalOrdenes}
-            </h3>
+            <h3 className="mt-3 text-3xl font-bold">{totalOrdenes}</h3>
 
             <p className="mt-2 text-slate-500">órdenes en total</p>
 
