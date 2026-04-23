@@ -82,7 +82,7 @@ export default function Sidebar() {
             onMouseLeave={() => setHovered(null)}
             onFocus={(e) => e.target.blur()}
           >
-            Clientes TEST
+            Clientes
           </Link>
 
           <Link
