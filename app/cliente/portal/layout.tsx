@@ -23,7 +23,7 @@ export default function ClientePortalLayout({
 
           <div className="px-5 py-5">
             <p className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-400">
-              Hola, Nicolás
+              Hola
             </p>
 
             <nav className="space-y-2">
