@@ -10,6 +10,7 @@ export default function PersonalLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [cargando, setCargando] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,30 +20,41 @@ export default function PersonalLoginPage() {
       return;
     }
 
+    setCargando(true);
+    setError("");
+
     const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+      email: email.trim().toLowerCase(),
+      password: password.trim(),
     });
+
+    setCargando(false);
 
     if (error) {
       setError("Correo o contraseña incorrectos");
       return;
     }
 
-    router.replace("/dashboard/servicio-tecnico");
-window.location.href = "/dashboard/servicio-tecnico?refresh=1";
+    router.push("/dashboard");
   };
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-slate-950 text-white px-4">
-      <div className="w-full max-w-md bg-white/5 p-8 rounded-2xl border border-white/10">
+    <main className="min-h-screen flex items-center justify-center bg-[#020b2d] text-white px-4">
+      <div className="w-full max-w-md bg-white/5 p-8 rounded-3xl border border-white/10">
+
+        {/* BOTÓN VOLVER */}
+        <button
+          onClick={() => router.push("/")}
+          className="mb-4 text-sm text-white/70 hover:text-white"
+        >
+          ← Volver al inicio
+        </button>
 
         <h2 className="text-2xl font-bold text-center mb-6">
           Acceso Personal MJ Industrial
         </h2>
 
         <form onSubmit={handleLogin} className="flex flex-col gap-4">
-
           <input
             type="email"
             placeholder="Correo electrónico"
@@ -61,16 +73,14 @@ window.location.href = "/dashboard/servicio-tecnico?refresh=1";
 
           <button
             type="submit"
-            className="bg-orange-500 hover:bg-orange-600 p-3 rounded-lg font-semibold"
+            disabled={cargando}
+            className="bg-orange-500 hover:bg-orange-600 p-3 rounded-lg font-semibold disabled:opacity-60"
           >
-            Ingresar
+            {cargando ? "Ingresando..." : "Ingresar"}
           </button>
 
-          {error && (
-            <p className="text-red-400 text-center">{error}</p>
-          )}
+          {error && <p className="text-red-400 text-center">{error}</p>}
         </form>
-
       </div>
     </main>
   );
