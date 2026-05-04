@@ -1,11 +1,22 @@
+"use client";
+
 import Link from "next/link";
 import { ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "../../lib/supabase";
 
 export default function ClientePortalLayout({
   children,
 }: {
   children: ReactNode;
 }) {
+  const router = useRouter();
+
+  const cerrarSesion = async () => {
+    await supabase.auth.signOut();
+    router.push("/cliente");
+  };
+
   return (
     <main className="min-h-screen bg-slate-100 text-slate-900">
       <div className="flex min-h-screen">
@@ -51,13 +62,27 @@ export default function ClientePortalLayout({
           </div>
 
           <div className="absolute bottom-6 left-6">
-            <button className="text-sm text-slate-500 hover:text-slate-900">
+            <button
+              type="button"
+              onClick={cerrarSesion}
+              className="cursor-pointer text-sm font-medium text-slate-500 hover:text-slate-900"
+            >
               Cerrar sesión
             </button>
           </div>
         </aside>
 
-        <section className="flex-1 px-10 py-10">{children}</section>
+        <section className="flex-1 px-10 py-10">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="mb-6 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+          >
+            ← Volver atrás
+          </button>
+
+          {children}
+        </section>
       </div>
     </main>
   );
