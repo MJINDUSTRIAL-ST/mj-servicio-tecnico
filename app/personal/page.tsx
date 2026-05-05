@@ -35,15 +35,14 @@ export default function PersonalLoginPage() {
       return;
     }
 
-    router.push("/dashboard");
+    router.push("/dashboard/servicio-tecnico");
   };
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-[#020b2d] text-white px-4">
       <div className="w-full max-w-md bg-white/5 p-8 rounded-3xl border border-white/10">
-
-        {/* BOTÓN VOLVER */}
         <button
+          type="button"
           onClick={() => router.push("/")}
           className="mb-4 text-sm text-white/70 hover:text-white"
         >
