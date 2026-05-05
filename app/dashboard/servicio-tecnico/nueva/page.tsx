@@ -316,13 +316,40 @@ export default function NuevaOrden() {
             Puedes subir 2 o más fotos del equipo al momento del ingreso.
           </p>
 
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={(e) => setFotos(Array.from(e.target.files || []))}
-            className="block w-full rounded-lg border border-dashed border-slate-300 p-4"
-          />
+          <div className="grid gap-4 md:grid-cols-2">
+  <label className="block cursor-pointer rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center hover:bg-slate-50">
+    <span className="block text-2xl">📷</span>
+    <span className="mt-2 block font-semibold">Tomar foto ahora</span>
+    <span className="mt-1 block text-sm text-slate-500">
+      Abrirá la cámara del celular
+    </span>
+
+    <input
+      type="file"
+      accept="image/*"
+      capture="environment"
+      multiple
+      onChange={(e) => setFotos(Array.from(e.target.files || []))}
+      className="hidden"
+    />
+  </label>
+
+  <label className="block cursor-pointer rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center hover:bg-slate-50">
+    <span className="block text-2xl">🖼️</span>
+    <span className="mt-2 block font-semibold">Subir desde galería</span>
+    <span className="mt-1 block text-sm text-slate-500">
+      Selecciona fotos guardadas
+    </span>
+
+    <input
+      type="file"
+      accept="image/*"
+      multiple
+      onChange={(e) => setFotos(Array.from(e.target.files || []))}
+      className="hidden"
+    />
+  </label>
+</div>
 
           {fotos.length > 0 && (
             <div className="mt-4 space-y-1 text-sm text-slate-600">
