@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
+import { useRouter } from "next/navigation";
 
 type Cliente = {
   id: string;
@@ -20,20 +20,43 @@ export default function NuevaOrden() {
   const [equipo, setEquipo] = useState("");
   const [estado, setEstado] = useState("Ingreso");
   const [prioridad, setPrioridad] = useState("Media");
+  const [guardando, setGuardando] = useState(false);
 
   useEffect(() => {
-    const cargarClientes = async () => {
-      const { data, error } = await supabase
+    const cargarDatos = async () => {
+      const { data: clientesData } = await supabase
         .from("clientes")
         .select("id, nombre, email, empresa")
         .order("nombre", { ascending: true });
 
-      if (!error) {
-        setClientes(data || []);
+      setClientes(clientesData || []);
+
+      const { data: ultimaOrden } = await supabase
+        .from("ordenes")
+        .select("codigo")
+        .like("codigo", "OT-%")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      let siguienteNumero = 1;
+
+      if (ultimaOrden?.codigo) {
+        const numeroActual = parseInt(
+          ultimaOrden.codigo.replace("OT-", ""),
+          10
+        );
+
+        if (!isNaN(numeroActual)) {
+          siguienteNumero = numeroActual + 1;
+        }
       }
+
+      const nuevoCodigo = `OT-${String(siguienteNumero).padStart(3, "0")}`;
+      setCodigo(nuevoCodigo);
     };
 
-    cargarClientes();
+    cargarDatos();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -53,6 +76,8 @@ export default function NuevaOrden() {
       return;
     }
 
+    setGuardando(true);
+
     const { error } = await supabase.from("ordenes").insert([
       {
         codigo,
@@ -63,6 +88,8 @@ export default function NuevaOrden() {
         prioridad,
       },
     ]);
+
+    setGuardando(false);
 
     if (error) {
       alert("Error: " + error.message);
@@ -86,10 +113,14 @@ export default function NuevaOrden() {
         }}
       >
         <input
-          placeholder="Código (ej: OT-004)"
+          placeholder="Código"
           value={codigo}
-          onChange={(e) => setCodigo(e.target.value)}
-          required
+          readOnly
+          style={{
+            backgroundColor: "#f1f5f9",
+            color: "#475569",
+            cursor: "not-allowed",
+          }}
         />
 
         <select
@@ -98,6 +129,7 @@ export default function NuevaOrden() {
           required
         >
           <option value="">Seleccionar cliente</option>
+
           {clientes.map((cliente) => (
             <option key={cliente.id} value={cliente.id}>
               {cliente.nombre}
@@ -136,6 +168,7 @@ export default function NuevaOrden() {
 
         <button
           type="submit"
+          disabled={guardando}
           style={{
             backgroundColor: "#16a34a",
             color: "white",
@@ -144,9 +177,10 @@ export default function NuevaOrden() {
             borderRadius: 6,
             fontWeight: 600,
             cursor: "pointer",
+            opacity: guardando ? 0.6 : 1,
           }}
         >
-          Guardar Orden
+          {guardando ? "Guardando..." : "Guardar Orden"}
         </button>
       </form>
     </div>
