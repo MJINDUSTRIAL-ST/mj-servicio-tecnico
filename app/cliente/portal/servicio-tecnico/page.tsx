@@ -35,7 +35,7 @@ export default function ClienteServicioTecnicoPage() {
       const { data, error } = await supabase
         .from("ordenes")
         .select("*")
-        .eq("cliente_email", email.toLowerCase())
+        .ilike("cliente_email", email.trim().toLowerCase())
         .order("created_at", { ascending: false });
 
       if (!error) {
