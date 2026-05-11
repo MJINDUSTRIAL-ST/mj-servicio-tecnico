@@ -15,6 +15,14 @@ type Orden = {
   estado: string;
   prioridad?: string | null;
   created_at?: string | null;
+  cliente_email?: string | null;
+  marca?: string | null;
+  modelo?: string | null;
+  numero_serie?: string | null;
+  accesorios_entregados?: string | null;
+  problema_reportado?: string | null;
+  observaciones_iniciales?: string | null;
+  fotos_estado_inicial?: string | string[] | null;
 };
 
 type ReporteFoto = {
@@ -67,6 +75,72 @@ function formatMoneda(valor?: number | null) {
   }).format(valor);
 }
 
+function normalizarFotosIngreso(fotos?: string | string[] | null) {
+  if (!fotos) return [];
+
+  if (Array.isArray(fotos)) {
+    return fotos.filter(Boolean);
+  }
+
+  if (typeof fotos === "string") {
+    try {
+      const parsed = JSON.parse(fotos);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(Boolean);
+      }
+    } catch {}
+
+    return fotos
+      .split(",")
+      .map((foto) => foto.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function Campo({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string | null;
+}) {
+  if (!value) return null;
+
+  return (
+    <div
+      style={{
+        border: "1px solid #e2e8f0",
+        borderRadius: 14,
+        padding: 16,
+        backgroundColor: "#ffffff",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 14,
+          color: "#64748b",
+          marginBottom: 6,
+          fontWeight: 700,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          fontSize: 17,
+          color: "#0f172a",
+          lineHeight: 1.45,
+          whiteSpace: "pre-wrap",
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
 export default function DetalleOrdenPage() {
   const params = useParams();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
@@ -80,6 +154,10 @@ export default function DetalleOrdenPage() {
   const [generandoPdf, setGenerandoPdf] = useState(false);
 
   const pdfRef = useRef<HTMLDivElement | null>(null);
+
+  const fotosIngreso = useMemo(() => {
+    return normalizarFotosIngreso(orden?.fotos_estado_inicial);
+  }, [orden?.fotos_estado_inicial]);
 
   const etapaActualIndex = useMemo(() => {
     if (!orden?.estado) return -1;
@@ -174,7 +252,9 @@ export default function DetalleOrdenPage() {
           .remove([foto.storage_path]);
 
         if (errorStorage) {
-          throw new Error("Error eliminando imagen del storage: " + errorStorage.message);
+          throw new Error(
+            "Error eliminando imagen del storage: " + errorStorage.message
+          );
         }
       }
 
@@ -189,11 +269,18 @@ export default function DetalleOrdenPage() {
 
       setReportes((prev) =>
         prev.map((reporte) => {
-          if (!reporte.reporte_fotos?.some((f) => f.id === foto.id)) return reporte;
+          if (!reporte.reporte_fotos?.some((f) => f.id === foto.id)) {
+            return reporte;
+          }
 
-          let nuevasFotos = (reporte.reporte_fotos || []).filter((f) => f.id !== foto.id);
+          let nuevasFotos = (reporte.reporte_fotos || []).filter(
+            (f) => f.id !== foto.id
+          );
 
-          if (nuevasFotos.length > 0 && !nuevasFotos.some((f) => f.es_principal === true)) {
+          if (
+            nuevasFotos.length > 0 &&
+            !nuevasFotos.some((f) => f.es_principal === true)
+          ) {
             nuevasFotos = nuevasFotos.map((f, index) => ({
               ...f,
               es_principal: index === 0,
@@ -270,7 +357,10 @@ export default function DetalleOrdenPage() {
       let pageNumber = 0;
 
       while (renderedHeight < canvas.height) {
-        const sliceHeight = Math.min(pageCanvasHeightPx, canvas.height - renderedHeight);
+        const sliceHeight = Math.min(
+          pageCanvasHeightPx,
+          canvas.height - renderedHeight
+        );
 
         const pageCanvas = document.createElement("canvas");
         pageCanvas.width = canvas.width;
@@ -323,7 +413,11 @@ export default function DetalleOrdenPage() {
   }
 
   if (loading) {
-    return <div style={{ padding: 24, fontFamily: "Arial, sans-serif" }}>Cargando...</div>;
+    return (
+      <div style={{ padding: 24, fontFamily: "Arial, sans-serif" }}>
+        Cargando...
+      </div>
+    );
   }
 
   if (error) {
@@ -418,6 +512,7 @@ export default function DetalleOrdenPage() {
                   cursor: "pointer",
                   fontWeight: 700,
                   fontSize: 16,
+                  opacity: generandoPdf ? 0.7 : 1,
                 }}
               >
                 {generandoPdf ? "Generando PDF..." : "📄 Descargar PDF"}
@@ -519,22 +614,10 @@ export default function DetalleOrdenPage() {
                 padding: 32,
               }}
             >
-              <div
-                style={{
-                  fontSize: 18,
-                  color: "#64748b",
-                  marginBottom: 20,
-                }}
-              >
+              <div style={{ fontSize: 18, color: "#64748b", marginBottom: 20 }}>
                 Cliente
               </div>
-              <div
-                style={{
-                  fontSize: 30,
-                  fontWeight: 700,
-                  color: "#0f172a",
-                }}
-              >
+              <div style={{ fontSize: 30, fontWeight: 700, color: "#0f172a" }}>
                 {orden.cliente}
               </div>
             </div>
@@ -547,22 +630,10 @@ export default function DetalleOrdenPage() {
                 padding: 32,
               }}
             >
-              <div
-                style={{
-                  fontSize: 18,
-                  color: "#64748b",
-                  marginBottom: 20,
-                }}
-              >
+              <div style={{ fontSize: 18, color: "#64748b", marginBottom: 20 }}>
                 Estado actual
               </div>
-              <div
-                style={{
-                  fontSize: 30,
-                  fontWeight: 700,
-                  color: "#0f172a",
-                }}
-              >
+              <div style={{ fontSize: 30, fontWeight: 700, color: "#0f172a" }}>
                 {orden.estado}
               </div>
             </div>
@@ -574,33 +645,96 @@ export default function DetalleOrdenPage() {
               borderRadius: 24,
               border: "1px solid #e2e8f0",
               padding: 32,
+              marginBottom: 28,
             }}
           >
-            <h2
+            <h2 style={{ fontSize: 28, margin: "0 0 22px 0", color: "#0f172a" }}>
+              Información de ingreso
+            </h2>
+
+            <div
               style={{
-                fontSize: 28,
-                margin: "0 0 28px 0",
-                color: "#0f172a",
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: 16,
+                marginBottom: 20,
               }}
             >
+              <Campo label="Equipo" value={orden.equipo} />
+              <Campo label="Marca" value={orden.marca} />
+              <Campo label="Modelo" value={orden.modelo} />
+              <Campo label="Número de serie" value={orden.numero_serie} />
+              <Campo label="Prioridad" value={orden.prioridad} />
+              <Campo label="Fecha de ingreso" value={formatFecha(orden.created_at)} />
+            </div>
+
+            <div style={{ display: "grid", gap: 16 }}>
+              <Campo label="Accesorios entregados" value={orden.accesorios_entregados} />
+              <Campo label="Problema reportado" value={orden.problema_reportado} />
+              <Campo
+                label="Observaciones iniciales"
+                value={orden.observaciones_iniciales}
+              />
+            </div>
+
+            <div style={{ marginTop: 28 }}>
+              <h3 style={{ fontSize: 20, margin: "0 0 14px 0", color: "#0f172a" }}>
+                Fotos del estado inicial
+              </h3>
+
+              {fotosIngreso.length === 0 ? (
+                <div style={{ color: "#64748b", fontSize: 16 }}>
+                  No hay fotos iniciales registradas.
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+                  {fotosIngreso.map((fotoUrl, index) => (
+                    <img
+                      key={`${fotoUrl}-${index}`}
+                      src={fotoUrl}
+                      alt={`Foto inicial ${index + 1}`}
+                      onClick={() => setFotoModal(fotoUrl)}
+                      style={{
+                        width: 180,
+                        height: 180,
+                        objectFit: "cover",
+                        borderRadius: 16,
+                        border: "1px solid #dbe4f0",
+                        cursor: "pointer",
+                        backgroundColor: "white",
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div
+            style={{
+              backgroundColor: "white",
+              borderRadius: 24,
+              border: "1px solid #e2e8f0",
+              padding: 32,
+            }}
+          >
+            <h2 style={{ fontSize: 28, margin: "0 0 28px 0", color: "#0f172a" }}>
               Reportes
             </h2>
 
             {reportes.length === 0 ? (
-              <div
-                style={{
-                  color: "#64748b",
-                  fontSize: 18,
-                }}
-              >
+              <div style={{ color: "#64748b", fontSize: 18 }}>
                 Todavía no hay reportes para esta orden.
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                 {reportes.map((reporte) => {
                   const fotos = reporte.reporte_fotos || [];
-                  const fotoPrincipal = fotos.find((f) => f.es_principal) || fotos[0] || null;
-                  const fotosSecundarias = fotos.filter((f) => f.id !== fotoPrincipal?.id);
+                  const fotoPrincipal =
+                    fotos.find((f) => f.es_principal) || fotos[0] || null;
+                  const fotosSecundarias = fotos.filter(
+                    (f) => f.id !== fotoPrincipal?.id
+                  );
 
                   return (
                     <div
@@ -622,76 +756,45 @@ export default function DetalleOrdenPage() {
                           flexWrap: "wrap",
                         }}
                       >
-                        <div>
-                          <span
-                            style={{
-                              display: "inline-block",
-                              backgroundColor: "#dbeafe",
-                              color: "#2563eb",
-                              fontWeight: 700,
-                              fontSize: 16,
-                              padding: "8px 14px",
-                              borderRadius: 999,
-                            }}
-                          >
-                            {reporte.etapa}
-                          </span>
-                        </div>
-
-                        <div
+                        <span
                           style={{
-                            color: "#64748b",
+                            display: "inline-block",
+                            backgroundColor: "#dbeafe",
+                            color: "#2563eb",
+                            fontWeight: 700,
                             fontSize: 16,
+                            padding: "8px 14px",
+                            borderRadius: 999,
                           }}
                         >
+                          {reporte.etapa}
+                        </span>
+
+                        <div style={{ color: "#64748b", fontSize: 16 }}>
                           {formatFecha(reporte.created_at)}
                         </div>
                       </div>
 
                       {reporte.descripcion ? (
-                        <div
-                          style={{
-                            marginBottom: 10,
-                            color: "#0f172a",
-                            fontSize: 18,
-                          }}
-                        >
+                        <div style={{ marginBottom: 10, color: "#0f172a", fontSize: 18 }}>
                           {reporte.descripcion}
                         </div>
                       ) : null}
 
                       {reporte.hallazgos ? (
-                        <div
-                          style={{
-                            marginBottom: 8,
-                            fontSize: 18,
-                            color: "#0f172a",
-                          }}
-                        >
+                        <div style={{ marginBottom: 8, fontSize: 18, color: "#0f172a" }}>
                           <strong>Hallazgos:</strong> {reporte.hallazgos}
                         </div>
                       ) : null}
 
                       {reporte.acciones ? (
-                        <div
-                          style={{
-                            marginBottom: 8,
-                            fontSize: 18,
-                            color: "#0f172a",
-                          }}
-                        >
+                        <div style={{ marginBottom: 8, fontSize: 18, color: "#0f172a" }}>
                           <strong>Acciones:</strong> {reporte.acciones}
                         </div>
                       ) : null}
 
                       {reporte.costo != null ? (
-                        <div
-                          style={{
-                            marginBottom: 12,
-                            fontSize: 18,
-                            color: "#0f172a",
-                          }}
-                        >
+                        <div style={{ marginBottom: 12, fontSize: 18, color: "#0f172a" }}>
                           <strong>Costo:</strong> {formatMoneda(reporte.costo)}
                         </div>
                       ) : null}
@@ -709,13 +812,7 @@ export default function DetalleOrdenPage() {
                             Foto principal
                           </div>
 
-                          <div
-                            style={{
-                              position: "relative",
-                              width: 280,
-                              maxWidth: "100%",
-                            }}
-                          >
+                          <div style={{ position: "relative", width: 280, maxWidth: "100%" }}>
                             <img
                               src={fotoPrincipal.foto_url}
                               alt="foto principal"
@@ -753,13 +850,7 @@ export default function DetalleOrdenPage() {
                           </div>
 
                           {fotoPrincipal.comentario ? (
-                            <div
-                              style={{
-                                marginTop: 10,
-                                fontSize: 16,
-                                color: "#475569",
-                              }}
-                            >
+                            <div style={{ marginTop: 10, fontSize: 16, color: "#475569" }}>
                               <strong>Comentario:</strong> {fotoPrincipal.comentario}
                             </div>
                           ) : null}
@@ -779,27 +870,10 @@ export default function DetalleOrdenPage() {
                             Fotos adicionales
                           </div>
 
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: 12,
-                              flexWrap: "wrap",
-                            }}
-                          >
+                          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                             {fotosSecundarias.map((foto) => (
-                              <div
-                                key={foto.id}
-                                style={{
-                                  width: 150,
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    position: "relative",
-                                    width: 150,
-                                    height: 150,
-                                  }}
-                                >
+                              <div key={foto.id} style={{ width: 150 }}>
+                                <div style={{ position: "relative", width: 150, height: 150 }}>
                                   <img
                                     src={foto.foto_url}
                                     alt="foto reporte"
@@ -960,22 +1034,11 @@ export default function DetalleOrdenPage() {
               />
 
               <div>
-                <div
-                  style={{
-                    fontSize: 26,
-                    fontWeight: 700,
-                    marginBottom: 4,
-                  }}
-                >
+                <div style={{ fontSize: 26, fontWeight: 700, marginBottom: 4 }}>
                   Informe Técnico
                 </div>
 
-                <div
-                  style={{
-                    fontSize: 14,
-                    color: "#64748b",
-                  }}
-                >
+                <div style={{ fontSize: 14, color: "#64748b" }}>
                   Generado {formatFecha(new Date().toISOString())}
                 </div>
               </div>
@@ -999,6 +1062,21 @@ export default function DetalleOrdenPage() {
               <div style={{ marginBottom: 8 }}>
                 <strong>Equipo:</strong> {orden.equipo}
               </div>
+              {orden.marca ? (
+                <div style={{ marginBottom: 8 }}>
+                  <strong>Marca:</strong> {orden.marca}
+                </div>
+              ) : null}
+              {orden.modelo ? (
+                <div style={{ marginBottom: 8 }}>
+                  <strong>Modelo:</strong> {orden.modelo}
+                </div>
+              ) : null}
+              {orden.numero_serie ? (
+                <div style={{ marginBottom: 8 }}>
+                  <strong>Número de serie:</strong> {orden.numero_serie}
+                </div>
+              ) : null}
               <div style={{ marginBottom: 8 }}>
                 <strong>Estado actual:</strong> {orden.estado}
               </div>
@@ -1007,14 +1085,82 @@ export default function DetalleOrdenPage() {
                   <strong>Prioridad:</strong> {orden.prioridad}
                 </div>
               ) : null}
+              {orden.accesorios_entregados ? (
+                <div style={{ marginBottom: 8 }}>
+                  <strong>Accesorios entregados:</strong>{" "}
+                  {orden.accesorios_entregados}
+                </div>
+              ) : null}
+              {orden.problema_reportado ? (
+                <div style={{ marginBottom: 8 }}>
+                  <strong>Problema reportado:</strong>{" "}
+                  {orden.problema_reportado}
+                </div>
+              ) : null}
+              {orden.observaciones_iniciales ? (
+                <div style={{ marginBottom: 8 }}>
+                  <strong>Observaciones iniciales:</strong>{" "}
+                  {orden.observaciones_iniciales}
+                </div>
+              ) : null}
             </div>
 
-            <h2
-              style={{
-                fontSize: 22,
-                margin: "0 0 16px 0",
-              }}
-            >
+            {fotosIngreso.length > 0 ? (
+              <div
+                style={{
+                  border: "1px solid #dbe4f0",
+                  borderRadius: 14,
+                  padding: 18,
+                  marginBottom: 24,
+                  backgroundColor: "#ffffff",
+                  pageBreakInside: "avoid",
+                  breakInside: "avoid",
+                }}
+              >
+                <h2 style={{ fontSize: 20, margin: "0 0 14px 0" }}>
+                  Fotos del estado inicial
+                </h2>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 12,
+                  }}
+                >
+                  {fotosIngreso.map((fotoUrl, index) => (
+                    <div
+                      key={`${fotoUrl}-${index}`}
+                      style={{
+                        border: "1px solid #dbe4f0",
+                        borderRadius: 10,
+                        minHeight: 180,
+                        padding: 10,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: "#ffffff",
+                        pageBreakInside: "avoid",
+                        breakInside: "avoid",
+                      }}
+                    >
+                      <img
+                        src={fotoUrl}
+                        alt={`foto inicial ${index + 1}`}
+                        style={{
+                          maxWidth: "100%",
+                          maxHeight: 170,
+                          objectFit: "contain",
+                          display: "block",
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <h2 style={{ fontSize: 22, margin: "0 0 16px 0" }}>
               Reportes
             </h2>
 
@@ -1025,8 +1171,11 @@ export default function DetalleOrdenPage() {
             ) : (
               reportes.map((reporte) => {
                 const fotos = reporte.reporte_fotos || [];
-                const fotoPrincipal = fotos.find((f) => f.es_principal) || fotos[0] || null;
-                const fotosSecundarias = fotos.filter((f) => f.id !== fotoPrincipal?.id);
+                const fotoPrincipal =
+                  fotos.find((f) => f.es_principal) || fotos[0] || null;
+                const fotosSecundarias = fotos.filter(
+                  (f) => f.id !== fotoPrincipal?.id
+                );
 
                 return (
                   <div
@@ -1054,7 +1203,9 @@ export default function DetalleOrdenPage() {
                       <div>
                         <strong>Etapa:</strong> {reporte.etapa}
                       </div>
-                      <div style={{ color: "#475569" }}>{formatFecha(reporte.created_at)}</div>
+                      <div style={{ color: "#475569" }}>
+                        {formatFecha(reporte.created_at)}
+                      </div>
                     </div>
 
                     {reporte.descripcion ? (
@@ -1091,12 +1242,7 @@ export default function DetalleOrdenPage() {
                           breakInside: "avoid",
                         }}
                       >
-                        <div
-                          style={{
-                            marginBottom: 8,
-                            fontWeight: 700,
-                          }}
-                        >
+                        <div style={{ marginBottom: 8, fontWeight: 700 }}>
                           Foto principal
                         </div>
 
@@ -1110,11 +1256,8 @@ export default function DetalleOrdenPage() {
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
-                            overflow: "visible",
                             padding: 14,
                             boxSizing: "border-box",
-                            pageBreakInside: "avoid",
-                            breakInside: "avoid",
                           }}
                         >
                           <img
@@ -1123,8 +1266,6 @@ export default function DetalleOrdenPage() {
                             style={{
                               maxWidth: "100%",
                               maxHeight: 230,
-                              width: "auto",
-                              height: "auto",
                               objectFit: "contain",
                               display: "block",
                             }}
@@ -1141,19 +1282,8 @@ export default function DetalleOrdenPage() {
                     ) : null}
 
                     {fotosSecundarias.length > 0 ? (
-                      <div
-                        style={{
-                          marginTop: 16,
-                          pageBreakInside: "avoid",
-                          breakInside: "avoid",
-                        }}
-                      >
-                        <div
-                          style={{
-                            marginBottom: 10,
-                            fontWeight: 700,
-                          }}
-                        >
+                      <div style={{ marginTop: 16 }}>
+                        <div style={{ marginBottom: 10, fontWeight: 700 }}>
                           Fotos adicionales
                         </div>
 
@@ -1165,13 +1295,7 @@ export default function DetalleOrdenPage() {
                           }}
                         >
                           {fotosSecundarias.map((foto) => (
-                            <div
-                              key={foto.id}
-                              style={{
-                                pageBreakInside: "avoid",
-                                breakInside: "avoid",
-                              }}
-                            >
+                            <div key={foto.id}>
                               <div
                                 style={{
                                   width: "100%",
@@ -1182,7 +1306,6 @@ export default function DetalleOrdenPage() {
                                   display: "flex",
                                   alignItems: "center",
                                   justifyContent: "center",
-                                  overflow: "visible",
                                   padding: 10,
                                   boxSizing: "border-box",
                                 }}
@@ -1193,8 +1316,6 @@ export default function DetalleOrdenPage() {
                                   style={{
                                     maxWidth: "100%",
                                     maxHeight: 150,
-                                    width: "auto",
-                                    height: "auto",
                                     objectFit: "contain",
                                     display: "block",
                                   }}
