@@ -1,110 +1,114 @@
+import Link from "next/link";
 import { supabase } from "../../../../lib/supabase";
 
 type EtapaKey =
   | "Ingreso"
   | "Revisión"
   | "Cotización"
-  | "Mant."
-  | "Repar."
+  | "Mantenimiento"
+  | "Reparación"
   | "Listo"
   | "Entregado";
 
-type Archivo = {
-  nombre: string;
-  url: string;
+type ReporteFoto = {
+  id: string;
+  foto_url: string;
+  comentario: string | null;
+  orden: number | null;
+  es_principal: boolean | null;
 };
 
 type Reporte = {
+  id: string;
   etapa: EtapaKey;
-  tecnico: string;
-  fecha: string;
-  titulo: string;
-  detalle: string;
-  acciones?: string;
-  hallazgos?: string;
-  costo?: string;
-  documentos?: Archivo[];
-  fotos?: string[];
+  descripcion: string | null;
+  hallazgos: string | null;
+  acciones: string | null;
+  costo: number | null;
+  created_at: string;
+  reporte_fotos?: ReporteFoto[];
 };
 
-type OrdenDetalle = {
-  numero: string;
+type Orden = {
+  id: string;
+  codigo: string;
   cliente: string;
   equipo: string;
-  problema: string;
-  etapaActual: EtapaKey;
-  reportePdf: string;
-  fotosIngreso: string[];
-  historial: Reporte[];
+  estado: EtapaKey;
+  prioridad: string | null;
+  created_at: string | null;
+  marca: string | null;
+  modelo: string | null;
+  numero_serie: string | null;
+  accesorios_entregados: string | null;
+  problema_reportado: string | null;
+  observaciones_iniciales: string | null;
+  fotos_estado_inicial: string | string[] | null;
 };
 
-const detalleBase: Omit<
-  OrdenDetalle,
-  "numero" | "cliente" | "equipo" | "problema"
-> = {
-  etapaActual: "Listo",
-  reportePdf: "/docs/Informe de situacion 1604.pdf",
-  fotosIngreso: ["/next.svg", "/vercel.svg"],
-  historial: [
-    {
-      etapa: "Listo",
-      tecnico: "francisco",
-      fecha: "14/04/26 14:23",
-      titulo: "equipo listo para entrega",
-      detalle: "mantenimiento preventivo según cotización 2035",
-      documentos: [
-        {
-          nombre: "Informe de situación 1604.pdf",
-          url: "/docs/Informe de situacion 1604.pdf",
-        },
-      ],
-    },
-    {
-      etapa: "Mant.",
-      tecnico: "alvaro",
-      fecha: "14/04/26 14:19",
-      titulo: "se realiza mantenimiento preventivo",
-      detalle: "mantención preventiva ejecutada",
-      fotos: ["/next.svg"],
-    },
-    {
-      etapa: "Cotización",
-      tecnico: "francisco",
-      fecha: "14/04/26 14:18",
-      titulo: "se adjunta cotización 20235",
-      detalle: "Costo: $15.000",
-      documentos: [
-        {
-          nombre: "PDF Cotización",
-          url: "/docs/Informe de situacion 1604.pdf",
-        },
-      ],
-    },
-    {
-      etapa: "Revisión",
-      tecnico: "alvaro",
-      fecha: "14/04/26 14:16",
-      titulo:
-        "se realiza diagnóstico, se testea sin carga, se abre y verifica estado interno",
-      detalle: "no se encuentran fallas de material, desgaste normal",
-      fotos: ["/next.svg"],
-    },
-  ],
+const etapas: EtapaKey[] = [
+  "Ingreso",
+  "Revisión",
+  "Cotización",
+  "Mantenimiento",
+  "Reparación",
+  "Listo",
+  "Entregado",
+];
+
+const iconos: Record<EtapaKey, string> = {
+  Ingreso: "📦",
+  Revisión: "🔍",
+  Cotización: "📄",
+  Mantenimiento: "⚙️",
+  Reparación: "🔧",
+  Listo: "✅",
+  Entregado: "🚚",
 };
+
+function normalizarFotos(fotos: string | string[] | null) {
+  if (!fotos) return [];
+
+  if (Array.isArray(fotos)) {
+    return fotos.filter(Boolean);
+  }
+
+  try {
+    const parsed = JSON.parse(fotos);
+    if (Array.isArray(parsed)) {
+      return parsed.filter(Boolean);
+    }
+  } catch {}
+
+  return fotos
+    .split(",")
+    .map((foto) => foto.trim())
+    .filter(Boolean);
+}
+
+function formatFecha(fecha?: string | null) {
+  if (!fecha) return "-";
+
+  try {
+    return new Date(fecha).toLocaleString("es-CL");
+  } catch {
+    return fecha;
+  }
+}
+
+function formatMoneda(valor?: number | null) {
+  if (valor == null) return "";
+
+  return new Intl.NumberFormat("es-CL", {
+    style: "currency",
+    currency: "CLP",
+    maximumFractionDigits: 0,
+  }).format(valor);
+}
 
 function getCircleClass(etapa: EtapaKey, etapaActual: EtapaKey): string {
-  const orden: EtapaKey[] = [
-    "Ingreso",
-    "Revisión",
-    "Cotización",
-    "Mant.",
-    "Repar.",
-    "Listo",
-    "Entregado",
-  ];
-
-  const actual = orden.indexOf(etapaActual);
-  const actualEtapa = orden.indexOf(etapa);
+  const actual = etapas.indexOf(etapaActual);
+  const actualEtapa = etapas.indexOf(etapa);
 
   if (actualEtapa < actual) return "bg-blue-100 text-blue-700";
   if (actualEtapa === actual) return "bg-blue-600 text-white";
@@ -112,18 +116,8 @@ function getCircleClass(etapa: EtapaKey, etapaActual: EtapaKey): string {
 }
 
 function getTextClass(etapa: EtapaKey, etapaActual: EtapaKey): string {
-  const orden: EtapaKey[] = [
-    "Ingreso",
-    "Revisión",
-    "Cotización",
-    "Mant.",
-    "Repar.",
-    "Listo",
-    "Entregado",
-  ];
-
-  const actual = orden.indexOf(etapaActual);
-  const actualEtapa = orden.indexOf(etapa);
+  const actual = etapas.indexOf(etapaActual);
+  const actualEtapa = etapas.indexOf(etapa);
 
   if (actualEtapa < actual) return "text-blue-600";
   if (actualEtapa === actual) return "text-blue-700 font-semibold";
@@ -134,7 +128,7 @@ function getBadgeClass(etapa: EtapaKey): string {
   switch (etapa) {
     case "Listo":
       return "bg-green-100 text-green-700";
-    case "Mant.":
+    case "Mantenimiento":
       return "bg-cyan-100 text-cyan-700";
     case "Cotización":
       return "bg-purple-100 text-purple-700";
@@ -142,7 +136,7 @@ function getBadgeClass(etapa: EtapaKey): string {
       return "bg-yellow-100 text-yellow-700";
     case "Ingreso":
       return "bg-slate-100 text-slate-700";
-    case "Repar.":
+    case "Reparación":
       return "bg-orange-100 text-orange-700";
     case "Entregado":
       return "bg-blue-100 text-blue-700";
@@ -151,26 +145,6 @@ function getBadgeClass(etapa: EtapaKey): string {
   }
 }
 
-const iconos: Record<EtapaKey, string> = {
-  Ingreso: "📦",
-  Revisión: "🔍",
-  Cotización: "📄",
-  "Mant.": "⚙️",
-  "Repar.": "🔧",
-  Listo: "✅",
-  Entregado: "🚚",
-};
-
-const etapas: EtapaKey[] = [
-  "Ingreso",
-  "Revisión",
-  "Cotización",
-  "Mant.",
-  "Repar.",
-  "Listo",
-  "Entregado",
-];
-
 export default async function DetalleServicioPage({
   params,
 }: {
@@ -178,60 +152,85 @@ export default async function DetalleServicioPage({
 }) {
   const { orden } = await params;
 
-  const { data: rows, error } = await supabase.from("ordenes").select("*");
+  const { data: row, error } = await supabase
+    .from("ordenes")
+    .select("*")
+    .or(`codigo.eq.${orden},id.eq.${orden}`)
+    .single();
 
-  if (error) {
-    return <main className="p-6">Error Supabase: {error.message}</main>;
-  }
-
-  const row = rows?.find(
-    (r: any) => String(r.numero).toLowerCase() === String(orden).toLowerCase()
-  );
-
-  if (!row) {
+  if (error || !row) {
     return (
       <main className="p-6">
-        Orden no encontrada: {orden}
-        <pre>{JSON.stringify(rows, null, 2)}</pre>
+        <Link href="/cliente/portal/servicio-tecnico" className="text-blue-600">
+          ← Volver
+        </Link>
+
+        <div className="mt-6 rounded-2xl bg-white p-6 shadow-sm">
+          Orden no encontrada: {orden}
+        </div>
       </main>
     );
   }
 
-  const data: OrdenDetalle = {
-    numero: row.numero ?? "",
-    cliente: row.cliente ?? "",
-    equipo: row.equipo ?? "",
-    problema: row.problema ?? "",
-    ...detalleBase,
-  };
+  const ordenData = row as Orden;
+  const fotosIngreso = normalizarFotos(ordenData.fotos_estado_inicial);
+
+  const { data: reportesData } = await supabase
+    .from("reportes")
+    .select(
+      `
+      *,
+      reporte_fotos (
+        id,
+        foto_url,
+        comentario,
+        orden,
+        es_principal
+      )
+    `
+    )
+    .eq("orden_id", ordenData.id)
+    .order("created_at", { ascending: false });
+
+  const reportes = ((reportesData || []) as Reporte[]).map((reporte) => ({
+    ...reporte,
+    reporte_fotos: [...(reporte.reporte_fotos || [])].sort((a, b) => {
+      const ordenA = a.orden ?? 0;
+      const ordenB = b.orden ?? 0;
+      return ordenA - ordenB;
+    }),
+  }));
+
+  const etapaActual = etapas.includes(ordenData.estado)
+    ? ordenData.estado
+    : "Ingreso";
 
   return (
-    <main className="p-6 space-y-6">
+    <main className="space-y-6 p-6">
+      <Link href="/cliente/portal/servicio-tecnico" className="text-blue-600">
+        ← Volver
+      </Link>
+
       <div>
-        <h1 className="text-2xl font-bold">{data.numero}</h1>
-        <p className="text-slate-500">{data.equipo}</p>
+        <h1 className="text-2xl font-bold">{ordenData.codigo}</h1>
+        <p className="text-slate-500">{ordenData.equipo}</p>
       </div>
 
-      <div className="bg-white rounded-2xl p-6 shadow-sm">
+      <div className="rounded-2xl bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
           {etapas.map((etapa, i) => (
             <div key={etapa} className="flex items-center">
-              <div className="flex flex-col items-center gap-2 min-w-[72px]">
+              <div className="flex min-w-[72px] flex-col items-center gap-2">
                 <div
-                  className={`w-12 h-12 rounded-full flex items-center justify-center text-lg ${getCircleClass(
+                  className={`flex h-12 w-12 items-center justify-center rounded-full text-lg ${getCircleClass(
                     etapa,
-                    data.etapaActual
+                    etapaActual
                   )}`}
                 >
                   {iconos[etapa]}
                 </div>
 
-                <span
-                  className={`text-sm ${getTextClass(
-                    etapa,
-                    data.etapaActual
-                  )}`}
-                >
+                <span className={`text-sm ${getTextClass(etapa, etapaActual)}`}>
                   {etapa}
                 </span>
               </div>
@@ -244,112 +243,165 @@ export default async function DetalleServicioPage({
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl p-6 shadow-sm grid grid-cols-2 gap-4">
-        <div>
-          <p className="text-slate-500 text-sm">Cliente:</p>
-          <p className="font-semibold">{data.cliente}</p>
+      <div className="rounded-2xl bg-white p-6 shadow-sm">
+        <h2 className="mb-4 text-lg font-bold">Información de ingreso</h2>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <InfoItem label="Cliente" value={ordenData.cliente} />
+          <InfoItem label="Equipo" value={ordenData.equipo} />
+          <InfoItem label="Marca" value={ordenData.marca} />
+          <InfoItem label="Modelo" value={ordenData.modelo} />
+          <InfoItem label="Número de serie" value={ordenData.numero_serie} />
+          <InfoItem label="Prioridad" value={ordenData.prioridad} />
+          <InfoItem label="Estado actual" value={ordenData.estado} />
+          <InfoItem label="Fecha de ingreso" value={formatFecha(ordenData.created_at)} />
         </div>
 
-        <div>
-          <p className="text-slate-500 text-sm">Equipo:</p>
-          <p className="font-semibold">{data.equipo}</p>
-        </div>
+        <InfoBlock
+          label="Accesorios entregados"
+          value={ordenData.accesorios_entregados}
+        />
 
-        <div className="col-span-2">
-          <p className="text-slate-500 text-sm">Problema reportado:</p>
-          <p>{data.problema}</p>
-        </div>
+        <InfoBlock
+          label="Problema reportado"
+          value={ordenData.problema_reportado}
+        />
+
+        <InfoBlock
+          label="Observaciones iniciales"
+          value={ordenData.observaciones_iniciales}
+        />
       </div>
 
-      <div className="bg-white rounded-2xl p-6 shadow-sm">
-        <h3 className="font-semibold mb-4">Fotos de Ingreso</h3>
+      <div className="rounded-2xl bg-white p-6 shadow-sm">
+        <h3 className="mb-4 font-semibold">Fotos del estado inicial</h3>
 
-        <div className="flex gap-4">
-          {data.fotosIngreso.map((foto, i) => (
-            <div
-              key={i}
-              className="w-32 h-32 bg-slate-100 rounded-lg flex items-center justify-center border"
-            >
-              <img
-                src={foto}
-                alt={`Foto ingreso ${i + 1}`}
-                className="max-w-full max-h-full object-contain"
-              />
-            </div>
-          ))}
-        </div>
+        {fotosIngreso.length === 0 ? (
+          <p className="text-slate-500">No hay fotos iniciales registradas.</p>
+        ) : (
+          <div className="flex flex-wrap gap-4">
+            {fotosIngreso.map((foto, i) => (
+              <a
+                key={`${foto}-${i}`}
+                href={foto}
+                target="_blank"
+                className="block h-32 w-32 overflow-hidden rounded-lg border bg-slate-100"
+              >
+                <img
+                  src={foto}
+                  alt={`Foto ingreso ${i + 1}`}
+                  className="h-full w-full object-cover"
+                />
+              </a>
+            ))}
+          </div>
+        )}
       </div>
 
-      <div className="flex justify-center">
-        <a
-          href={data.reportePdf}
-          target="_blank"
-          className="px-5 py-2 border rounded-lg text-blue-600 border-blue-600 hover:bg-blue-50"
-        >
-          Descargar Reporte PDF
-        </a>
-      </div>
+      <div className="rounded-2xl bg-white p-6 shadow-sm">
+        <h3 className="mb-4 font-semibold">Historial de Reportes</h3>
 
-      <div className="bg-white rounded-2xl p-6 shadow-sm">
-        <h3 className="font-semibold mb-4">Historial de Reportes</h3>
+        {reportes.length === 0 ? (
+          <p className="text-slate-500">
+            Todavía no hay reportes para esta orden.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {reportes.map((item) => {
+              const fotos = item.reporte_fotos || [];
 
-        <div className="space-y-4">
-          {data.historial.map((item, i) => (
-            <div key={i} className="border rounded-lg p-4 space-y-2">
-              <div className="flex justify-between text-sm text-slate-500">
-                <span className="flex items-center gap-2">
-                  <span
-                    className={`px-2 py-1 rounded-full text-xs ${getBadgeClass(
-                      item.etapa
-                    )}`}
-                  >
-                    {item.etapa}
-                  </span>
-                  <span>{item.tecnico}</span>
-                </span>
-                <span>{item.fecha}</span>
-              </div>
+              return (
+                <div key={item.id} className="space-y-2 rounded-lg border p-4">
+                  <div className="flex justify-between text-sm text-slate-500">
+                    <span className="flex items-center gap-2">
+                      <span
+                        className={`rounded-full px-2 py-1 text-xs ${getBadgeClass(
+                          item.etapa
+                        )}`}
+                      >
+                        {item.etapa}
+                      </span>
+                    </span>
 
-              <p className="font-medium">{item.titulo}</p>
-              <p>{item.detalle}</p>
+                    <span>{formatFecha(item.created_at)}</span>
+                  </div>
 
-              {item.acciones && (
-                <p className="text-sm text-slate-500">
-                  Acciones: {item.acciones}
-                </p>
-              )}
+                  {item.descripcion && (
+                    <p className="font-medium">{item.descripcion}</p>
+                  )}
 
-              {item.documentos && (
-                <div>
-                  {item.documentos.map((doc, j) => (
-                    <a
-                      key={j}
-                      href={doc.url}
-                      target="_blank"
-                      className="text-blue-600 text-sm underline block"
-                    >
-                      {doc.nombre}
-                    </a>
-                  ))}
+                  {item.hallazgos && (
+                    <p className="text-sm text-slate-600">
+                      <strong>Hallazgos:</strong> {item.hallazgos}
+                    </p>
+                  )}
+
+                  {item.acciones && (
+                    <p className="text-sm text-slate-600">
+                      <strong>Acciones:</strong> {item.acciones}
+                    </p>
+                  )}
+
+                  {item.costo != null && (
+                    <p className="text-sm text-slate-600">
+                      <strong>Costo:</strong> {formatMoneda(item.costo)}
+                    </p>
+                  )}
+
+                  {fotos.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {fotos.map((foto) => (
+                        <a
+                          key={foto.id}
+                          href={foto.foto_url}
+                          target="_blank"
+                          className="block h-20 w-20 overflow-hidden rounded border bg-slate-100"
+                        >
+                          <img
+                            src={foto.foto_url}
+                            className="h-full w-full object-cover"
+                            alt="foto reporte"
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-
-              {item.fotos && (
-                <div className="flex gap-2 mt-2">
-                  {item.fotos.map((f, j) => (
-                    <img
-                      key={j}
-                      src={f}
-                      className="w-20 h-20 object-contain border rounded"
-                      alt={`foto-${j}`}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </main>
+  );
+}
+
+function InfoItem({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string | null;
+}) {
+  return (
+    <div>
+      <p className="text-sm text-slate-500">{label}</p>
+      <p className="font-semibold">{value || "-"}</p>
+    </div>
+  );
+}
+
+function InfoBlock({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string | null;
+}) {
+  return (
+    <div className="mt-4">
+      <p className="text-sm text-slate-500">{label}</p>
+      <p className="whitespace-pre-wrap">{value || "-"}</p>
+    </div>
   );
 }
