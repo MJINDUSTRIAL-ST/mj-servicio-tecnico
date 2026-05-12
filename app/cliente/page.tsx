@@ -16,35 +16,35 @@ export default function ClienteLoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    setError("");
+
     if (!email || !password) {
       setError("Completa todos los campos");
       return;
     }
 
     setCargando(true);
-    setError("");
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: email.trim().toLowerCase(),
       password: password.trim(),
     });
 
     setCargando(false);
 
-    if (error) {
+    if (error || !data.session) {
       setError("Correo o contraseña incorrectos");
       return;
     }
 
-    router.push("/cliente/portal");
+    window.location.href = "/cliente/portal";
   };
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-[#020b2d] text-white px-4">
       <div className="w-full max-w-md bg-white/5 p-8 rounded-3xl border border-white/10">
-        
-        {/* BOTÓN VOLVER */}
         <button
+          type="button"
           onClick={() => router.push("/")}
           className="mb-4 text-sm text-white/70 hover:text-white"
         >
