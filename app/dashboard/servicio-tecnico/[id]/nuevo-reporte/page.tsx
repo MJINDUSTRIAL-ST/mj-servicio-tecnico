@@ -247,10 +247,34 @@ export default function NuevoReportePage() {
         }
       }
 
-      const { error: errorOrden } = await supabase
-        .from("ordenes")
-        .update({ estado: etapa })
-        .eq("id", id);
+      const ordenEtapas = [
+  "Ingreso",
+  "Revisión",
+  "Cotización",
+  "Mantenimiento",
+  "Reparación",
+  "Listo",
+  "Entregado",
+];
+
+const { data: ordenActual } = await supabase
+  .from("ordenes")
+  .select("estado")
+  .eq("id", id)
+  .single();
+
+const estadoActual = ordenActual?.estado || "Ingreso";
+
+const indiceActual = ordenEtapas.indexOf(estadoActual);
+const indiceNuevo = ordenEtapas.indexOf(etapa);
+
+const estadoFinal =
+  indiceNuevo > indiceActual ? etapa : estadoActual;
+
+const { error: errorOrden } = await supabase
+  .from("ordenes")
+  .update({ estado: estadoFinal })
+  .eq("id", id);
 
       if (errorOrden) {
         throw new Error(
