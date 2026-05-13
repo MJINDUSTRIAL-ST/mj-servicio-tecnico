@@ -9,22 +9,28 @@ export default function Sidebar() {
   const router = useRouter();
   const [hovered, setHovered] = useState<string | null>(null);
 
-  const getItemStyle = (key: string): React.CSSProperties => {
+  const getItemStyle = (
+    key: string
+  ): React.CSSProperties => {
     const isHover = hovered === key;
 
-   return {
-  textDecoration: "none",
-  backgroundColor: isHover ? "#2563eb" : "transparent",
-  color: isHover ? "white" : "#cbd5e1",
-  padding: "12px 14px",
-  borderRadius: 10,
-  fontWeight: isHover ? 600 : 500,
-  fontSize: 14,
-  display: "block",
-  transition: "all 0.18s ease",
-  cursor: "pointer",
-  outline: "none",
-};
+    return {
+      textDecoration: "none",
+      backgroundColor: isHover
+        ? "#2563eb"
+        : "transparent",
+      color: isHover
+        ? "white"
+        : "#cbd5e1",
+      padding: "12px 14px",
+      borderRadius: 10,
+      fontWeight: isHover ? 600 : 500,
+      fontSize: 14,
+      display: "block",
+      transition: "all 0.18s ease",
+      cursor: "pointer",
+      outline: "none",
+    };
   };
 
   return (
@@ -64,13 +70,25 @@ export default function Sidebar() {
         </div>
 
         {/* Menú */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
           <Link
             href="/dashboard/servicio-tecnico"
             style={getItemStyle("dashboard")}
-            onMouseEnter={() => setHovered("dashboard")}
-            onMouseLeave={() => setHovered(null)}
-            onFocus={(e) => e.target.blur()}
+            onMouseEnter={() =>
+              setHovered("dashboard")
+            }
+            onMouseLeave={() =>
+              setHovered(null)
+            }
+            onFocus={(e) =>
+              e.target.blur()
+            }
           >
             Dashboard
           </Link>
@@ -78,9 +96,15 @@ export default function Sidebar() {
           <Link
             href="/dashboard/clientes"
             style={getItemStyle("clientes")}
-            onMouseEnter={() => setHovered("clientes")}
-            onMouseLeave={() => setHovered(null)}
-            onFocus={(e) => e.target.blur()}
+            onMouseEnter={() =>
+              setHovered("clientes")
+            }
+            onMouseLeave={() =>
+              setHovered(null)
+            }
+            onFocus={(e) =>
+              e.target.blur()
+            }
           >
             Clientes
           </Link>
@@ -88,26 +112,34 @@ export default function Sidebar() {
           <Link
             href="/dashboard/servicio-tecnico"
             style={getItemStyle("servicio")}
-            onMouseEnter={() => setHovered("servicio")}
-            onMouseLeave={() => setHovered(null)}
-            onFocus={(e) => e.target.blur()}
+            onMouseEnter={() =>
+              setHovered("servicio")
+            }
+            onMouseLeave={() =>
+              setHovered(null)
+            }
+            onFocus={(e) =>
+              e.target.blur()
+            }
           >
             Servicio Técnico
           </Link>
 
-          <button
-            type="button"
-            style={{
-              ...getItemStyle("ventas"),
-              border: "none",
-              textAlign: "left",
-              width: "100%",
-            }}
-            onMouseEnter={() => setHovered("ventas")}
-            onMouseLeave={() => setHovered(null)}
+          <Link
+            href="/dashboard/ventas"
+            style={getItemStyle("ventas")}
+            onMouseEnter={() =>
+              setHovered("ventas")
+            }
+            onMouseLeave={() =>
+              setHovered(null)
+            }
+            onFocus={(e) =>
+              e.target.blur()
+            }
           >
             Ventas
-          </button>
+          </Link>
         </div>
       </div>
 
@@ -119,7 +151,8 @@ export default function Sidebar() {
         }}
         style={{
           background: "none",
-          border: "1px solid rgba(255,255,255,0.12)",
+          border:
+            "1px solid rgba(255,255,255,0.12)",
           color: "#cbd5e1",
           padding: "12px 14px",
           borderRadius: 10,
