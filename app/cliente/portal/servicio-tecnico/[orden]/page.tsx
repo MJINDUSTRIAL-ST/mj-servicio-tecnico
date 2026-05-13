@@ -274,12 +274,7 @@ export default function DetalleServicioClientePage() {
 
   return (
     <main className="space-y-6 p-6">
-      <Link
-        href="/cliente/portal/servicio-tecnico"
-        className="inline-block rounded-lg border bg-white px-4 py-2 text-sm text-slate-700 shadow-sm hover:bg-slate-50"
-      >
-        ← Volver
-      </Link>
+     
 
       <section className="rounded-3xl bg-white p-6 shadow-sm">
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
