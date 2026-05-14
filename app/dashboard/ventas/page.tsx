@@ -1,25 +1,52 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { supabase } from "../../lib/supabase";
 
-const ventas = [
-  {
-    id: "VTA-20260409-003",
-    cliente: "Alexandra",
-    producto: "Mesa elevadora 500kg",
-    estado: "Cotizada",
-    fecha: "13-05-2026",
-  },
-  {
-    id: "VTA-20260409-002",
-    cliente: "TECNASIC",
-    producto: "Winche RT 5TON",
-    estado: "Entregada",
-    fecha: "10-05-2026",
-  },
-];
+type Venta = {
+  id: string;
+  numero: string;
+  cliente: string;
+  producto: string;
+  estado: string;
+  fecha_venta: string;
+};
 
 export default function VentasPage() {
+  const [ventas, setVentas] = useState<Venta[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    cargarVentas();
+  }, []);
+
+  async function cargarVentas() {
+    try {
+      const { data, error } = await supabase
+        .from("ventas")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error(error);
+        return;
+      }
+
+      setVentas(data || []);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function formatearFecha(fecha: string) {
+    if (!fecha) return "-";
+
+    return new Date(fecha).toLocaleDateString("es-CL");
+  }
+
   return (
     <div className="p-6">
       <div className="mb-6 flex items-center justify-between">
@@ -52,43 +79,63 @@ export default function VentasPage() {
           </thead>
 
           <tbody>
-            {ventas.map((venta) => (
-              <tr
-                key={venta.id}
-                className="border-t border-slate-100"
-              >
-                <td className="px-6 py-5 font-semibold">
-                  {venta.id}
-                </td>
-
-                <td className="px-6 py-5">
-                  {venta.cliente}
-                </td>
-
-                <td className="px-6 py-5">
-                  {venta.producto}
-                </td>
-
-                <td className="px-6 py-5">
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-sm">
-                    {venta.estado}
-                  </span>
-                </td>
-
-                <td className="px-6 py-5">
-                  {venta.fecha}
-                </td>
-
-                <td className="px-6 py-5">
-                  <Link
-                    href={`/cliente/portal/mis-compras/${venta.id}`}
-                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-                  >
-                    Ver
-                  </Link>
+            {loading ? (
+              <tr>
+                <td
+                  colSpan={6}
+                  className="px-6 py-10 text-center text-slate-500"
+                >
+                  Cargando ventas...
                 </td>
               </tr>
-            ))}
+            ) : ventas.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={6}
+                  className="px-6 py-10 text-center text-slate-500"
+                >
+                  No hay ventas registradas
+                </td>
+              </tr>
+            ) : (
+              ventas.map((venta) => (
+                <tr
+                  key={venta.id}
+                  className="border-t border-slate-100"
+                >
+                  <td className="px-6 py-5 font-semibold">
+                    {venta.numero}
+                  </td>
+
+                  <td className="px-6 py-5">
+                    {venta.cliente}
+                  </td>
+
+                  <td className="px-6 py-5">
+                    {venta.producto}
+                  </td>
+
+                  <td className="px-6 py-5">
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-sm">
+                      {venta.estado}
+                    </span>
+                  </td>
+
+                  <td className="px-6 py-5">
+                    {formatearFecha(venta.fecha_venta)}
+                  </td>
+
+                  <td className="px-6 py-5">
+                    <Link
+                      href={`/cliente/portal/mis-compras/${venta.numero}`}
+                      className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                    >
+                      Ver
+                    </Link>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
