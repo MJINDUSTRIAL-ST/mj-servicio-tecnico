@@ -22,36 +22,33 @@ export default function VentasPage() {
   }, []);
 
   async function cargarVentas() {
-    try {
-      const { data, error } = await supabase
-        .from("ventas")
-        .select("*")
-        .order("created_at", { ascending: false });
+    const { data, error } = await supabase
+      .from("ventas")
+      .select("*")
+      .order("created_at", { ascending: false });
 
-      if (error) {
-        console.error(error);
-        return;
-      }
-
+    if (!error) {
       setVentas(data || []);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
     }
-  }
 
-  function formatearFecha(fecha: string) {
-    if (!fecha) return "-";
-
-    return new Date(fecha).toLocaleDateString("es-CL");
+    setLoading(false);
   }
 
   return (
     <div className="p-6">
+      {/* Volver */}
+      <Link
+        href="/dashboard/servicio-tecnico"
+        className="mb-6 inline-block text-sm text-slate-500 hover:text-slate-900"
+      >
+        ← Volver al Dashboard
+      </Link>
+
+      {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Ventas</h1>
+
           <p className="text-slate-500">
             Administración de ventas y documentos.
           </p>
@@ -65,6 +62,7 @@ export default function VentasPage() {
         </Link>
       </div>
 
+      {/* Tabla */}
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <table className="w-full">
           <thead className="bg-slate-50">
@@ -83,7 +81,7 @@ export default function VentasPage() {
               <tr>
                 <td
                   colSpan={6}
-                  className="px-6 py-10 text-center text-slate-500"
+                  className="px-6 py-8 text-center text-slate-500"
                 >
                   Cargando ventas...
                 </td>
@@ -92,7 +90,7 @@ export default function VentasPage() {
               <tr>
                 <td
                   colSpan={6}
-                  className="px-6 py-10 text-center text-slate-500"
+                  className="px-6 py-8 text-center text-slate-500"
                 >
                   No hay ventas registradas
                 </td>
@@ -122,7 +120,7 @@ export default function VentasPage() {
                   </td>
 
                   <td className="px-6 py-5">
-                    {formatearFecha(venta.fecha_venta)}
+                    {venta.fecha_venta}
                   </td>
 
                   <td className="px-6 py-5">
