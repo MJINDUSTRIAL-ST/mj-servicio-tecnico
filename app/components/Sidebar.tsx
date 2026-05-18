@@ -45,30 +45,33 @@ export default function Sidebar() {
       }}
     >
       <div>
-        {/* Logo */}
-        <div style={{ marginBottom: 32 }}>
-          <Link
-            href="/dashboard/servicio-tecnico"
-            style={{
-              display: "block",
-              backgroundColor: "white",
-              padding: "10px 12px",
-              borderRadius: 12,
-              textDecoration: "none",
-            }}
-          >
-            <img
-              src="/logo-mj.png"
-              alt="MJ Industrial"
-              style={{
-                width: "100%",
-                height: "auto",
-                display: "block",
-                objectFit: "contain",
-              }}
-            />
-          </Link>
-        </div>
+    {/* Logo */}
+<div
+  style={{
+    marginBottom: 34,
+    display: "flex",
+    justifyContent: "center",
+  }}
+>
+  <Link
+    href="/dashboard/servicio-tecnico"
+    style={{
+      textDecoration: "none",
+      display: "block",
+    }}
+  >
+    <img
+      src="/logo-mj.png"
+      alt="MJ Industrial"
+      style={{
+        width: 190,
+        height: "auto",
+        objectFit: "contain",
+        display: "block",
+      }}
+    />
+  </Link>
+</div>
 
         {/* Menú */}
         <div
