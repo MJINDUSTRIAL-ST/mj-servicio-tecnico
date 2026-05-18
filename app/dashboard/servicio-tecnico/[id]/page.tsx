@@ -57,6 +57,16 @@ const ETAPAS = [
   "Entregado",
 ];
 
+const ICONOS: Record<string, string> = {
+  Ingreso: "📦",
+  Revisión: "🔍",
+  Cotización: "📄",
+  Mantenimiento: "⚙️",
+  Reparación: "🔧",
+  Listo: "✅",
+  Entregado: "🚚",
+};
+
 function formatFecha(fecha?: string | null) {
   if (!fecha) return "";
   try {
@@ -85,9 +95,7 @@ function normalizarFotosIngreso(fotos?: string | string[] | null) {
   if (typeof fotos === "string") {
     try {
       const parsed = JSON.parse(fotos);
-      if (Array.isArray(parsed)) {
-        return parsed.filter(Boolean);
-      }
+      if (Array.isArray(parsed)) return parsed.filter(Boolean);
     } catch {}
 
     return fotos
@@ -99,6 +107,14 @@ function normalizarFotosIngreso(fotos?: string | string[] | null) {
   return [];
 }
 
+function normalizarEstado(estado?: string | null) {
+  if (!estado) return "Ingreso";
+  if (estado === "Mant.") return "Mantenimiento";
+  if (estado === "Repar.") return "Reparación";
+  if (estado === "Listo p/Entrega") return "Listo";
+  return estado;
+}
+
 function Campo({
   label,
   value,
@@ -106,39 +122,67 @@ function Campo({
   label: string;
   value?: string | null;
 }) {
-  if (!value) return null;
-
   return (
     <div
       style={{
-        border: "1px solid #e2e8f0",
-        borderRadius: 14,
-        padding: 16,
-        backgroundColor: "#ffffff",
+        display: "grid",
+        gridTemplateColumns: "140px 1fr",
+        gap: 12,
+        fontSize: 15,
+        lineHeight: 1.5,
       }}
     >
-      <div
-        style={{
-          fontSize: 14,
-          color: "#64748b",
-          marginBottom: 6,
-          fontWeight: 700,
-        }}
-      >
-        {label}
+      <div style={{ color: "#64748b", fontWeight: 700 }}>
+        {label}:
       </div>
       <div
         style={{
-          fontSize: 17,
           color: "#0f172a",
-          lineHeight: 1.45,
           whiteSpace: "pre-wrap",
+          fontWeight: 500,
         }}
       >
-        {value}
+        {value || "-"}
       </div>
     </div>
   );
+}
+
+function badgeEstado(estado: string) {
+  const normalizado = normalizarEstado(estado);
+
+  if (normalizado === "Cotización") {
+    return {
+      bg: "#fef3c7",
+      color: "#b45309",
+    };
+  }
+
+  if (normalizado === "Listo" || normalizado === "Entregado") {
+    return {
+      bg: "#dcfce7",
+      color: "#15803d",
+    };
+  }
+
+  if (normalizado === "Reparación") {
+    return {
+      bg: "#ffedd5",
+      color: "#c2410c",
+    };
+  }
+
+  if (normalizado === "Mantenimiento") {
+    return {
+      bg: "#cffafe",
+      color: "#0e7490",
+    };
+  }
+
+  return {
+    bg: "#dbeafe",
+    color: "#2563eb",
+  };
 }
 
 export default function DetalleOrdenPage() {
@@ -147,10 +191,11 @@ export default function DetalleOrdenPage() {
 
   const [orden, setOrden] = useState<Orden | null>(null);
   const [reportes, setReportes] = useState<Reporte[]>([]);
+  const [estadoSeleccionado, setEstadoSeleccionado] = useState("Ingreso");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [fotoModal, setFotoModal] = useState<string | null>(null);
-  const [eliminandoFotoId, setEliminandoFotoId] = useState<string | null>(null);
+  const [guardandoEstado, setGuardandoEstado] = useState(false);
   const [generandoPdf, setGenerandoPdf] = useState(false);
 
   const pdfRef = useRef<HTMLDivElement | null>(null);
@@ -160,9 +205,24 @@ export default function DetalleOrdenPage() {
   }, [orden?.fotos_estado_inicial]);
 
   const etapaActualIndex = useMemo(() => {
-    if (!orden?.estado) return -1;
-    return ETAPAS.indexOf(orden.estado);
+    const estado = normalizarEstado(orden?.estado);
+    return ETAPAS.indexOf(estado);
   }, [orden?.estado]);
+
+  const etapaSeleccionadaIndex = useMemo(() => {
+    return ETAPAS.indexOf(normalizarEstado(estadoSeleccionado));
+  }, [estadoSeleccionado]);
+
+  const etapaAnterior =
+    etapaSeleccionadaIndex > 0
+      ? ETAPAS[etapaSeleccionadaIndex - 1]
+      : null;
+
+  const etapaSiguiente =
+    etapaSeleccionadaIndex >= 0 &&
+    etapaSeleccionadaIndex < ETAPAS.length - 1
+      ? ETAPAS[etapaSeleccionadaIndex + 1]
+      : null;
 
   useEffect(() => {
     cargarDatos();
@@ -170,9 +230,7 @@ export default function DetalleOrdenPage() {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        setFotoModal(null);
-      }
+      if (e.key === "Escape") setFotoModal(null);
     }
 
     window.addEventListener("keydown", onKeyDown);
@@ -236,76 +294,52 @@ export default function DetalleOrdenPage() {
     }));
 
     setOrden(ordenData as Orden);
+    setEstadoSeleccionado(normalizarEstado((ordenData as Orden).estado));
     setReportes(normalizados);
     setLoading(false);
   }
 
-  async function eliminarFotoDb(foto: ReporteFoto) {
-    if (!foto?.id) return;
+  async function actualizarEstado(nuevoEstado: string) {
+    if (!orden?.id) return;
 
-    setEliminandoFotoId(foto.id);
+    setGuardandoEstado(true);
 
-    try {
-      if (foto.storage_path) {
-        const { error: errorStorage } = await supabase.storage
-          .from("reportes")
-          .remove([foto.storage_path]);
+    const { error } = await supabase
+      .from("ordenes")
+      .update({ estado: nuevoEstado })
+      .eq("id", orden.id);
 
-        if (errorStorage) {
-          throw new Error(
-            "Error eliminando imagen del storage: " + errorStorage.message
-          );
-        }
-      }
-
-      const { error: errorDb } = await supabase
-        .from("reporte_fotos")
-        .delete()
-        .eq("id", foto.id);
-
-      if (errorDb) {
-        throw new Error("Error eliminando registro de foto: " + errorDb.message);
-      }
-
-      setReportes((prev) =>
-        prev.map((reporte) => {
-          if (!reporte.reporte_fotos?.some((f) => f.id === foto.id)) {
-            return reporte;
-          }
-
-          let nuevasFotos = (reporte.reporte_fotos || []).filter(
-            (f) => f.id !== foto.id
-          );
-
-          if (
-            nuevasFotos.length > 0 &&
-            !nuevasFotos.some((f) => f.es_principal === true)
-          ) {
-            nuevasFotos = nuevasFotos.map((f, index) => ({
-              ...f,
-              es_principal: index === 0,
-            }));
-          }
-
-          return {
-            ...reporte,
-            reporte_fotos: nuevasFotos,
-          };
-        })
-      );
-
-      setFotoModal(null);
-    } catch (e: any) {
-      alert(e.message || "No se pudo eliminar la foto");
-    } finally {
-      setEliminandoFotoId(null);
+    if (error) {
+      alert("No se pudo actualizar el estado: " + error.message);
+      setGuardandoEstado(false);
+      return;
     }
+
+    setOrden((prev) =>
+      prev
+        ? {
+            ...prev,
+            estado: nuevoEstado,
+          }
+        : prev
+    );
+
+    setEstadoSeleccionado(nuevoEstado);
+    setGuardandoEstado(false);
   }
 
-  async function confirmarEliminarFoto(foto: ReporteFoto) {
-    const confirmar = window.confirm("¿Eliminar esta foto?");
-    if (!confirmar) return;
-    await eliminarFotoDb(foto);
+  async function guardarEstadoSeleccionado() {
+    await actualizarEstado(estadoSeleccionado);
+  }
+
+  async function retrocederEtapa() {
+    if (!etapaAnterior) return;
+    await actualizarEstado(etapaAnterior);
+  }
+
+  async function avanzarEtapa() {
+    if (!etapaSiguiente) return;
+    await actualizarEstado(etapaSiguiente);
   }
 
   async function esperarImagenes(el: HTMLElement) {
@@ -330,7 +364,6 @@ export default function DetalleOrdenPage() {
 
     try {
       const element = pdfRef.current;
-
       await esperarImagenes(element);
 
       const canvas = await html2canvas(element, {
@@ -350,8 +383,7 @@ export default function DetalleOrdenPage() {
       const usableHeightMm = pageHeightMm - marginMm * 2;
 
       const pxPerMm = canvas.width / usableWidthMm;
-      const safeHeightMm = usableHeightMm - 20;
-      const pageCanvasHeightPx = Math.floor(safeHeightMm * pxPerMm);
+      const pageCanvasHeightPx = Math.floor(usableHeightMm * pxPerMm);
 
       let renderedHeight = 0;
       let pageNumber = 0;
@@ -387,9 +419,7 @@ export default function DetalleOrdenPage() {
         const pageImgData = pageCanvas.toDataURL("image/jpeg", 0.95);
         const sliceHeightMm = sliceHeight / pxPerMm;
 
-        if (pageNumber > 0) {
-          pdf.addPage();
-        }
+        if (pageNumber > 0) pdf.addPage();
 
         pdf.addImage(
           pageImgData,
@@ -413,110 +443,447 @@ export default function DetalleOrdenPage() {
   }
 
   if (loading) {
+    return <main style={{ padding: 32 }}>Cargando orden...</main>;
+  }
+
+  if (error || !orden) {
     return (
-      <div style={{ padding: 24, fontFamily: "Arial, sans-serif" }}>
-        Cargando...
-      </div>
+      <main style={{ padding: 32 }}>
+        <Link
+          href="/dashboard/servicio-tecnico"
+          style={{
+            color: "#2563eb",
+            textDecoration: "none",
+            fontWeight: 600,
+          }}
+        >
+          ← Volver
+        </Link>
+
+        <div
+          style={{
+            marginTop: 24,
+            backgroundColor: "white",
+            padding: 24,
+            borderRadius: 18,
+          }}
+        >
+          {error || "Orden no encontrada"}
+        </div>
+      </main>
     );
   }
 
-  if (error) {
-    return (
-      <div style={{ padding: 24, fontFamily: "Arial, sans-serif" }}>
-        Error: {error}
-      </div>
-    );
-  }
-
-  if (!orden) {
-    return (
-      <div style={{ padding: 24, fontFamily: "Arial, sans-serif" }}>
-        No se encontró la orden.
-      </div>
-    );
-  }
+  const estadoBadge = badgeEstado(orden.estado);
 
   return (
     <>
-      <div
+      <main
         style={{
           minHeight: "100vh",
-          backgroundColor: "#f3f6fb",
-          padding: 32,
+          backgroundColor: "#f8fafc",
+          padding: "28px 32px 60px",
           fontFamily: "Arial, sans-serif",
         }}
       >
-        <div style={{ maxWidth: 1240, margin: "0 auto" }}>
+        <div
+          style={{
+            maxWidth: 980,
+            margin: "0 auto",
+          }}
+        >
           <Link
             href="/dashboard/servicio-tecnico"
             style={{
               display: "inline-block",
-              marginBottom: 24,
-              color: "#475569",
+              marginBottom: 18,
+              color: "#64748b",
               textDecoration: "none",
-              fontSize: 18,
+              fontSize: 15,
+              fontWeight: 600,
             }}
           >
             ← Volver
           </Link>
 
-          <div
+          <header
             style={{
               display: "flex",
               justifyContent: "space-between",
               alignItems: "flex-start",
               gap: 16,
-              flexWrap: "wrap",
-              marginBottom: 28,
+              marginBottom: 22,
             }}
           >
             <div>
-              <h1
+              <div
                 style={{
-                  fontSize: 56,
-                  margin: 0,
-                  color: "#0f172a",
-                  fontWeight: 500,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  flexWrap: "wrap",
                 }}
               >
-                {orden.codigo}
-              </h1>
+                <h1
+                  style={{
+                    margin: 0,
+                    fontSize: 30,
+                    color: "#0f172a",
+                    fontWeight: 800,
+                  }}
+                >
+                  {orden.codigo}
+                </h1>
+
+                <span
+                  style={{
+                    backgroundColor: estadoBadge.bg,
+                    color: estadoBadge.color,
+                    padding: "6px 12px",
+                    borderRadius: 999,
+                    fontSize: 12,
+                    fontWeight: 800,
+                  }}
+                >
+                  {normalizarEstado(orden.estado)}
+                </span>
+
+                <span
+                  style={{
+                    backgroundColor: "#dbeafe",
+                    color: "#2563eb",
+                    padding: "6px 12px",
+                    borderRadius: 999,
+                    fontSize: 12,
+                    fontWeight: 800,
+                  }}
+                >
+                  {orden.prioridad || "Media"}
+                </span>
+              </div>
 
               <div
                 style={{
-                  marginTop: 12,
-                  fontSize: 20,
+                  marginTop: 6,
+                  fontSize: 14,
                   color: "#64748b",
                 }}
               >
-                {orden.equipo}
+                {formatFecha(orden.created_at)}
+              </div>
+            </div>
+
+            <button
+              onClick={generarPDF}
+              disabled={generandoPdf}
+              style={{
+                backgroundColor: "#16a34a",
+                color: "white",
+                border: "none",
+                borderRadius: 12,
+                padding: "12px 16px",
+                cursor: "pointer",
+                fontWeight: 800,
+                fontSize: 14,
+                opacity: generandoPdf ? 0.7 : 1,
+              }}
+            >
+              {generandoPdf ? "Generando..." : "📄 Descargar PDF"}
+            </button>
+          </header>
+
+          <section
+            style={{
+              backgroundColor: "white",
+              borderRadius: 18,
+              padding: 22,
+              border: "1px solid #e2e8f0",
+              marginBottom: 18,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 0,
+                justifyContent: "space-between",
+              }}
+            >
+              {ETAPAS.map((etapa, index) => {
+                const completada = index <= etapaActualIndex;
+                const actual = index === etapaActualIndex;
+
+                return (
+                  <div
+                    key={etapa}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      flex: 1,
+                    }}
+                  >
+                    <div
+                      style={{
+                        textAlign: "center",
+                        minWidth: 78,
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: "50%",
+                          margin: "0 auto 8px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          backgroundColor: actual
+                            ? "#2563eb"
+                            : completada
+                            ? "#dbeafe"
+                            : "#e5e7eb",
+                          color: actual
+                            ? "white"
+                            : completada
+                            ? "#2563eb"
+                            : "#94a3b8",
+                          fontWeight: 800,
+                          fontSize: 16,
+                        }}
+                      >
+                        {ICONOS[etapa]}
+                      </div>
+
+                      <div
+                        style={{
+                          fontSize: 12,
+                          fontWeight: actual ? 800 : 700,
+                          color: completada ? "#2563eb" : "#94a3b8",
+                        }}
+                      >
+                        {etapa}
+                      </div>
+                    </div>
+
+                    {index < ETAPAS.length - 1 && (
+                      <div
+                        style={{
+                          height: 3,
+                          flex: 1,
+                          backgroundColor:
+                            index < etapaActualIndex
+                              ? "#2563eb"
+                              : "#e5e7eb",
+                          margin: "0 4px 26px",
+                          borderRadius: 999,
+                        }}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section
+            style={{
+              backgroundColor: "white",
+              borderRadius: 18,
+              padding: 20,
+              border: "1px solid #e2e8f0",
+              marginBottom: 18,
+              display: "flex",
+              alignItems: "center",
+              gap: 14,
+              flexWrap: "wrap",
+            }}
+          >
+            <label
+              style={{
+                fontWeight: 800,
+                color: "#0f172a",
+              }}
+            >
+              Cambiar estado:
+            </label>
+
+            <select
+              value={estadoSeleccionado}
+              onChange={(e) => setEstadoSeleccionado(e.target.value)}
+              style={{
+                minWidth: 220,
+                padding: "12px 14px",
+                borderRadius: 12,
+                border: "1px solid #cbd5e1",
+                backgroundColor: "white",
+                fontWeight: 600,
+              }}
+            >
+              {ETAPAS.map((etapa) => (
+                <option key={etapa} value={etapa}>
+                  {etapa}
+                </option>
+              ))}
+            </select>
+
+            <button
+              onClick={guardarEstadoSeleccionado}
+              disabled={guardandoEstado}
+              style={{
+                backgroundColor: "#0f172a",
+                color: "white",
+                border: "none",
+                borderRadius: 12,
+                padding: "12px 16px",
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              {guardandoEstado ? "Guardando..." : "Guardar estado"}
+            </button>
+          </section>
+
+          <section
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 18,
+              marginBottom: 18,
+            }}
+          >
+            <div
+              style={{
+                backgroundColor: "white",
+                borderRadius: 18,
+                padding: 22,
+                border: "1px solid #e2e8f0",
+              }}
+            >
+              <h2
+                style={{
+                  fontSize: 18,
+                  margin: "0 0 16px",
+                  color: "#0f172a",
+                }}
+              >
+                🔧 Equipo
+              </h2>
+
+              <div style={{ display: "grid", gap: 10 }}>
+                <Campo label="Tipo" value={orden.equipo} />
+                <Campo label="Marca" value={orden.marca} />
+                <Campo label="Modelo" value={orden.modelo} />
+                <Campo label="Serie" value={orden.numero_serie} />
+                <Campo
+                  label="Accesorios"
+                  value={orden.accesorios_entregados}
+                />
               </div>
             </div>
 
             <div
               style={{
-                display: "flex",
-                gap: 12,
-                flexWrap: "wrap",
+                backgroundColor: "white",
+                borderRadius: 18,
+                padding: 22,
+                border: "1px solid #e2e8f0",
               }}
             >
-              <button
-                onClick={generarPDF}
-                disabled={generandoPdf}
+              <h2
                 style={{
-                  backgroundColor: "#16a34a",
-                  color: "white",
-                  border: "none",
-                  borderRadius: 14,
-                  padding: "16px 22px",
-                  cursor: "pointer",
-                  fontWeight: 700,
-                  fontSize: 16,
-                  opacity: generandoPdf ? 0.7 : 1,
+                  fontSize: 18,
+                  margin: "0 0 16px",
+                  color: "#0f172a",
                 }}
               >
-                {generandoPdf ? "Generando PDF..." : "📄 Descargar PDF"}
-              </button>
+                📋 Detalle
+              </h2>
+
+              <div style={{ display: "grid", gap: 10 }}>
+                <Campo label="Cliente" value={orden.cliente} />
+                <Campo label="Email" value={orden.cliente_email} />
+                <Campo label="Problema" value={orden.problema_reportado} />
+                <Campo
+                  label="Observaciones"
+                  value={orden.observaciones_iniciales}
+                />
+              </div>
+            </div>
+          </section>
+
+          <section
+            style={{
+              backgroundColor: "white",
+              borderRadius: 18,
+              padding: 22,
+              border: "1px solid #e2e8f0",
+              marginBottom: 18,
+            }}
+          >
+            <h2
+              style={{
+                fontSize: 18,
+                margin: "0 0 16px",
+                color: "#0f172a",
+              }}
+            >
+              📷 Fotos iniciales
+            </h2>
+
+            {fotosIngreso.length === 0 ? (
+              <div style={{ color: "#64748b" }}>
+                No hay fotos iniciales registradas.
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+                {fotosIngreso.map((fotoUrl, index) => (
+                  <img
+                    key={`${fotoUrl}-${index}`}
+                    src={fotoUrl}
+                    alt={`Foto inicial ${index + 1}`}
+                    onClick={() => setFotoModal(fotoUrl)}
+                    style={{
+                      width: 130,
+                      height: 130,
+                      objectFit: "cover",
+                      borderRadius: 12,
+                      border: "1px solid #dbe4f0",
+                      cursor: "pointer",
+                      backgroundColor: "white",
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section
+            style={{
+              backgroundColor: "white",
+              borderRadius: 18,
+              padding: 22,
+              border: "1px solid #e2e8f0",
+              marginBottom: 18,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                marginBottom: 16,
+              }}
+            >
+              <h2
+                style={{
+                  fontSize: 18,
+                  margin: 0,
+                  color: "#0f172a",
+                }}
+              >
+                🧾 Reportes ({reportes.length})
+              </h2>
 
               <Link
                 href={`/dashboard/servicio-tecnico/${orden.id}/nuevo-reporte`}
@@ -524,417 +891,168 @@ export default function DetalleOrdenPage() {
                   backgroundColor: "#2563eb",
                   color: "white",
                   textDecoration: "none",
-                  padding: "16px 22px",
-                  borderRadius: 14,
-                  fontWeight: 700,
-                  fontSize: 16,
-                  display: "inline-block",
+                  padding: "10px 14px",
+                  borderRadius: 10,
+                  fontWeight: 800,
+                  fontSize: 13,
                 }}
               >
                 + Nuevo Reporte
               </Link>
             </div>
-          </div>
-
-          <div
-            style={{
-              backgroundColor: "white",
-              borderRadius: 24,
-              padding: "36px 28px",
-              border: "1px solid #e2e8f0",
-              marginBottom: 28,
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 16,
-                flexWrap: "wrap",
-              }}
-            >
-              {ETAPAS.map((etapa, index) => {
-                const completada = index <= etapaActualIndex;
-
-                return (
-                  <div
-                    key={etapa}
-                    style={{
-                      flex: 1,
-                      minWidth: 90,
-                      textAlign: "center",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: 64,
-                        height: 64,
-                        borderRadius: "50%",
-                        margin: "0 auto 12px auto",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        backgroundColor: completada ? "#2563eb" : "#e2e8f0",
-                        color: completada ? "white" : "#64748b",
-                        fontWeight: 700,
-                        fontSize: 18,
-                      }}
-                    >
-                      {index + 1}
-                    </div>
-
-                    <div
-                      style={{
-                        fontSize: 18,
-                        fontWeight: completada ? 600 : 500,
-                        color: completada ? "#2563eb" : "#94a3b8",
-                      }}
-                    >
-                      {etapa}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 28,
-              marginBottom: 28,
-            }}
-          >
-            <div
-              style={{
-                backgroundColor: "white",
-                borderRadius: 24,
-                border: "1px solid #e2e8f0",
-                padding: 32,
-              }}
-            >
-              <div style={{ fontSize: 18, color: "#64748b", marginBottom: 20 }}>
-                Cliente
-              </div>
-              <div style={{ fontSize: 30, fontWeight: 700, color: "#0f172a" }}>
-                {orden.cliente}
-              </div>
-            </div>
-
-            <div
-              style={{
-                backgroundColor: "white",
-                borderRadius: 24,
-                border: "1px solid #e2e8f0",
-                padding: 32,
-              }}
-            >
-              <div style={{ fontSize: 18, color: "#64748b", marginBottom: 20 }}>
-                Estado actual
-              </div>
-              <div style={{ fontSize: 30, fontWeight: 700, color: "#0f172a" }}>
-                {orden.estado}
-              </div>
-            </div>
-          </div>
-
-          <div
-            style={{
-              backgroundColor: "white",
-              borderRadius: 24,
-              border: "1px solid #e2e8f0",
-              padding: 32,
-              marginBottom: 28,
-            }}
-          >
-            <h2 style={{ fontSize: 28, margin: "0 0 22px 0", color: "#0f172a" }}>
-              Información de ingreso
-            </h2>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                gap: 16,
-                marginBottom: 20,
-              }}
-            >
-              <Campo label="Equipo" value={orden.equipo} />
-              <Campo label="Marca" value={orden.marca} />
-              <Campo label="Modelo" value={orden.modelo} />
-              <Campo label="Número de serie" value={orden.numero_serie} />
-              <Campo label="Prioridad" value={orden.prioridad} />
-              <Campo label="Fecha de ingreso" value={formatFecha(orden.created_at)} />
-            </div>
-
-            <div style={{ display: "grid", gap: 16 }}>
-              <Campo label="Accesorios entregados" value={orden.accesorios_entregados} />
-              <Campo label="Problema reportado" value={orden.problema_reportado} />
-              <Campo
-                label="Observaciones iniciales"
-                value={orden.observaciones_iniciales}
-              />
-            </div>
-
-            <div style={{ marginTop: 28 }}>
-              <h3 style={{ fontSize: 20, margin: "0 0 14px 0", color: "#0f172a" }}>
-                Fotos del estado inicial
-              </h3>
-
-              {fotosIngreso.length === 0 ? (
-                <div style={{ color: "#64748b", fontSize: 16 }}>
-                  No hay fotos iniciales registradas.
-                </div>
-              ) : (
-                <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-                  {fotosIngreso.map((fotoUrl, index) => (
-                    <img
-                      key={`${fotoUrl}-${index}`}
-                      src={fotoUrl}
-                      alt={`Foto inicial ${index + 1}`}
-                      onClick={() => setFotoModal(fotoUrl)}
-                      style={{
-                        width: 180,
-                        height: 180,
-                        objectFit: "cover",
-                        borderRadius: 16,
-                        border: "1px solid #dbe4f0",
-                        cursor: "pointer",
-                        backgroundColor: "white",
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div
-            style={{
-              backgroundColor: "white",
-              borderRadius: 24,
-              border: "1px solid #e2e8f0",
-              padding: 32,
-            }}
-          >
-            <h2 style={{ fontSize: 28, margin: "0 0 28px 0", color: "#0f172a" }}>
-              Reportes
-            </h2>
 
             {reportes.length === 0 ? (
-              <div style={{ color: "#64748b", fontSize: 18 }}>
+              <div style={{ color: "#64748b" }}>
                 Todavía no hay reportes para esta orden.
               </div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              <div style={{ display: "grid", gap: 14 }}>
                 {reportes.map((reporte) => {
+                  const badge = badgeEstado(reporte.etapa);
                   const fotos = reporte.reporte_fotos || [];
                   const fotoPrincipal =
                     fotos.find((f) => f.es_principal) || fotos[0] || null;
-                  const fotosSecundarias = fotos.filter(
-                    (f) => f.id !== fotoPrincipal?.id
-                  );
 
                   return (
                     <div
                       key={reporte.id}
                       style={{
-                        border: "1px solid #dbe4f0",
-                        borderRadius: 20,
-                        padding: 26,
-                        backgroundColor: "#fcfdff",
+                        border: "1px solid #e2e8f0",
+                        borderRadius: 14,
+                        padding: 18,
+                        backgroundColor: "#f8fafc",
                       }}
                     >
                       <div
                         style={{
                           display: "flex",
                           justifyContent: "space-between",
-                          alignItems: "flex-start",
-                          gap: 16,
-                          marginBottom: 18,
-                          flexWrap: "wrap",
+                          gap: 12,
+                          marginBottom: 10,
                         }}
                       >
                         <span
                           style={{
-                            display: "inline-block",
-                            backgroundColor: "#dbeafe",
-                            color: "#2563eb",
-                            fontWeight: 700,
-                            fontSize: 16,
-                            padding: "8px 14px",
+                            backgroundColor: badge.bg,
+                            color: badge.color,
+                            padding: "6px 10px",
                             borderRadius: 999,
+                            fontSize: 12,
+                            fontWeight: 800,
                           }}
                         >
                           {reporte.etapa}
                         </span>
 
-                        <div style={{ color: "#64748b", fontSize: 16 }}>
+                        <span
+                          style={{
+                            color: "#64748b",
+                            fontSize: 13,
+                            fontWeight: 600,
+                          }}
+                        >
                           {formatFecha(reporte.created_at)}
-                        </div>
+                        </span>
                       </div>
 
                       {reporte.descripcion ? (
-                        <div style={{ marginBottom: 10, color: "#0f172a", fontSize: 18 }}>
+                        <p
+                          style={{
+                            margin: "0 0 8px",
+                            fontWeight: 700,
+                            color: "#0f172a",
+                          }}
+                        >
                           {reporte.descripcion}
-                        </div>
+                        </p>
                       ) : null}
 
                       {reporte.hallazgos ? (
-                        <div style={{ marginBottom: 8, fontSize: 18, color: "#0f172a" }}>
+                        <p style={{ margin: "0 0 6px", color: "#334155" }}>
                           <strong>Hallazgos:</strong> {reporte.hallazgos}
-                        </div>
+                        </p>
                       ) : null}
 
                       {reporte.acciones ? (
-                        <div style={{ marginBottom: 8, fontSize: 18, color: "#0f172a" }}>
+                        <p style={{ margin: "0 0 6px", color: "#334155" }}>
                           <strong>Acciones:</strong> {reporte.acciones}
-                        </div>
+                        </p>
                       ) : null}
 
                       {reporte.costo != null ? (
-                        <div style={{ marginBottom: 12, fontSize: 18, color: "#0f172a" }}>
+                        <p style={{ margin: "0 0 10px", color: "#334155" }}>
                           <strong>Costo:</strong> {formatMoneda(reporte.costo)}
-                        </div>
+                        </p>
                       ) : null}
 
-                      {fotoPrincipal && (
-                        <div style={{ marginTop: 16, marginBottom: 18 }}>
-                          <div
-                            style={{
-                              fontSize: 15,
-                              fontWeight: 700,
-                              color: "#475569",
-                              marginBottom: 10,
-                            }}
-                          >
-                            Foto principal
-                          </div>
-
-                          <div style={{ position: "relative", width: 280, maxWidth: "100%" }}>
-                            <img
-                              src={fotoPrincipal.foto_url}
-                              alt="foto principal"
-                              onClick={() => setFotoModal(fotoPrincipal.foto_url)}
-                              style={{
-                                width: "100%",
-                                height: 230,
-                                objectFit: "cover",
-                                borderRadius: 16,
-                                border: "1px solid #dbe4f0",
-                                cursor: "pointer",
-                                display: "block",
-                              }}
-                            />
-
-                            <button
-                              onClick={() => confirmarEliminarFoto(fotoPrincipal)}
-                              disabled={eliminandoFotoId === fotoPrincipal.id}
-                              style={{
-                                position: "absolute",
-                                top: 8,
-                                right: 8,
-                                width: 30,
-                                height: 30,
-                                borderRadius: "50%",
-                                border: "none",
-                                backgroundColor: "rgba(15, 23, 42, 0.8)",
-                                color: "white",
-                                cursor: "pointer",
-                                fontWeight: 700,
-                              }}
-                            >
-                              {eliminandoFotoId === fotoPrincipal.id ? "…" : "×"}
-                            </button>
-                          </div>
-
-                          {fotoPrincipal.comentario ? (
-                            <div style={{ marginTop: 10, fontSize: 16, color: "#475569" }}>
-                              <strong>Comentario:</strong> {fotoPrincipal.comentario}
-                            </div>
-                          ) : null}
-                        </div>
-                      )}
-
-                      {fotosSecundarias.length > 0 && (
-                        <div style={{ marginTop: 10 }}>
-                          <div
-                            style={{
-                              fontSize: 15,
-                              fontWeight: 700,
-                              color: "#475569",
-                              marginBottom: 10,
-                            }}
-                          >
-                            Fotos adicionales
-                          </div>
-
-                          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                            {fotosSecundarias.map((foto) => (
-                              <div key={foto.id} style={{ width: 150 }}>
-                                <div style={{ position: "relative", width: 150, height: 150 }}>
-                                  <img
-                                    src={foto.foto_url}
-                                    alt="foto reporte"
-                                    onClick={() => setFotoModal(foto.foto_url)}
-                                    style={{
-                                      width: 150,
-                                      height: 150,
-                                      objectFit: "cover",
-                                      borderRadius: 14,
-                                      border: "1px solid #dbe4f0",
-                                      backgroundColor: "white",
-                                      cursor: "pointer",
-                                    }}
-                                  />
-
-                                  <button
-                                    onClick={() => confirmarEliminarFoto(foto)}
-                                    disabled={eliminandoFotoId === foto.id}
-                                    style={{
-                                      position: "absolute",
-                                      top: 8,
-                                      right: 8,
-                                      width: 28,
-                                      height: 28,
-                                      borderRadius: "50%",
-                                      border: "none",
-                                      backgroundColor: "rgba(15, 23, 42, 0.8)",
-                                      color: "white",
-                                      cursor: "pointer",
-                                      fontWeight: 700,
-                                    }}
-                                  >
-                                    {eliminandoFotoId === foto.id ? "…" : "×"}
-                                  </button>
-                                </div>
-
-                                {foto.comentario ? (
-                                  <div
-                                    style={{
-                                      marginTop: 8,
-                                      fontSize: 14,
-                                      color: "#475569",
-                                      lineHeight: 1.35,
-                                    }}
-                                  >
-                                    {foto.comentario}
-                                  </div>
-                                ) : null}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                      {fotoPrincipal ? (
+                        <img
+                          src={fotoPrincipal.foto_url}
+                          alt="foto reporte"
+                          onClick={() => setFotoModal(fotoPrincipal.foto_url)}
+                          style={{
+                            width: 120,
+                            height: 120,
+                            objectFit: "cover",
+                            borderRadius: 12,
+                            border: "1px solid #cbd5e1",
+                            cursor: "pointer",
+                            marginTop: 8,
+                          }}
+                        />
+                      ) : null}
                     </div>
                   );
                 })}
               </div>
             )}
-          </div>
+          </section>
+
+          <section
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 16,
+              alignItems: "center",
+            }}
+          >
+            <button
+              onClick={retrocederEtapa}
+              disabled={!etapaAnterior || guardandoEstado}
+              style={{
+                backgroundColor: "white",
+                color: etapaAnterior ? "#0f172a" : "#94a3b8",
+                border: "1px solid #cbd5e1",
+                borderRadius: 12,
+                padding: "13px 18px",
+                cursor: etapaAnterior ? "pointer" : "not-allowed",
+                fontWeight: 800,
+              }}
+            >
+              ← Retroceder
+              {etapaAnterior ? ` a ${etapaAnterior}` : ""}
+            </button>
+
+            <button
+              onClick={avanzarEtapa}
+              disabled={!etapaSiguiente || guardandoEstado}
+              style={{
+                backgroundColor: etapaSiguiente ? "#2563eb" : "#94a3b8",
+                color: "white",
+                border: "none",
+                borderRadius: 12,
+                padding: "13px 20px",
+                cursor: etapaSiguiente ? "pointer" : "not-allowed",
+                fontWeight: 900,
+              }}
+            >
+              {etapaSiguiente
+                ? `Grabar y avanzar → ${etapaSiguiente}`
+                : "Orden finalizada"}
+            </button>
+          </section>
         </div>
-      </div>
+      </main>
 
       {fotoModal && (
         <div
@@ -1012,336 +1130,56 @@ export default function DetalleOrdenPage() {
               backgroundColor: "#ffffff",
             }}
           >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 18,
-                marginBottom: 22,
-                paddingBottom: 18,
-                borderBottom: "2px solid #e2e8f0",
-              }}
-            >
-              <img
-                src="/logo.png"
-                alt="MJ Industrial"
-                style={{
-                  height: 64,
-                  width: "auto",
-                  objectFit: "contain",
-                  display: "block",
-                }}
-              />
+            <h1>Informe Técnico</h1>
+            <p>
+              <strong>Código:</strong> {orden.codigo}
+            </p>
+            <p>
+              <strong>Cliente:</strong> {orden.cliente}
+            </p>
+            <p>
+              <strong>Equipo:</strong> {orden.equipo}
+            </p>
+            <p>
+              <strong>Estado:</strong> {orden.estado}
+            </p>
 
-              <div>
-                <div style={{ fontSize: 26, fontWeight: 700, marginBottom: 4 }}>
-                  Informe Técnico
-                </div>
+            <h2>Reportes</h2>
 
-                <div style={{ fontSize: 14, color: "#64748b" }}>
-                  Generado {formatFecha(new Date().toISOString())}
-                </div>
-              </div>
-            </div>
-
-            <div
-              style={{
-                border: "1px solid #dbe4f0",
-                borderRadius: 14,
-                padding: 18,
-                marginBottom: 24,
-                backgroundColor: "#ffffff",
-              }}
-            >
-              <div style={{ marginBottom: 8 }}>
-                <strong>Código:</strong> {orden.codigo}
-              </div>
-              <div style={{ marginBottom: 8 }}>
-                <strong>Cliente:</strong> {orden.cliente}
-              </div>
-              <div style={{ marginBottom: 8 }}>
-                <strong>Equipo:</strong> {orden.equipo}
-              </div>
-              {orden.marca ? (
-                <div style={{ marginBottom: 8 }}>
-                  <strong>Marca:</strong> {orden.marca}
-                </div>
-              ) : null}
-              {orden.modelo ? (
-                <div style={{ marginBottom: 8 }}>
-                  <strong>Modelo:</strong> {orden.modelo}
-                </div>
-              ) : null}
-              {orden.numero_serie ? (
-                <div style={{ marginBottom: 8 }}>
-                  <strong>Número de serie:</strong> {orden.numero_serie}
-                </div>
-              ) : null}
-              <div style={{ marginBottom: 8 }}>
-                <strong>Estado actual:</strong> {orden.estado}
-              </div>
-              {orden.prioridad ? (
-                <div style={{ marginBottom: 8 }}>
-                  <strong>Prioridad:</strong> {orden.prioridad}
-                </div>
-              ) : null}
-              {orden.accesorios_entregados ? (
-                <div style={{ marginBottom: 8 }}>
-                  <strong>Accesorios entregados:</strong>{" "}
-                  {orden.accesorios_entregados}
-                </div>
-              ) : null}
-              {orden.problema_reportado ? (
-                <div style={{ marginBottom: 8 }}>
-                  <strong>Problema reportado:</strong>{" "}
-                  {orden.problema_reportado}
-                </div>
-              ) : null}
-              {orden.observaciones_iniciales ? (
-                <div style={{ marginBottom: 8 }}>
-                  <strong>Observaciones iniciales:</strong>{" "}
-                  {orden.observaciones_iniciales}
-                </div>
-              ) : null}
-            </div>
-
-            {fotosIngreso.length > 0 ? (
+            {reportes.map((reporte) => (
               <div
+                key={reporte.id}
                 style={{
                   border: "1px solid #dbe4f0",
                   borderRadius: 14,
                   padding: 18,
-                  marginBottom: 24,
-                  backgroundColor: "#ffffff",
-                  pageBreakInside: "avoid",
-                  breakInside: "avoid",
+                  marginBottom: 18,
                 }}
               >
-                <h2 style={{ fontSize: 20, margin: "0 0 14px 0" }}>
-                  Fotos del estado inicial
-                </h2>
-
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: 12,
-                  }}
-                >
-                  {fotosIngreso.map((fotoUrl, index) => (
-                    <div
-                      key={`${fotoUrl}-${index}`}
-                      style={{
-                        border: "1px solid #dbe4f0",
-                        borderRadius: 10,
-                        minHeight: 180,
-                        padding: 10,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        backgroundColor: "#ffffff",
-                        pageBreakInside: "avoid",
-                        breakInside: "avoid",
-                      }}
-                    >
-                      <img
-                        src={fotoUrl}
-                        alt={`foto inicial ${index + 1}`}
-                        style={{
-                          maxWidth: "100%",
-                          maxHeight: 170,
-                          objectFit: "contain",
-                          display: "block",
-                        }}
-                      />
-                    </div>
-                  ))}
-                </div>
+                <p>
+                  <strong>Etapa:</strong> {reporte.etapa}
+                </p>
+                <p>
+                  <strong>Fecha:</strong> {formatFecha(reporte.created_at)}
+                </p>
+                {reporte.descripcion ? <p>{reporte.descripcion}</p> : null}
+                {reporte.hallazgos ? (
+                  <p>
+                    <strong>Hallazgos:</strong> {reporte.hallazgos}
+                  </p>
+                ) : null}
+                {reporte.acciones ? (
+                  <p>
+                    <strong>Acciones:</strong> {reporte.acciones}
+                  </p>
+                ) : null}
+                {reporte.costo != null ? (
+                  <p>
+                    <strong>Costo:</strong> {formatMoneda(reporte.costo)}
+                  </p>
+                ) : null}
               </div>
-            ) : null}
-
-            <h2 style={{ fontSize: 22, margin: "0 0 16px 0" }}>
-              Reportes
-            </h2>
-
-            {reportes.length === 0 ? (
-              <div style={{ color: "#475569" }}>
-                No hay reportes registrados para esta orden.
-              </div>
-            ) : (
-              reportes.map((reporte) => {
-                const fotos = reporte.reporte_fotos || [];
-                const fotoPrincipal =
-                  fotos.find((f) => f.es_principal) || fotos[0] || null;
-                const fotosSecundarias = fotos.filter(
-                  (f) => f.id !== fotoPrincipal?.id
-                );
-
-                return (
-                  <div
-                    key={reporte.id}
-                    style={{
-                      border: "1px solid #dbe4f0",
-                      borderRadius: 14,
-                      padding: 18,
-                      marginBottom: 22,
-                      backgroundColor: "#ffffff",
-                      pageBreakInside: "avoid",
-                      breakInside: "avoid",
-                      display: "block",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: 12,
-                        marginBottom: 12,
-                        alignItems: "flex-start",
-                      }}
-                    >
-                      <div>
-                        <strong>Etapa:</strong> {reporte.etapa}
-                      </div>
-                      <div style={{ color: "#475569" }}>
-                        {formatFecha(reporte.created_at)}
-                      </div>
-                    </div>
-
-                    {reporte.descripcion ? (
-                      <div style={{ marginBottom: 8 }}>
-                        <strong>Descripción:</strong> {reporte.descripcion}
-                      </div>
-                    ) : null}
-
-                    {reporte.hallazgos ? (
-                      <div style={{ marginBottom: 8 }}>
-                        <strong>Hallazgos:</strong> {reporte.hallazgos}
-                      </div>
-                    ) : null}
-
-                    {reporte.acciones ? (
-                      <div style={{ marginBottom: 8 }}>
-                        <strong>Acciones:</strong> {reporte.acciones}
-                      </div>
-                    ) : null}
-
-                    {reporte.costo != null ? (
-                      <div style={{ marginBottom: 12 }}>
-                        <strong>Costo:</strong> {formatMoneda(reporte.costo)}
-                      </div>
-                    ) : null}
-
-                    {fotoPrincipal ? (
-                      <div
-                        style={{
-                          marginTop: 12,
-                          marginBottom: 16,
-                          minHeight: 260,
-                          pageBreakInside: "avoid",
-                          breakInside: "avoid",
-                        }}
-                      >
-                        <div style={{ marginBottom: 8, fontWeight: 700 }}>
-                          Foto principal
-                        </div>
-
-                        <div
-                          style={{
-                            width: "100%",
-                            minHeight: 260,
-                            border: "1px solid #dbe4f0",
-                            borderRadius: 12,
-                            backgroundColor: "#ffffff",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            padding: 14,
-                            boxSizing: "border-box",
-                          }}
-                        >
-                          <img
-                            src={fotoPrincipal.foto_url}
-                            alt="foto principal"
-                            style={{
-                              maxWidth: "100%",
-                              maxHeight: 230,
-                              objectFit: "contain",
-                              display: "block",
-                            }}
-                          />
-                        </div>
-
-                        {fotoPrincipal.comentario ? (
-                          <div style={{ marginTop: 8 }}>
-                            <strong>Comentario foto principal:</strong>{" "}
-                            {fotoPrincipal.comentario}
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-
-                    {fotosSecundarias.length > 0 ? (
-                      <div style={{ marginTop: 16 }}>
-                        <div style={{ marginBottom: 10, fontWeight: 700 }}>
-                          Fotos adicionales
-                        </div>
-
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "1fr 1fr",
-                            gap: 12,
-                          }}
-                        >
-                          {fotosSecundarias.map((foto) => (
-                            <div key={foto.id}>
-                              <div
-                                style={{
-                                  width: "100%",
-                                  minHeight: 170,
-                                  border: "1px solid #dbe4f0",
-                                  borderRadius: 10,
-                                  backgroundColor: "#ffffff",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                  padding: 10,
-                                  boxSizing: "border-box",
-                                }}
-                              >
-                                <img
-                                  src={foto.foto_url}
-                                  alt="foto adicional"
-                                  style={{
-                                    maxWidth: "100%",
-                                    maxHeight: 150,
-                                    objectFit: "contain",
-                                    display: "block",
-                                  }}
-                                />
-                              </div>
-
-                              {foto.comentario ? (
-                                <div
-                                  style={{
-                                    marginTop: 6,
-                                    fontSize: 13,
-                                    color: "#334155",
-                                  }}
-                                >
-                                  {foto.comentario}
-                                </div>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })
-            )}
+            ))}
           </div>
         </div>
       </div>
