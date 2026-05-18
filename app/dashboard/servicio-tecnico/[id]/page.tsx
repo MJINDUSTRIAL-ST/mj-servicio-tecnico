@@ -67,8 +67,17 @@ const ICONOS: Record<string, string> = {
   Entregado: "🚚",
 };
 
+function normalizarEstado(estado?: string | null) {
+  if (!estado) return "Ingreso";
+  if (estado === "Mant.") return "Mantenimiento";
+  if (estado === "Repar.") return "Reparación";
+  if (estado === "Listo p/Entrega") return "Listo";
+  return estado;
+}
+
 function formatFecha(fecha?: string | null) {
-  if (!fecha) return "";
+  if (!fecha) return "-";
+
   try {
     return new Date(fecha).toLocaleString("es-CL");
   } catch {
@@ -77,7 +86,8 @@ function formatFecha(fecha?: string | null) {
 }
 
 function formatMoneda(valor?: number | null) {
-  if (valor == null) return "";
+  if (valor == null) return "-";
+
   return new Intl.NumberFormat("es-CL", {
     style: "currency",
     currency: "CLP",
@@ -95,7 +105,9 @@ function normalizarFotosIngreso(fotos?: string | string[] | null) {
   if (typeof fotos === "string") {
     try {
       const parsed = JSON.parse(fotos);
-      if (Array.isArray(parsed)) return parsed.filter(Boolean);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(Boolean);
+      }
     } catch {}
 
     return fotos
@@ -107,12 +119,48 @@ function normalizarFotosIngreso(fotos?: string | string[] | null) {
   return [];
 }
 
-function normalizarEstado(estado?: string | null) {
-  if (!estado) return "Ingreso";
-  if (estado === "Mant.") return "Mantenimiento";
-  if (estado === "Repar.") return "Reparación";
-  if (estado === "Listo p/Entrega") return "Listo";
-  return estado;
+function badgeEstado(estado: string) {
+  const estadoNormal = normalizarEstado(estado);
+
+  if (estadoNormal === "Cotización") {
+    return {
+      bg: "#fef3c7",
+      color: "#b45309",
+    };
+  }
+
+  if (estadoNormal === "Listo" || estadoNormal === "Entregado") {
+    return {
+      bg: "#dcfce7",
+      color: "#15803d",
+    };
+  }
+
+  if (estadoNormal === "Reparación") {
+    return {
+      bg: "#ffedd5",
+      color: "#c2410c",
+    };
+  }
+
+  if (estadoNormal === "Mantenimiento") {
+    return {
+      bg: "#cffafe",
+      color: "#0e7490",
+    };
+  }
+
+  if (estadoNormal === "Ingreso") {
+    return {
+      bg: "#e2e8f0",
+      color: "#334155",
+    };
+  }
+
+  return {
+    bg: "#dbeafe",
+    color: "#2563eb",
+  };
 }
 
 function Campo({
@@ -126,15 +174,21 @@ function Campo({
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "140px 1fr",
+        gridTemplateColumns: "145px 1fr",
         gap: 12,
         fontSize: 15,
-        lineHeight: 1.5,
+        lineHeight: 1.45,
       }}
     >
-      <div style={{ color: "#64748b", fontWeight: 700 }}>
+      <div
+        style={{
+          color: "#64748b",
+          fontWeight: 700,
+        }}
+      >
         {label}:
       </div>
+
       <div
         style={{
           color: "#0f172a",
@@ -148,41 +202,23 @@ function Campo({
   );
 }
 
-function badgeEstado(estado: string) {
-  const normalizado = normalizarEstado(estado);
-
-  if (normalizado === "Cotización") {
-    return {
-      bg: "#fef3c7",
-      color: "#b45309",
-    };
-  }
-
-  if (normalizado === "Listo" || normalizado === "Entregado") {
-    return {
-      bg: "#dcfce7",
-      color: "#15803d",
-    };
-  }
-
-  if (normalizado === "Reparación") {
-    return {
-      bg: "#ffedd5",
-      color: "#c2410c",
-    };
-  }
-
-  if (normalizado === "Mantenimiento") {
-    return {
-      bg: "#cffafe",
-      color: "#0e7490",
-    };
-  }
-
-  return {
-    bg: "#dbeafe",
-    color: "#2563eb",
-  };
+function CampoPDF({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string | null;
+}) {
+  return (
+    <div
+      style={{
+        fontSize: 14,
+        lineHeight: 1.45,
+      }}
+    >
+      <strong>{label}:</strong> {value || "-"}
+    </div>
+  );
 }
 
 export default function DetalleOrdenPage() {
@@ -195,6 +231,7 @@ export default function DetalleOrdenPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [fotoModal, setFotoModal] = useState<string | null>(null);
+  const [eliminandoFotoId, setEliminandoFotoId] = useState<string | null>(null);
   const [guardandoEstado, setGuardandoEstado] = useState(false);
   const [generandoPdf, setGenerandoPdf] = useState(false);
 
@@ -206,21 +243,21 @@ export default function DetalleOrdenPage() {
 
   const etapaActualIndex = useMemo(() => {
     const estado = normalizarEstado(orden?.estado);
-    return ETAPAS.indexOf(estado);
+    const index = ETAPAS.indexOf(estado);
+    return index >= 0 ? index : 0;
   }, [orden?.estado]);
 
   const etapaSeleccionadaIndex = useMemo(() => {
-    return ETAPAS.indexOf(normalizarEstado(estadoSeleccionado));
+    const estado = normalizarEstado(estadoSeleccionado);
+    const index = ETAPAS.indexOf(estado);
+    return index >= 0 ? index : 0;
   }, [estadoSeleccionado]);
 
   const etapaAnterior =
-    etapaSeleccionadaIndex > 0
-      ? ETAPAS[etapaSeleccionadaIndex - 1]
-      : null;
+    etapaSeleccionadaIndex > 0 ? ETAPAS[etapaSeleccionadaIndex - 1] : null;
 
   const etapaSiguiente =
-    etapaSeleccionadaIndex >= 0 &&
-    etapaSeleccionadaIndex < ETAPAS.length - 1
+    etapaSeleccionadaIndex >= 0 && etapaSeleccionadaIndex < ETAPAS.length - 1
       ? ETAPAS[etapaSeleccionadaIndex + 1]
       : null;
 
@@ -230,7 +267,9 @@ export default function DetalleOrdenPage() {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setFotoModal(null);
+      if (e.key === "Escape") {
+        setFotoModal(null);
+      }
     }
 
     window.addEventListener("keydown", onKeyDown);
@@ -284,18 +323,22 @@ export default function DetalleOrdenPage() {
       return;
     }
 
-    const normalizados = ((reportesData || []) as Reporte[]).map((reporte) => ({
-      ...reporte,
-      reporte_fotos: [...(reporte.reporte_fotos || [])].sort((a, b) => {
-        const ordenA = a.orden ?? 0;
-        const ordenB = b.orden ?? 0;
-        return ordenA - ordenB;
-      }),
-    }));
+    const reportesNormalizados = ((reportesData || []) as Reporte[]).map(
+      (reporte) => ({
+        ...reporte,
+        reporte_fotos: [...(reporte.reporte_fotos || [])].sort((a, b) => {
+          const ordenA = a.orden ?? 0;
+          const ordenB = b.orden ?? 0;
+          return ordenA - ordenB;
+        }),
+      })
+    );
 
-    setOrden(ordenData as Orden);
-    setEstadoSeleccionado(normalizarEstado((ordenData as Orden).estado));
-    setReportes(normalizados);
+    const ordenFinal = ordenData as Orden;
+
+    setOrden(ordenFinal);
+    setEstadoSeleccionado(normalizarEstado(ordenFinal.estado));
+    setReportes(reportesNormalizados);
     setLoading(false);
   }
 
@@ -342,6 +385,76 @@ export default function DetalleOrdenPage() {
     await actualizarEstado(etapaSiguiente);
   }
 
+  async function eliminarFotoDb(foto: ReporteFoto) {
+    if (!foto?.id) return;
+
+    setEliminandoFotoId(foto.id);
+
+    try {
+      if (foto.storage_path) {
+        const { error: errorStorage } = await supabase.storage
+          .from("reportes")
+          .remove([foto.storage_path]);
+
+        if (errorStorage) {
+          throw new Error(
+            "Error eliminando imagen del storage: " + errorStorage.message
+          );
+        }
+      }
+
+      const { error: errorDb } = await supabase
+        .from("reporte_fotos")
+        .delete()
+        .eq("id", foto.id);
+
+      if (errorDb) {
+        throw new Error("Error eliminando registro de foto: " + errorDb.message);
+      }
+
+      setReportes((prev) =>
+        prev.map((reporte) => {
+          const contieneFoto = reporte.reporte_fotos?.some(
+            (f) => f.id === foto.id
+          );
+
+          if (!contieneFoto) return reporte;
+
+          let nuevasFotos = (reporte.reporte_fotos || []).filter(
+            (f) => f.id !== foto.id
+          );
+
+          if (
+            nuevasFotos.length > 0 &&
+            !nuevasFotos.some((f) => f.es_principal === true)
+          ) {
+            nuevasFotos = nuevasFotos.map((f, index) => ({
+              ...f,
+              es_principal: index === 0,
+            }));
+          }
+
+          return {
+            ...reporte,
+            reporte_fotos: nuevasFotos,
+          };
+        })
+      );
+
+      setFotoModal(null);
+    } catch (e: any) {
+      alert(e.message || "No se pudo eliminar la foto");
+    } finally {
+      setEliminandoFotoId(null);
+    }
+  }
+
+  async function confirmarEliminarFoto(foto: ReporteFoto) {
+    const confirmar = window.confirm("¿Eliminar esta foto?");
+    if (!confirmar) return;
+    await eliminarFotoDb(foto);
+  }
+
   async function esperarImagenes(el: HTMLElement) {
     const imagenes = Array.from(el.querySelectorAll("img"));
 
@@ -364,6 +477,7 @@ export default function DetalleOrdenPage() {
 
     try {
       const element = pdfRef.current;
+
       await esperarImagenes(element);
 
       const canvas = await html2canvas(element, {
@@ -419,7 +533,9 @@ export default function DetalleOrdenPage() {
         const pageImgData = pageCanvas.toDataURL("image/jpeg", 0.95);
         const sliceHeightMm = sliceHeight / pxPerMm;
 
-        if (pageNumber > 0) pdf.addPage();
+        if (pageNumber > 0) {
+          pdf.addPage();
+        }
 
         pdf.addImage(
           pageImgData,
@@ -443,12 +559,16 @@ export default function DetalleOrdenPage() {
   }
 
   if (loading) {
-    return <main style={{ padding: 32 }}>Cargando orden...</main>;
+    return (
+      <main style={{ padding: 32, fontFamily: "Arial, sans-serif" }}>
+        Cargando orden...
+      </main>
+    );
   }
 
   if (error || !orden) {
     return (
-      <main style={{ padding: 32 }}>
+      <main style={{ padding: 32, fontFamily: "Arial, sans-serif" }}>
         <Link
           href="/dashboard/servicio-tecnico"
           style={{
@@ -488,7 +608,7 @@ export default function DetalleOrdenPage() {
       >
         <div
           style={{
-            maxWidth: 980,
+            maxWidth: 1080,
             margin: "0 auto",
           }}
         >
@@ -599,14 +719,14 @@ export default function DetalleOrdenPage() {
               padding: 22,
               border: "1px solid #e2e8f0",
               marginBottom: 18,
+              overflowX: "auto",
             }}
           >
             <div
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 0,
-                justifyContent: "space-between",
+                minWidth: 820,
               }}
             >
               {ETAPAS.map((etapa, index) => {
@@ -625,13 +745,13 @@ export default function DetalleOrdenPage() {
                     <div
                       style={{
                         textAlign: "center",
-                        minWidth: 78,
+                        minWidth: 82,
                       }}
                     >
                       <div
                         style={{
-                          width: 42,
-                          height: 42,
+                          width: 44,
+                          height: 44,
                           borderRadius: "50%",
                           margin: "0 auto 8px",
                           display: "flex",
@@ -648,7 +768,7 @@ export default function DetalleOrdenPage() {
                             ? "#2563eb"
                             : "#94a3b8",
                           fontWeight: 800,
-                          fontSize: 16,
+                          fontSize: 17,
                         }}
                       >
                         {ICONOS[etapa]}
@@ -671,9 +791,7 @@ export default function DetalleOrdenPage() {
                           height: 3,
                           flex: 1,
                           backgroundColor:
-                            index < etapaActualIndex
-                              ? "#2563eb"
-                              : "#e5e7eb",
+                            index < etapaActualIndex ? "#2563eb" : "#e5e7eb",
                           margin: "0 4px 26px",
                           borderRadius: 999,
                         }}
@@ -736,7 +854,8 @@ export default function DetalleOrdenPage() {
                 borderRadius: 12,
                 padding: "12px 16px",
                 fontWeight: 800,
-                cursor: "pointer",
+                cursor: guardandoEstado ? "not-allowed" : "pointer",
+                opacity: guardandoEstado ? 0.7 : 1,
               }}
             >
               {guardandoEstado ? "Guardando..." : "Guardar estado"}
@@ -766,7 +885,7 @@ export default function DetalleOrdenPage() {
                   color: "#0f172a",
                 }}
               >
-                🔧 Equipo
+                🔧 Detalle del equipo
               </h2>
 
               <div style={{ display: "grid", gap: 10 }}>
@@ -774,10 +893,7 @@ export default function DetalleOrdenPage() {
                 <Campo label="Marca" value={orden.marca} />
                 <Campo label="Modelo" value={orden.modelo} />
                 <Campo label="Serie" value={orden.numero_serie} />
-                <Campo
-                  label="Accesorios"
-                  value={orden.accesorios_entregados}
-                />
+                <Campo label="Accesorios" value={orden.accesorios_entregados} />
               </div>
             </div>
 
@@ -796,7 +912,7 @@ export default function DetalleOrdenPage() {
                   color: "#0f172a",
                 }}
               >
-                📋 Detalle
+                👤 Detalle del cliente
               </h2>
 
               <div style={{ display: "grid", gap: 10 }}>
@@ -827,7 +943,7 @@ export default function DetalleOrdenPage() {
                 color: "#0f172a",
               }}
             >
-              📷 Fotos iniciales
+              📷 Fotos del estado inicial
             </h2>
 
             {fotosIngreso.length === 0 ? (
@@ -912,9 +1028,12 @@ export default function DetalleOrdenPage() {
                   const fotos = reporte.reporte_fotos || [];
                   const fotoPrincipal =
                     fotos.find((f) => f.es_principal) || fotos[0] || null;
+                  const fotosSecundarias = fotos.filter(
+                    (f) => f.id !== fotoPrincipal?.id
+                  );
 
                   return (
-                    <div
+                    <article
                       key={reporte.id}
                       style={{
                         border: "1px solid #e2e8f0",
@@ -929,6 +1048,7 @@ export default function DetalleOrdenPage() {
                           justifyContent: "space-between",
                           gap: 12,
                           marginBottom: 10,
+                          flexWrap: "wrap",
                         }}
                       >
                         <span
@@ -986,22 +1106,154 @@ export default function DetalleOrdenPage() {
                       ) : null}
 
                       {fotoPrincipal ? (
-                        <img
-                          src={fotoPrincipal.foto_url}
-                          alt="foto reporte"
-                          onClick={() => setFotoModal(fotoPrincipal.foto_url)}
-                          style={{
-                            width: 120,
-                            height: 120,
-                            objectFit: "cover",
-                            borderRadius: 12,
-                            border: "1px solid #cbd5e1",
-                            cursor: "pointer",
-                            marginTop: 8,
-                          }}
-                        />
+                        <div style={{ marginTop: 12 }}>
+                          <div
+                            style={{
+                              fontSize: 13,
+                              color: "#475569",
+                              fontWeight: 700,
+                              marginBottom: 8,
+                            }}
+                          >
+                            Foto principal
+                          </div>
+
+                          <div
+                            style={{
+                              position: "relative",
+                              width: 150,
+                              height: 150,
+                            }}
+                          >
+                            <img
+                              src={fotoPrincipal.foto_url}
+                              alt="foto reporte"
+                              onClick={() => setFotoModal(fotoPrincipal.foto_url)}
+                              style={{
+                                width: 150,
+                                height: 150,
+                                objectFit: "cover",
+                                borderRadius: 12,
+                                border: "1px solid #cbd5e1",
+                                cursor: "pointer",
+                              }}
+                            />
+
+                            <button
+                              onClick={() => confirmarEliminarFoto(fotoPrincipal)}
+                              disabled={eliminandoFotoId === fotoPrincipal.id}
+                              style={{
+                                position: "absolute",
+                                top: 6,
+                                right: 6,
+                                width: 26,
+                                height: 26,
+                                borderRadius: "50%",
+                                border: "none",
+                                backgroundColor: "rgba(15, 23, 42, 0.8)",
+                                color: "white",
+                                cursor: "pointer",
+                                fontWeight: 700,
+                              }}
+                            >
+                              {eliminandoFotoId === fotoPrincipal.id ? "…" : "×"}
+                            </button>
+                          </div>
+
+                          {fotoPrincipal.comentario ? (
+                            <div
+                              style={{
+                                marginTop: 8,
+                                color: "#475569",
+                                fontSize: 13,
+                              }}
+                            >
+                              {fotoPrincipal.comentario}
+                            </div>
+                          ) : null}
+                        </div>
                       ) : null}
-                    </div>
+
+                      {fotosSecundarias.length > 0 ? (
+                        <div style={{ marginTop: 14 }}>
+                          <div
+                            style={{
+                              fontSize: 13,
+                              color: "#475569",
+                              fontWeight: 700,
+                              marginBottom: 8,
+                            }}
+                          >
+                            Fotos adicionales
+                          </div>
+
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: 10,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            {fotosSecundarias.map((foto) => (
+                              <div
+                                key={foto.id}
+                                style={{
+                                  position: "relative",
+                                  width: 100,
+                                }}
+                              >
+                                <img
+                                  src={foto.foto_url}
+                                  alt="foto adicional"
+                                  onClick={() => setFotoModal(foto.foto_url)}
+                                  style={{
+                                    width: 100,
+                                    height: 100,
+                                    objectFit: "cover",
+                                    borderRadius: 10,
+                                    border: "1px solid #cbd5e1",
+                                    cursor: "pointer",
+                                  }}
+                                />
+
+                                <button
+                                  onClick={() => confirmarEliminarFoto(foto)}
+                                  disabled={eliminandoFotoId === foto.id}
+                                  style={{
+                                    position: "absolute",
+                                    top: 5,
+                                    right: 5,
+                                    width: 22,
+                                    height: 22,
+                                    borderRadius: "50%",
+                                    border: "none",
+                                    backgroundColor: "rgba(15, 23, 42, 0.8)",
+                                    color: "white",
+                                    cursor: "pointer",
+                                    fontWeight: 700,
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  {eliminandoFotoId === foto.id ? "…" : "×"}
+                                </button>
+
+                                {foto.comentario ? (
+                                  <div
+                                    style={{
+                                      marginTop: 5,
+                                      color: "#475569",
+                                      fontSize: 11,
+                                    }}
+                                  >
+                                    {foto.comentario}
+                                  </div>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </article>
                   );
                 })}
               </div>
@@ -1029,8 +1281,7 @@ export default function DetalleOrdenPage() {
                 fontWeight: 800,
               }}
             >
-              ← Retroceder
-              {etapaAnterior ? ` a ${etapaAnterior}` : ""}
+              ← Retroceder{etapaAnterior ? ` a ${etapaAnterior}` : ""}
             </button>
 
             <button
@@ -1128,58 +1379,374 @@ export default function DetalleOrdenPage() {
               fontFamily: "Arial, sans-serif",
               color: "#0f172a",
               backgroundColor: "#ffffff",
+              padding: 10,
             }}
           >
-            <h1>Informe Técnico</h1>
-            <p>
-              <strong>Código:</strong> {orden.codigo}
-            </p>
-            <p>
-              <strong>Cliente:</strong> {orden.cliente}
-            </p>
-            <p>
-              <strong>Equipo:</strong> {orden.equipo}
-            </p>
-            <p>
-              <strong>Estado:</strong> {orden.estado}
-            </p>
-
-            <h2>Reportes</h2>
-
-            {reportes.map((reporte) => (
-              <div
-                key={reporte.id}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                borderBottom: "3px solid #f59e0b",
+                paddingBottom: 18,
+                marginBottom: 24,
+              }}
+            >
+              <img
+                src="/logo-mj.png"
+                alt="MJ Industrial"
                 style={{
-                  border: "1px solid #dbe4f0",
-                  borderRadius: 14,
-                  padding: 18,
-                  marginBottom: 18,
+                  width: 230,
+                  height: "auto",
+                  objectFit: "contain",
+                  display: "block",
+                }}
+              />
+
+              <div style={{ textAlign: "right" }}>
+                <h1
+                  style={{
+                    fontSize: 28,
+                    margin: 0,
+                    color: "#0f172a",
+                  }}
+                >
+                  Informe Técnico
+                </h1>
+
+                <p
+                  style={{
+                    margin: "6px 0 0",
+                    color: "#64748b",
+                    fontSize: 14,
+                  }}
+                >
+                  Generado: {formatFecha(new Date().toISOString())}
+                </p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                backgroundColor: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                borderRadius: 16,
+                padding: 20,
+                marginBottom: 22,
+              }}
+            >
+              <h2 style={{ fontSize: 20, margin: "0 0 16px" }}>
+                Resumen de la orden
+              </h2>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 14,
+                  fontSize: 15,
                 }}
               >
-                <p>
-                  <strong>Etapa:</strong> {reporte.etapa}
-                </p>
-                <p>
-                  <strong>Fecha:</strong> {formatFecha(reporte.created_at)}
-                </p>
-                {reporte.descripcion ? <p>{reporte.descripcion}</p> : null}
-                {reporte.hallazgos ? (
-                  <p>
-                    <strong>Hallazgos:</strong> {reporte.hallazgos}
-                  </p>
-                ) : null}
-                {reporte.acciones ? (
-                  <p>
-                    <strong>Acciones:</strong> {reporte.acciones}
-                  </p>
-                ) : null}
-                {reporte.costo != null ? (
-                  <p>
-                    <strong>Costo:</strong> {formatMoneda(reporte.costo)}
-                  </p>
-                ) : null}
+                <CampoPDF label="Código" value={orden.codigo} />
+                <CampoPDF
+                  label="Estado actual"
+                  value={normalizarEstado(orden.estado)}
+                />
+                <CampoPDF label="Cliente" value={orden.cliente} />
+                <CampoPDF label="Email" value={orden.cliente_email} />
+                <CampoPDF label="Equipo" value={orden.equipo} />
+                <CampoPDF label="Prioridad" value={orden.prioridad || "Media"} />
+                <CampoPDF label="Marca" value={orden.marca} />
+                <CampoPDF label="Modelo" value={orden.modelo} />
+                <CampoPDF label="N° Serie" value={orden.numero_serie} />
+                <CampoPDF
+                  label="Fecha ingreso"
+                  value={formatFecha(orden.created_at)}
+                />
               </div>
-            ))}
+            </div>
+
+            <div
+              style={{
+                backgroundColor: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: 16,
+                padding: 20,
+                marginBottom: 22,
+              }}
+            >
+              <h2 style={{ fontSize: 20, margin: "0 0 16px" }}>
+                Detalle del ingreso
+              </h2>
+
+              <div style={{ fontSize: 15, lineHeight: 1.7 }}>
+                <p>
+                  <strong>Accesorios entregados:</strong>{" "}
+                  {orden.accesorios_entregados || "-"}
+                </p>
+
+                <p>
+                  <strong>Problema reportado:</strong>{" "}
+                  {orden.problema_reportado || "-"}
+                </p>
+
+                <p>
+                  <strong>Observaciones iniciales:</strong>{" "}
+                  {orden.observaciones_iniciales || "-"}
+                </p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                backgroundColor: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: 16,
+                padding: 20,
+                marginBottom: 22,
+                pageBreakInside: "avoid",
+                breakInside: "avoid",
+              }}
+            >
+              <h2 style={{ fontSize: 20, margin: "0 0 16px" }}>
+                Fotos del estado inicial
+              </h2>
+
+              {fotosIngreso.length === 0 ? (
+                <p style={{ color: "#64748b" }}>
+                  No hay fotos iniciales registradas.
+                </p>
+              ) : (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(4, 1fr)",
+                    gap: 12,
+                  }}
+                >
+                  {fotosIngreso.map((fotoUrl, index) => (
+                    <div
+                      key={`${fotoUrl}-${index}`}
+                      style={{
+                        border: "1px solid #e2e8f0",
+                        borderRadius: 12,
+                        padding: 8,
+                        height: 150,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: "#f8fafc",
+                      }}
+                    >
+                      <img
+                        src={fotoUrl}
+                        alt={`Foto ingreso ${index + 1}`}
+                        style={{
+                          maxWidth: "100%",
+                          maxHeight: 132,
+                          objectFit: "contain",
+                          display: "block",
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <h2
+              style={{
+                fontSize: 22,
+                margin: "0 0 16px",
+                color: "#0f172a",
+              }}
+            >
+              Historial de reportes
+            </h2>
+
+            {reportes.length === 0 ? (
+              <div
+                style={{
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 16,
+                  padding: 18,
+                  color: "#64748b",
+                }}
+              >
+                No hay reportes registrados para esta orden.
+              </div>
+            ) : (
+              reportes.map((reporte) => {
+                const fotos = reporte.reporte_fotos || [];
+                const badge = badgeEstado(reporte.etapa);
+
+                return (
+                  <div
+                    key={reporte.id}
+                    style={{
+                      border: "1px solid #e2e8f0",
+                      borderRadius: 16,
+                      padding: 20,
+                      marginBottom: 18,
+                      backgroundColor: "#ffffff",
+                      pageBreakInside: "avoid",
+                      breakInside: "avoid",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        marginBottom: 12,
+                        borderBottom: "1px solid #e2e8f0",
+                        paddingBottom: 10,
+                      }}
+                    >
+                      <span
+                        style={{
+                          display: "inline-block",
+                          backgroundColor: badge.bg,
+                          color: badge.color,
+                          padding: "6px 12px",
+                          borderRadius: 999,
+                          fontSize: 13,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {reporte.etapa}
+                      </span>
+
+                      <div
+                        style={{
+                          color: "#64748b",
+                          fontSize: 13,
+                          fontWeight: 600,
+                        }}
+                      >
+                        {formatFecha(reporte.created_at)}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        fontSize: 15,
+                        lineHeight: 1.7,
+                        marginBottom: fotos.length > 0 ? 14 : 0,
+                      }}
+                    >
+                      {reporte.descripcion ? (
+                        <p>
+                          <strong>Descripción:</strong> {reporte.descripcion}
+                        </p>
+                      ) : null}
+
+                      {reporte.hallazgos ? (
+                        <p>
+                          <strong>Hallazgos:</strong> {reporte.hallazgos}
+                        </p>
+                      ) : null}
+
+                      {reporte.acciones ? (
+                        <p>
+                          <strong>Acciones realizadas:</strong>{" "}
+                          {reporte.acciones}
+                        </p>
+                      ) : null}
+
+                      {reporte.costo != null ? (
+                        <p>
+                          <strong>Costo informado:</strong>{" "}
+                          {formatMoneda(reporte.costo)}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    {fotos.length > 0 ? (
+                      <div>
+                        <p
+                          style={{
+                            fontWeight: 700,
+                            fontSize: 14,
+                            marginBottom: 10,
+                            color: "#334155",
+                          }}
+                        >
+                          Evidencia fotográfica
+                        </p>
+
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "repeat(4, 1fr)",
+                            gap: 10,
+                          }}
+                        >
+                          {fotos.map((foto) => (
+                            <div
+                              key={foto.id}
+                              style={{
+                                border: "1px solid #e2e8f0",
+                                borderRadius: 10,
+                                padding: 7,
+                                backgroundColor: "#f8fafc",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  height: 120,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                }}
+                              >
+                                <img
+                                  src={foto.foto_url}
+                                  alt="foto reporte"
+                                  style={{
+                                    maxWidth: "100%",
+                                    maxHeight: 110,
+                                    objectFit: "contain",
+                                    display: "block",
+                                  }}
+                                />
+                              </div>
+
+                              {foto.comentario ? (
+                                <div
+                                  style={{
+                                    fontSize: 11,
+                                    color: "#475569",
+                                    marginTop: 5,
+                                    lineHeight: 1.3,
+                                  }}
+                                >
+                                  {foto.comentario}
+                                </div>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })
+            )}
+
+            <div
+              style={{
+                marginTop: 28,
+                paddingTop: 14,
+                borderTop: "1px solid #e2e8f0",
+                fontSize: 12,
+                color: "#64748b",
+                textAlign: "center",
+              }}
+            >
+              MJ Industrial · Informe generado automáticamente desde portal de
+              servicio técnico.
+            </div>
           </div>
         </div>
       </div>
