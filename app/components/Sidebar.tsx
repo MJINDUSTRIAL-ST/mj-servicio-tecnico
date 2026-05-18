@@ -9,19 +9,13 @@ export default function Sidebar() {
   const router = useRouter();
   const [hovered, setHovered] = useState<string | null>(null);
 
-  const getItemStyle = (
-    key: string
-  ): React.CSSProperties => {
+  const getItemStyle = (key: string): React.CSSProperties => {
     const isHover = hovered === key;
 
     return {
       textDecoration: "none",
-      backgroundColor: isHover
-        ? "#2563eb"
-        : "transparent",
-      color: isHover
-        ? "white"
-        : "#cbd5e1",
+      backgroundColor: isHover ? "#2563eb" : "transparent",
+      color: isHover ? "white" : "#cbd5e1",
       padding: "12px 14px",
       borderRadius: 10,
       fontWeight: isHover ? 600 : 500,
@@ -52,21 +46,28 @@ export default function Sidebar() {
     >
       <div>
         {/* Logo */}
-        <div style={{ marginBottom: 28 }}>
-          <div
+        <div style={{ marginBottom: 32 }}>
+          <Link
+            href="/dashboard/servicio-tecnico"
             style={{
-              display: "inline-block",
+              display: "block",
               backgroundColor: "white",
-              padding: "8px 10px",
-              borderRadius: 8,
+              padding: "10px 12px",
+              borderRadius: 12,
+              textDecoration: "none",
             }}
           >
             <img
-              src="/logo.png"
+              src="/logo-mj.png"
               alt="MJ Industrial"
-              style={{ height: 26 }}
+              style={{
+                width: "100%",
+                height: "auto",
+                display: "block",
+                objectFit: "contain",
+              }}
             />
-          </div>
+          </Link>
         </div>
 
         {/* Menú */}
@@ -80,15 +81,9 @@ export default function Sidebar() {
           <Link
             href="/dashboard/servicio-tecnico"
             style={getItemStyle("dashboard")}
-            onMouseEnter={() =>
-              setHovered("dashboard")
-            }
-            onMouseLeave={() =>
-              setHovered(null)
-            }
-            onFocus={(e) =>
-              e.target.blur()
-            }
+            onMouseEnter={() => setHovered("dashboard")}
+            onMouseLeave={() => setHovered(null)}
+            onFocus={(e) => e.target.blur()}
           >
             Dashboard
           </Link>
@@ -96,15 +91,9 @@ export default function Sidebar() {
           <Link
             href="/dashboard/clientes"
             style={getItemStyle("clientes")}
-            onMouseEnter={() =>
-              setHovered("clientes")
-            }
-            onMouseLeave={() =>
-              setHovered(null)
-            }
-            onFocus={(e) =>
-              e.target.blur()
-            }
+            onMouseEnter={() => setHovered("clientes")}
+            onMouseLeave={() => setHovered(null)}
+            onFocus={(e) => e.target.blur()}
           >
             Clientes
           </Link>
@@ -112,15 +101,9 @@ export default function Sidebar() {
           <Link
             href="/dashboard/servicio-tecnico"
             style={getItemStyle("servicio")}
-            onMouseEnter={() =>
-              setHovered("servicio")
-            }
-            onMouseLeave={() =>
-              setHovered(null)
-            }
-            onFocus={(e) =>
-              e.target.blur()
-            }
+            onMouseEnter={() => setHovered("servicio")}
+            onMouseLeave={() => setHovered(null)}
+            onFocus={(e) => e.target.blur()}
           >
             Servicio Técnico
           </Link>
@@ -128,15 +111,9 @@ export default function Sidebar() {
           <Link
             href="/dashboard/ventas"
             style={getItemStyle("ventas")}
-            onMouseEnter={() =>
-              setHovered("ventas")
-            }
-            onMouseLeave={() =>
-              setHovered(null)
-            }
-            onFocus={(e) =>
-              e.target.blur()
-            }
+            onMouseEnter={() => setHovered("ventas")}
+            onMouseLeave={() => setHovered(null)}
+            onFocus={(e) => e.target.blur()}
           >
             Ventas
           </Link>
@@ -151,8 +128,7 @@ export default function Sidebar() {
         }}
         style={{
           background: "none",
-          border:
-            "1px solid rgba(255,255,255,0.12)",
+          border: "1px solid rgba(255,255,255,0.12)",
           color: "#cbd5e1",
           padding: "12px 14px",
           borderRadius: 10,
