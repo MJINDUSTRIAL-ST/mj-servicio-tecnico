@@ -15,7 +15,8 @@ export default function NuevoClientePage() {
   const [rut, setRut] = useState("");
   const [empresa, setEmpresa] = useState("");
   const [direccion, setDireccion] = useState("");
-  const [codigoAcceso, setCodigoAcceso] = useState("");
+  const [codigoAcceso, setCodigoAcceso] =
+    useState("");
 
   async function guardarCliente(
     e: React.FormEvent<HTMLFormElement>
@@ -23,7 +24,9 @@ export default function NuevoClientePage() {
     e.preventDefault();
 
     if (!nombre.trim()) {
-      alert("Debes ingresar el nombre del cliente");
+      alert(
+        "Debes ingresar el nombre del cliente"
+      );
       return;
     }
 
@@ -35,17 +38,20 @@ export default function NuevoClientePage() {
         .insert([
           {
             nombre: nombre.trim(),
-            telefono: telefono.trim() || null,
+            telefono:
+              telefono.trim() || null,
             email:
-              email.trim().toLowerCase() ||
-              null,
+              email
+                .trim()
+                .toLowerCase() || null,
             rut: rut.trim() || null,
             empresa:
               empresa.trim() || null,
             direccion:
               direccion.trim() || null,
             codigo_acceso:
-              codigoAcceso.trim() || null,
+              codigoAcceso.trim() ||
+              null,
           },
         ]);
 
@@ -58,13 +64,17 @@ export default function NuevoClientePage() {
         return;
       }
 
-      alert("Cliente creado correctamente");
+      alert(
+        "Cliente creado correctamente"
+      );
 
+      // REDIRIGE AL DASHBOARD
       router.push(
-        "/dashboard/clientes"
+        "/dashboard/servicio-tecnico"
       );
     } catch (error) {
       console.error(error);
+
       alert(
         "Ocurrió un error al guardar el cliente"
       );
@@ -75,15 +85,16 @@ export default function NuevoClientePage() {
 
   return (
     <div className="mx-auto max-w-5xl p-6">
+      {/* VOLVER AL DASHBOARD */}
       <button
         onClick={() =>
           router.push(
-            "/dashboard/clientes"
+            "/dashboard/servicio-tecnico"
           )
         }
         className="mb-6 text-sm font-medium text-slate-500 transition hover:text-slate-900"
       >
-        ← Volver
+        ← Volver al Dashboard
       </button>
 
       <div className="mb-8">
@@ -141,7 +152,9 @@ export default function NuevoClientePage() {
           <Campo
             titulo="Código acceso"
             valor={codigoAcceso}
-            setValor={setCodigoAcceso}
+            setValor={
+              setCodigoAcceso
+            }
             placeholder="MJ1234"
           />
         </div>
@@ -164,11 +177,12 @@ export default function NuevoClientePage() {
         </div>
 
         <div className="mt-8 flex justify-end gap-3">
+          {/* CANCELAR → DASHBOARD */}
           <button
             type="button"
             onClick={() =>
               router.push(
-                "/dashboard/clientes"
+                "/dashboard/servicio-tecnico"
               )
             }
             className="rounded-xl border border-slate-300 px-5 py-3 font-semibold text-slate-700 transition hover:bg-slate-100"
