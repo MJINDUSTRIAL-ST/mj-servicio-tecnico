@@ -25,6 +25,16 @@ type Orden = {
   fotos_estado_inicial?: string | string[] | null;
 };
 
+type OrdenDocumento = {
+  id: string;
+  orden_id: string;
+  nombre: string | null;
+  tipo: string | null;
+  url: string | null;
+  storage_path: string | null;
+  created_at: string | null;
+};
+
 type ReporteFoto = {
   id: string;
   reporte_id?: string;
@@ -123,44 +133,39 @@ function badgeEstado(estado: string) {
   const estadoNormal = normalizarEstado(estado);
 
   if (estadoNormal === "Cotización") {
-    return {
-      bg: "#fef3c7",
-      color: "#b45309",
-    };
+    return { bg: "#fef3c7", color: "#b45309" };
   }
 
   if (estadoNormal === "Listo" || estadoNormal === "Entregado") {
-    return {
-      bg: "#dcfce7",
-      color: "#15803d",
-    };
+    return { bg: "#dcfce7", color: "#15803d" };
   }
 
   if (estadoNormal === "Reparación") {
-    return {
-      bg: "#ffedd5",
-      color: "#c2410c",
-    };
+    return { bg: "#ffedd5", color: "#c2410c" };
   }
 
   if (estadoNormal === "Mantenimiento") {
-    return {
-      bg: "#cffafe",
-      color: "#0e7490",
-    };
+    return { bg: "#cffafe", color: "#0e7490" };
   }
 
   if (estadoNormal === "Ingreso") {
-    return {
-      bg: "#e2e8f0",
-      color: "#334155",
-    };
+    return { bg: "#e2e8f0", color: "#334155" };
   }
 
-  return {
-    bg: "#dbeafe",
-    color: "#2563eb",
+  return { bg: "#dbeafe", color: "#2563eb" };
+}
+
+function nombreTipoDocumento(tipo?: string | null) {
+  if (!tipo) return "Documento";
+
+  const nombres: Record<string, string> = {
+    "orden-compra": "Orden de Compra",
+    cotizacion: "Cotización",
+    "informe-recibido": "Informe recibido",
+    otros: "Otro documento",
   };
+
+  return nombres[tipo] || tipo;
 }
 
 function Campo({
@@ -180,14 +185,7 @@ function Campo({
         lineHeight: 1.45,
       }}
     >
-      <div
-        style={{
-          color: "#64748b",
-          fontWeight: 700,
-        }}
-      >
-        {label}:
-      </div>
+      <div style={{ color: "#64748b", fontWeight: 700 }}>{label}:</div>
 
       <div
         style={{
@@ -210,12 +208,7 @@ function CampoPDF({
   value?: string | null;
 }) {
   return (
-    <div
-      style={{
-        fontSize: 14,
-        lineHeight: 1.45,
-      }}
-    >
+    <div style={{ fontSize: 14, lineHeight: 1.45 }}>
       <strong>{label}:</strong> {value || "-"}
     </div>
   );
@@ -226,6 +219,9 @@ export default function DetalleOrdenPage() {
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
 
   const [orden, setOrden] = useState<Orden | null>(null);
+  const [documentosIngreso, setDocumentosIngreso] = useState<OrdenDocumento[]>(
+    []
+  );
   const [reportes, setReportes] = useState<Reporte[]>([]);
   const [estadoSeleccionado, setEstadoSeleccionado] = useState("Ingreso");
   const [loading, setLoading] = useState(true);
@@ -298,6 +294,18 @@ export default function DetalleOrdenPage() {
       return;
     }
 
+    const { data: documentosData, error: errorDocumentos } = await supabase
+      .from("orden_documentos")
+      .select("*")
+      .eq("orden_id", id)
+      .order("created_at", { ascending: false });
+
+    if (errorDocumentos) {
+      setError(errorDocumentos.message);
+      setLoading(false);
+      return;
+    }
+
     const { data: reportesData, error: errorReportes } = await supabase
       .from("reportes")
       .select(
@@ -337,6 +345,7 @@ export default function DetalleOrdenPage() {
     const ordenFinal = ordenData as Orden;
 
     setOrden(ordenFinal);
+    setDocumentosIngreso((documentosData || []) as OrdenDocumento[]);
     setEstadoSeleccionado(normalizarEstado(ordenFinal.estado));
     setReportes(reportesNormalizados);
     setLoading(false);
@@ -982,6 +991,91 @@ export default function DetalleOrdenPage() {
               marginBottom: 18,
             }}
           >
+            <h2
+              style={{
+                fontSize: 18,
+                margin: "0 0 16px",
+                color: "#0f172a",
+              }}
+            >
+              📄 Documentos del ingreso
+            </h2>
+
+            {documentosIngreso.length === 0 ? (
+              <div style={{ color: "#64748b" }}>
+                No hay documentos PDF registrados.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {documentosIngreso.map((documento) => (
+                  <div
+                    key={documento.id}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 16,
+                      border: "1px solid #e2e8f0",
+                      borderRadius: 12,
+                      padding: "14px 16px",
+                      backgroundColor: "#f8fafc",
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          fontWeight: 800,
+                          color: "#0f172a",
+                          marginBottom: 4,
+                        }}
+                      >
+                        {nombreTipoDocumento(documento.tipo)}
+                      </div>
+
+                      <div
+                        style={{
+                          fontSize: 13,
+                          color: "#64748b",
+                        }}
+                      >
+                        {documento.nombre || "Documento PDF"}
+                      </div>
+                    </div>
+
+                    {documento.url && (
+                      <a
+                        href={documento.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          backgroundColor: "#2563eb",
+                          color: "white",
+                          textDecoration: "none",
+                          padding: "9px 13px",
+                          borderRadius: 10,
+                          fontWeight: 800,
+                          fontSize: 13,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Ver PDF
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section
+            style={{
+              backgroundColor: "white",
+              borderRadius: 18,
+              padding: 22,
+              border: "1px solid #e2e8f0",
+              marginBottom: 18,
+            }}
+          >
             <div
               style={{
                 display: "flex",
@@ -1548,6 +1642,46 @@ export default function DetalleOrdenPage() {
                           display: "block",
                         }}
                       />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div
+              style={{
+                backgroundColor: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: 16,
+                padding: 20,
+                marginBottom: 22,
+                pageBreakInside: "avoid",
+                breakInside: "avoid",
+              }}
+            >
+              <h2 style={{ fontSize: 20, margin: "0 0 16px" }}>
+                Documentos del ingreso
+              </h2>
+
+              {documentosIngreso.length === 0 ? (
+                <p style={{ color: "#64748b" }}>
+                  No hay documentos PDF registrados.
+                </p>
+              ) : (
+                <div style={{ display: "grid", gap: 8 }}>
+                  {documentosIngreso.map((documento) => (
+                    <div
+                      key={documento.id}
+                      style={{
+                        border: "1px solid #e2e8f0",
+                        borderRadius: 10,
+                        padding: 12,
+                        backgroundColor: "#f8fafc",
+                        fontSize: 14,
+                      }}
+                    >
+                      <strong>{nombreTipoDocumento(documento.tipo)}:</strong>{" "}
+                      {documento.nombre || "Documento PDF"}
                     </div>
                   ))}
                 </div>
