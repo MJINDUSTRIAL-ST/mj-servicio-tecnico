@@ -11,6 +11,11 @@ type Cliente = {
   empresa: string | null;
 };
 
+type DocumentoOrden = {
+  tipo: string;
+  file: File;
+};
+
 export default function NuevaOrden() {
   const router = useRouter();
 
@@ -27,6 +32,7 @@ export default function NuevaOrden() {
   const [problemaReportado, setProblemaReportado] = useState("");
   const [observacionesIniciales, setObservacionesIniciales] = useState("");
   const [fotos, setFotos] = useState<File[]>([]);
+  const [documentos, setDocumentos] = useState<DocumentoOrden[]>([]);
   const [guardando, setGuardando] = useState(false);
 
   useEffect(() => {
@@ -59,6 +65,21 @@ export default function NuevaOrden() {
     cargarDatos();
   }, []);
 
+  function agregarDocumentos(tipo: string, files: FileList | null) {
+    if (!files || files.length === 0) return;
+
+    const nuevos = Array.from(files).map((file) => ({
+      tipo,
+      file,
+    }));
+
+    setDocumentos((prev) => [...prev, ...nuevos]);
+  }
+
+  function eliminarDocumento(index: number) {
+    setDocumentos((prev) => prev.filter((_, i) => i !== index));
+  }
+
   const subirFotos = async () => {
     if (fotos.length === 0) return "";
 
@@ -66,7 +87,7 @@ export default function NuevaOrden() {
 
     for (const foto of fotos) {
       const extension = foto.name.split(".").pop();
-      const nombreArchivo = `${codigo}-${Date.now()}-${Math.random()
+      const nombreArchivo = `${codigo}/fotos/${Date.now()}-${Math.random()
         .toString(36)
         .substring(2, 8)}.${extension}`;
 
@@ -86,6 +107,51 @@ export default function NuevaOrden() {
     }
 
     return urls.join(",");
+  };
+
+  const subirDocumentos = async (ordenId: string) => {
+    if (documentos.length === 0) return;
+
+    for (const documento of documentos) {
+      const extension = documento.file.name.split(".").pop();
+      const nombreLimpio = documento.file.name
+        .replace(/\s+/g, "-")
+        .replace(/[^a-zA-Z0-9._-]/g, "");
+
+      const storagePath = `${codigo}/documentos/${documento.tipo}-${Date.now()}-${Math.random()
+        .toString(36)
+        .substring(2, 8)}-${nombreLimpio}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("ordenes-documentos")
+        .upload(storagePath, documento.file, {
+          contentType: documento.file.type || "application/pdf",
+        });
+
+      if (uploadError) {
+        throw new Error(uploadError.message);
+      }
+
+      const { data } = supabase.storage
+        .from("ordenes-documentos")
+        .getPublicUrl(storagePath);
+
+      const { error: insertError } = await supabase
+        .from("orden_documentos")
+        .insert([
+          {
+            orden_id: ordenId,
+            nombre: documento.file.name,
+            tipo: documento.tipo,
+            url: data.publicUrl,
+            storage_path: storagePath,
+          },
+        ]);
+
+      if (insertError) {
+        throw new Error(insertError.message);
+      }
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -113,33 +179,45 @@ export default function NuevaOrden() {
     try {
       const fotosUrl = await subirFotos();
 
-      const { error } = await supabase.from("ordenes").insert([
-        {
-          codigo,
-          cliente: clienteSeleccionado.nombre,
-          cliente_email: clienteSeleccionado.email,
-          equipo,
-          estado: "Ingreso",
-          prioridad,
-          marca,
-          modelo,
-          numero_serie: numeroSerie,
-          accesorios_entregados: accesoriosEntregados,
-          problema_reportado: problemaReportado,
-          observaciones_iniciales: observacionesIniciales,
-          fotos_estado_inicial: fotosUrl,
-        },
-      ]);
+      const { data: ordenCreada, error } = await supabase
+        .from("ordenes")
+        .insert([
+          {
+            codigo,
+            cliente: clienteSeleccionado.nombre,
+            cliente_email: clienteSeleccionado.email,
+            equipo,
+            estado: "Ingreso",
+            prioridad,
+            marca,
+            modelo,
+            numero_serie: numeroSerie,
+            accesorios_entregados: accesoriosEntregados,
+            problema_reportado: problemaReportado,
+            observaciones_iniciales: observacionesIniciales,
+            fotos_estado_inicial: fotosUrl,
+          },
+        ])
+        .select("id")
+        .single();
 
       if (error) {
-        alert("Error: " + error.message);
+        alert("Error creando orden: " + error.message);
         setGuardando(false);
         return;
       }
 
+      if (!ordenCreada?.id) {
+        alert("La orden se creó, pero no se pudo obtener el ID.");
+        setGuardando(false);
+        return;
+      }
+
+      await subirDocumentos(ordenCreada.id);
+
       router.push("/dashboard/servicio-tecnico");
     } catch (error: any) {
-      alert("Error subiendo fotos: " + error.message);
+      alert("Error guardando orden: " + error.message);
       setGuardando(false);
     }
   };
@@ -148,10 +226,10 @@ export default function NuevaOrden() {
     <div className="mx-auto max-w-3xl px-6 py-8">
       <button
         type="button"
-        onClick={() => router.back()}
+        onClick={() => router.push("/dashboard/servicio-tecnico")}
         className="mb-6 text-sm text-slate-500 hover:text-slate-900"
       >
-        ← Volver
+        ← Volver al Dashboard
       </button>
 
       <h1 className="text-3xl font-bold text-slate-900">
@@ -358,10 +436,70 @@ export default function NuevaOrden() {
           )}
         </section>
 
+        <section className="rounded-2xl border border-slate-200 bg-white p-6">
+          <h2 className="mb-2 text-lg font-bold">PDFs del Ingreso</h2>
+
+          <p className="mb-4 text-sm text-slate-500">
+            Puedes adjuntar documentos como orden de compra, cotización,
+            informe recibido u otros respaldos.
+          </p>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <InputPDF
+              label="Orden de Compra PDF"
+              tipo="orden-compra"
+              onChange={agregarDocumentos}
+            />
+
+            <InputPDF
+              label="Cotización PDF"
+              tipo="cotizacion"
+              onChange={agregarDocumentos}
+            />
+
+            <InputPDF
+              label="Informe recibido PDF"
+              tipo="informe-recibido"
+              onChange={agregarDocumentos}
+            />
+
+            <InputPDF
+              label="Otros documentos PDF"
+              tipo="otros"
+              onChange={agregarDocumentos}
+            />
+          </div>
+
+          {documentos.length > 0 && (
+            <div className="mt-5 space-y-2 text-sm text-slate-600">
+              <p className="font-semibold">PDFs seleccionados:</p>
+
+              {documentos.map((documento, index) => (
+                <div
+                  key={`${documento.tipo}-${documento.file.name}-${index}`}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2"
+                >
+                  <span>
+                    {index + 1}. {documento.tipo}: {documento.file.name}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => eliminarDocumento(index)}
+                    className="text-sm font-semibold text-red-600 hover:text-red-700"
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
         <div className="flex justify-end gap-3">
           <button
             type="button"
-            onClick={() => router.back()}
+            onClick={() => router.push("/dashboard/servicio-tecnico")}
             className="rounded-lg border border-slate-300 bg-white px-5 py-3 font-semibold text-slate-700 hover:bg-slate-50"
           >
             Cancelar
@@ -377,5 +515,35 @@ export default function NuevaOrden() {
         </div>
       </form>
     </div>
+  );
+}
+
+function InputPDF({
+  label,
+  tipo,
+  onChange,
+}: {
+  label: string;
+  tipo: string;
+  onChange: (tipo: string, files: FileList | null) => void;
+}) {
+  return (
+    <label className="block cursor-pointer rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center hover:bg-slate-50">
+      <span className="block text-2xl">📄</span>
+
+      <span className="mt-2 block font-semibold">{label}</span>
+
+      <span className="mt-1 block text-sm text-slate-500">
+        Seleccionar archivo PDF
+      </span>
+
+      <input
+        type="file"
+        accept="application/pdf"
+        multiple
+        onChange={(e) => onChange(tipo, e.target.files)}
+        className="hidden"
+      />
+    </label>
   );
 }
