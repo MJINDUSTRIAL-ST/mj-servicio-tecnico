@@ -20,6 +20,22 @@ type FotoLocal = {
   es_principal: boolean;
 };
 
+type DocumentoLocal = {
+  id: string;
+  file: File;
+  tipo: string;
+};
+
+const ORDEN_ETAPAS = [
+  "Ingreso",
+  "Revisión",
+  "Cotización",
+  "Mantenimiento",
+  "Reparación",
+  "Listo",
+  "Entregado",
+];
+
 export default function NuevoReportePage() {
   const params = useParams();
   const router = useRouter();
@@ -32,10 +48,12 @@ export default function NuevoReportePage() {
   const [acciones, setAcciones] = useState("");
   const [costo, setCosto] = useState("");
   const [fotos, setFotos] = useState<FotoLocal[]>([]);
+  const [documentos, setDocumentos] = useState<DocumentoLocal[]>([]);
   const [cargando, setCargando] = useState(false);
 
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const pdfInputRef = useRef<HTMLInputElement | null>(null);
 
   function agregarArchivos(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -59,9 +77,26 @@ export default function NuevoReportePage() {
     });
   }
 
+  function agregarPDFs(files: FileList | null) {
+    if (!files || files.length === 0) return;
+
+    const nuevos: DocumentoLocal[] = Array.from(files).map((file, index) => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}-${index}`,
+      file,
+      tipo: etapa,
+    }));
+
+    setDocumentos((prev) => [...prev, ...nuevos]);
+  }
+
+  function eliminarDocumento(idDocumento: string) {
+    setDocumentos((prev) => prev.filter((doc) => doc.id !== idDocumento));
+  }
+
   function eliminarFotoLocal(idFoto: string) {
     setFotos((prev) => {
       const foto = prev.find((f) => f.id === idFoto);
+
       if (foto) {
         URL.revokeObjectURL(foto.preview);
       }
@@ -148,6 +183,7 @@ export default function NuevoReportePage() {
                 reject(new Error("No se pudo comprimir la imagen"));
                 return;
               }
+
               resolve(blob);
             },
             "image/jpeg",
@@ -226,7 +262,11 @@ export default function NuevoReportePage() {
         throw new Error("Error al guardar reporte: " + errorReporte.message);
       }
 
-      if (reporteInsertado && fotosSubidas.length > 0) {
+      if (!reporteInsertado?.id) {
+        throw new Error("No se pudo obtener el ID del reporte creado");
+      }
+
+      if (fotosSubidas.length > 0) {
         const fotosData = fotosSubidas.map((foto) => ({
           reporte_id: reporteInsertado.id,
           foto_url: foto.foto_url,
@@ -242,39 +282,78 @@ export default function NuevoReportePage() {
 
         if (errorFotos) {
           throw new Error(
-            "Reporte guardado, pero falló guardar fotos: " + errorFotos.message
+            "Reporte guardado, pero falló guardar fotos: " +
+              errorFotos.message
           );
         }
       }
 
-      const ordenEtapas = [
-  "Ingreso",
-  "Revisión",
-  "Cotización",
-  "Mantenimiento",
-  "Reparación",
-  "Listo",
-  "Entregado",
-];
+      if (documentos.length > 0) {
+        const documentosData = [];
 
-const { data: ordenActual } = await supabase
-  .from("ordenes")
-  .select("estado")
-  .eq("id", id)
-  .single();
+        for (const documento of documentos) {
+          const nombreLimpio = documento.file.name
+            .replace(/\s+/g, "-")
+            .replace(/[^a-zA-Z0-9._-]/g, "");
 
-const estadoActual = ordenActual?.estado || "Ingreso";
+          const nombreArchivo = `${id}/reportes/${reporteInsertado.id}/${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2)}-${nombreLimpio}`;
 
-const indiceActual = ordenEtapas.indexOf(estadoActual);
-const indiceNuevo = ordenEtapas.indexOf(etapa);
+          const { error: uploadDocError } = await supabase.storage
+            .from("ordenes-documentos")
+            .upload(nombreArchivo, documento.file, {
+              upsert: true,
+              contentType: documento.file.type || "application/pdf",
+            });
 
-const estadoFinal =
-  indiceNuevo > indiceActual ? etapa : estadoActual;
+          if (uploadDocError) {
+            throw new Error("Error subiendo PDF: " + uploadDocError.message);
+          }
 
-const { error: errorOrden } = await supabase
-  .from("ordenes")
-  .update({ estado: estadoFinal })
-  .eq("id", id);
+          const { data: publicDocData } = supabase.storage
+            .from("ordenes-documentos")
+            .getPublicUrl(nombreArchivo);
+
+          documentosData.push({
+            reporte_id: reporteInsertado.id,
+            orden_id: id,
+            nombre: documento.file.name,
+            tipo: documento.tipo,
+            url: publicDocData.publicUrl,
+            storage_path: nombreArchivo,
+          });
+        }
+
+        const { error: errorDocumentos } = await supabase
+          .from("reporte_documentos")
+          .insert(documentosData);
+
+        if (errorDocumentos) {
+          throw new Error(
+            "Reporte guardado, pero falló guardar PDFs: " +
+              errorDocumentos.message
+          );
+        }
+      }
+
+      const { data: ordenActual } = await supabase
+        .from("ordenes")
+        .select("estado")
+        .eq("id", id)
+        .single();
+
+      const estadoActual = ordenActual?.estado || "Ingreso";
+
+      const indiceActual = ORDEN_ETAPAS.indexOf(estadoActual);
+      const indiceNuevo = ORDEN_ETAPAS.indexOf(etapa);
+
+      const estadoFinal = indiceNuevo > indiceActual ? etapa : estadoActual;
+
+      const { error: errorOrden } = await supabase
+        .from("ordenes")
+        .update({ estado: estadoFinal })
+        .eq("id", id);
 
       if (errorOrden) {
         throw new Error(
@@ -304,12 +383,28 @@ const { error: errorOrden } = await supabase
         fontFamily: "sans-serif",
       }}
     >
+      <button
+        type="button"
+        onClick={() => router.push(`/dashboard/servicio-tecnico/${id}`)}
+        style={{
+          marginBottom: 18,
+          background: "none",
+          border: "none",
+          color: "#64748b",
+          cursor: "pointer",
+          fontWeight: 700,
+        }}
+      >
+        ← Volver
+      </button>
+
       <h1 style={{ fontSize: 32, marginBottom: 24 }}>Nuevo Reporte</h1>
 
       <div style={{ marginBottom: 20 }}>
         <label style={{ display: "block", marginBottom: 8, fontWeight: 600 }}>
           Etapa
         </label>
+
         <select
           value={etapa}
           onChange={(e) => setEtapa(e.target.value)}
@@ -333,6 +428,7 @@ const { error: errorOrden } = await supabase
         <label style={{ display: "block", marginBottom: 8, fontWeight: 600 }}>
           Descripción
         </label>
+
         <textarea
           value={descripcion}
           onChange={(e) => setDescripcion(e.target.value)}
@@ -350,6 +446,7 @@ const { error: errorOrden } = await supabase
         <label style={{ display: "block", marginBottom: 8, fontWeight: 600 }}>
           Hallazgos
         </label>
+
         <textarea
           value={hallazgos}
           onChange={(e) => setHallazgos(e.target.value)}
@@ -367,6 +464,7 @@ const { error: errorOrden } = await supabase
         <label style={{ display: "block", marginBottom: 8, fontWeight: 600 }}>
           Acciones
         </label>
+
         <textarea
           value={acciones}
           onChange={(e) => setAcciones(e.target.value)}
@@ -384,6 +482,7 @@ const { error: errorOrden } = await supabase
         <label style={{ display: "block", marginBottom: 8, fontWeight: 600 }}>
           Costo
         </label>
+
         <input
           type="number"
           value={costo}
@@ -584,7 +683,9 @@ const { error: errorOrden } = await supabase
                         backgroundColor:
                           index === fotos.length - 1 ? "#f1f5f9" : "white",
                         cursor:
-                          index === fotos.length - 1 ? "not-allowed" : "pointer",
+                          index === fotos.length - 1
+                            ? "not-allowed"
+                            : "pointer",
                       }}
                     >
                       →
@@ -640,6 +741,92 @@ const { error: errorOrden } = await supabase
         )}
       </div>
 
+      <div style={{ marginBottom: 24 }}>
+        <label style={{ display: "block", marginBottom: 12, fontWeight: 600 }}>
+          PDFs de esta etapa
+        </label>
+
+        <button
+          type="button"
+          onClick={() => pdfInputRef.current?.click()}
+          style={{
+            backgroundColor: "#f59e0b",
+            color: "white",
+            border: "none",
+            borderRadius: 8,
+            padding: "12px 16px",
+            cursor: "pointer",
+            fontWeight: 700,
+          }}
+        >
+          📄 Subir PDFs
+        </button>
+
+        <input
+          ref={pdfInputRef}
+          type="file"
+          accept="application/pdf"
+          multiple
+          style={{ display: "none" }}
+          onChange={(e) => {
+            agregarPDFs(e.target.files);
+            e.currentTarget.value = "";
+          }}
+        />
+
+        {documentos.length > 0 && (
+          <div
+            style={{
+              marginTop: 14,
+              display: "grid",
+              gap: 10,
+            }}
+          >
+            {documentos.map((documento, index) => (
+              <div
+                key={documento.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  padding: "12px 14px",
+                  borderRadius: 10,
+                  border: "1px solid #e2e8f0",
+                  backgroundColor: "#f8fafc",
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 700, color: "#0f172a" }}>
+                    {index + 1}. {documento.file.name}
+                  </div>
+
+                  <div style={{ fontSize: 13, color: "#64748b" }}>
+                    Etapa: {documento.tipo}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => eliminarDocumento(documento.id)}
+                  style={{
+                    border: "none",
+                    backgroundColor: "#fee2e2",
+                    color: "#b91c1c",
+                    borderRadius: 8,
+                    padding: "8px 10px",
+                    cursor: "pointer",
+                    fontWeight: 700,
+                  }}
+                >
+                  Eliminar
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <button
         onClick={guardarReporte}
         disabled={cargando}
@@ -649,10 +836,11 @@ const { error: errorOrden } = await supabase
           border: "none",
           borderRadius: 8,
           padding: "14px 18px",
-          cursor: "pointer",
+          cursor: cargando ? "not-allowed" : "pointer",
           fontWeight: 700,
           width: "100%",
           fontSize: 16,
+          opacity: cargando ? 0.7 : 1,
         }}
       >
         {cargando ? "Guardando..." : "Guardar y volver"}
