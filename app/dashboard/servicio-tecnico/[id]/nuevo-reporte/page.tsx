@@ -26,16 +26,6 @@ type DocumentoLocal = {
   tipo: string;
 };
 
-const ORDEN_ETAPAS = [
-  "Ingreso",
-  "Revisión",
-  "Cotización",
-  "Mantenimiento",
-  "Reparación",
-  "Listo",
-  "Entregado",
-];
-
 export default function NuevoReportePage() {
   const params = useParams();
   const router = useRouter();
@@ -296,7 +286,9 @@ export default function NuevoReportePage() {
             .replace(/\s+/g, "-")
             .replace(/[^a-zA-Z0-9._-]/g, "");
 
-          const nombreArchivo = `${id}/reportes/${reporteInsertado.id}/${Date.now()}-${Math.random()
+          const nombreArchivo = `${id}/reportes/${
+            reporteInsertado.id
+          }/${Date.now()}-${Math.random()
             .toString(36)
             .slice(2)}-${nombreLimpio}`;
 
@@ -337,22 +329,9 @@ export default function NuevoReportePage() {
         }
       }
 
-      const { data: ordenActual } = await supabase
-        .from("ordenes")
-        .select("estado")
-        .eq("id", id)
-        .single();
-
-      const estadoActual = ordenActual?.estado || "Ingreso";
-
-      const indiceActual = ORDEN_ETAPAS.indexOf(estadoActual);
-      const indiceNuevo = ORDEN_ETAPAS.indexOf(etapa);
-
-      const estadoFinal = indiceNuevo > indiceActual ? etapa : estadoActual;
-
       const { error: errorOrden } = await supabase
         .from("ordenes")
-        .update({ estado: estadoFinal })
+        .update({ estado: etapa })
         .eq("id", id);
 
       if (errorOrden) {
