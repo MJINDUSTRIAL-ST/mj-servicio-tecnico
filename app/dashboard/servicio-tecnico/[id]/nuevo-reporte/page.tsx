@@ -345,7 +345,7 @@ export default function NuevoReportePage() {
         URL.revokeObjectURL(foto.preview);
       });
 
-      router.push(`/dashboard/servicio-tecnico/${id}`);
+      window.location.href = `/dashboard/servicio-tecnico/${id}`;
     } catch (error: any) {
       alert(error.message || "Ocurrió un error al guardar");
     } finally {
