@@ -788,11 +788,94 @@ export default function DetalleOrdenPage() {
                 border: "1px solid #e2e8f0",
               }}
             >
-              <h2 style={{ fontSize: 18, margin: "0 0 16px", color: "#0f172a" }}>
-                🔧 Detalle del equipo
-              </h2>
+              <div
+  style={{
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  }}
+>
+  <h2
+    style={{
+      fontSize: 18,
+      margin: 0,
+      color: "#0f172a",
+    }}
+  >
+    🔧 Detalle del equipo
+  </h2>
 
-              <div style={{ display: "grid", gap: 10 }}>
+  <button
+    onClick={async () => {
+      const nuevoTipo = prompt("Tipo", orden.equipo || "");
+      if (nuevoTipo === null) return;
+
+      const nuevaMarca = prompt("Marca", orden.marca || "");
+      if (nuevaMarca === null) return;
+
+      const nuevoModelo = prompt("Modelo", orden.modelo || "");
+      if (nuevoModelo === null) return;
+
+      const nuevaSerie = prompt(
+        "Número de serie",
+        orden.numero_serie || ""
+      );
+      if (nuevaSerie === null) return;
+
+      const nuevosAccesorios = prompt(
+        "Accesorios entregados",
+        orden.accesorios_entregados || ""
+      );
+      if (nuevosAccesorios === null) return;
+
+      const { error } = await supabase
+        .from("ordenes")
+        .update({
+          equipo: nuevoTipo,
+          marca: nuevaMarca,
+          modelo: nuevoModelo,
+          numero_serie: nuevaSerie,
+          accesorios_entregados: nuevosAccesorios,
+        })
+        .eq("id", orden.id);
+
+      if (error) {
+        alert("Error actualizando equipo");
+        return;
+      }
+
+      setOrden((prev) =>
+        prev
+          ? {
+              ...prev,
+              equipo: nuevoTipo,
+              marca: nuevaMarca,
+              modelo: nuevoModelo,
+              numero_serie: nuevaSerie,
+              accesorios_entregados: nuevosAccesorios,
+            }
+          : prev
+      );
+
+      alert("Equipo actualizado");
+    }}
+    style={{
+      backgroundColor: "#f59e0b",
+      color: "white",
+      border: "none",
+      padding: "10px 14px",
+      borderRadius: 10,
+      fontWeight: 800,
+      cursor: "pointer",
+      fontSize: 13,
+    }}
+  >
+    ✏️ Modificar equipo
+  </button>
+</div>
+
+<div style={{ display: "grid", gap: 10 }}>
                 <Campo label="Tipo" value={orden.equipo} />
                 <Campo label="Marca" value={orden.marca} />
                 <Campo label="Modelo" value={orden.modelo} />
