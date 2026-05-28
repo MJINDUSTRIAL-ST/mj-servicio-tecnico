@@ -60,6 +60,7 @@ type Reporte = {
   id: string;
   orden_id: string;
   etapa: string;
+  tecnico?: string | null;
   descripcion: string | null;
   hallazgos: string | null;
   acciones: string | null;
@@ -1154,6 +1155,7 @@ export default function DetalleOrdenPage() {
                             {normalizarEstado(reporte.etapa)}
                           </span>
 
+
                           <Link
                             href={`/dashboard/servicio-tecnico/${orden.id}/reportes/${reporte.id}/editar`}
                             style={{
@@ -1888,6 +1890,19 @@ export default function DetalleOrdenPage() {
                         >
                           {normalizarEstado(reporte.etapa)}
                         </span>
+
+                        {reporte.tecnico ? (
+  <span
+    style={{
+      fontSize: 12,
+      color: "#64748b",
+      fontWeight: 500,
+      marginLeft: 8,
+    }}
+  >
+    👨‍🔧 {reporte.tecnico}
+  </span>
+) : null}
                       </div>
 
                       <div

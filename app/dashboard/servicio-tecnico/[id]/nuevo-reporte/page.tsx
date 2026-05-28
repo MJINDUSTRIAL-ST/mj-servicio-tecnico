@@ -40,6 +40,7 @@ export default function NuevoReportePage() {
   const [fotos, setFotos] = useState<FotoLocal[]>([]);
   const [documentos, setDocumentos] = useState<DocumentoLocal[]>([]);
   const [cargando, setCargando] = useState(false);
+  const [tecnico, setTecnico] = useState("");
 
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
@@ -239,6 +240,7 @@ export default function NuevoReportePage() {
           {
             orden_id: id,
             etapa,
+            tecnico,
             descripcion,
             hallazgos,
             acciones,
@@ -402,6 +404,25 @@ export default function NuevoReportePage() {
           <option value="Entregado">Entregado</option>
         </select>
       </div>
+
+      <div style={{ marginBottom: 20 }}>
+  <label style={{ display: "block", marginBottom: 8, fontWeight: 600 }}>
+    Técnico
+  </label>
+
+  <input
+    type="text"
+    value={tecnico}
+    onChange={(e) => setTecnico(e.target.value)}
+    placeholder="Nombre del técnico"
+    style={{
+      width: "100%",
+      padding: 12,
+      borderRadius: 8,
+      border: "1px solid #cbd5e1",
+    }}
+  />
+</div>
 
       <div style={{ marginBottom: 16 }}>
         <label style={{ display: "block", marginBottom: 8, fontWeight: 600 }}>
