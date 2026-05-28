@@ -467,6 +467,8 @@ export default function DetalleOrdenPage() {
       const element = pdfRef.current;
       await esperarImagenes(element);
 
+      const elementRect = element.getBoundingClientRect();
+
       const canvas = await html2canvas(element, {
         scale: 2,
         useCORS: true,
@@ -474,6 +476,22 @@ export default function DetalleOrdenPage() {
         backgroundColor: "#ffffff",
         logging: false,
         windowWidth: 1200,
+      });
+
+      const scale = canvas.width / elementRect.width;
+
+      const linksPDF = Array.from(
+        element.querySelectorAll<HTMLElement>("[data-pdf-url]")
+      ).map((link) => {
+        const rect = link.getBoundingClientRect();
+
+        return {
+          url: link.dataset.pdfUrl || "",
+          left: (rect.left - elementRect.left) * scale,
+          top: (rect.top - elementRect.top) * scale,
+          width: rect.width * scale,
+          height: rect.height * scale,
+        };
       });
 
       const pdf = new jsPDF("p", "mm", "a4");
@@ -530,6 +548,25 @@ export default function DetalleOrdenPage() {
           usableWidthMm,
           sliceHeightMm
         );
+
+        linksPDF.forEach((link) => {
+          if (!link.url) return;
+
+          const linkTop = link.top;
+          const linkBottom = link.top + link.height;
+          const pageTop = renderedHeight;
+          const pageBottom = renderedHeight + sliceHeight;
+
+          const visible = linkBottom > pageTop && linkTop < pageBottom;
+          if (!visible) return;
+
+          const xMm = marginMm + link.left / pxPerMm;
+          const yMm = marginMm + (link.top - renderedHeight) / pxPerMm;
+          const wMm = link.width / pxPerMm;
+          const hMm = link.height / pxPerMm;
+
+          pdf.link(xMm, yMm, wMm, hMm, { url: link.url });
+        });
 
         renderedHeight += sliceHeight;
         pageNumber += 1;
@@ -1458,7 +1495,7 @@ export default function DetalleOrdenPage() {
           top: 0,
           width: 1040,
           backgroundColor: "#ffffff",
-          padding: 32,
+          padding: 0,
           zIndex: -1,
         }}
       >
@@ -1466,83 +1503,312 @@ export default function DetalleOrdenPage() {
           <div
             style={{
               fontFamily: "Arial, sans-serif",
-              color: "#0f172a",
+              color: "#111827",
               backgroundColor: "#ffffff",
-              padding: 10,
+              padding: 34,
+              width: 1040,
+              boxSizing: "border-box",
             }}
           >
             <div
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                alignItems: "center",
-                borderBottom: "3px solid #f59e0b",
+                alignItems: "flex-start",
+                borderBottom: "4px solid #f59e0b",
                 paddingBottom: 18,
-                marginBottom: 24,
+                marginBottom: 22,
               }}
             >
-              <img
-                src="/logo-mj.png"
-                alt="MJ Industrial"
-                style={{
-                  width: 230,
-                  height: "auto",
-                  objectFit: "contain",
-                  display: "block",
-                }}
-              />
+              <div>
+                <img
+                  src="/logo-mj.png"
+                  alt="MJ Industrial"
+                  style={{
+                    width: 230,
+                    height: "auto",
+                    objectFit: "contain",
+                    display: "block",
+                    marginBottom: 12,
+                  }}
+                />
+
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "#64748b",
+                    fontWeight: 700,
+                    letterSpacing: 0.4,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Servicio Técnico · Informe de Orden
+                </div>
+              </div>
 
               <div style={{ textAlign: "right" }}>
-                <h1 style={{ fontSize: 28, margin: 0, color: "#0f172a" }}>
-                  Informe Técnico
-                </h1>
+                <div
+                  style={{
+                    color: "#1d4ed8",
+                    fontSize: 34,
+                    fontWeight: 900,
+                    lineHeight: 1,
+                  }}
+                >
+                  {orden.codigo}
+                </div>
 
-                <p style={{ margin: "6px 0 0", color: "#64748b", fontSize: 14 }}>
+                <div
+                  style={{
+                    display: "inline-block",
+                    marginTop: 10,
+                    backgroundColor: estadoBadge.bg,
+                    color: estadoBadge.color,
+                    padding: "7px 13px",
+                    borderRadius: 999,
+                    fontSize: 12,
+                    fontWeight: 900,
+                  }}
+                >
+                  {estadoActualTimeline}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: 10,
+                    color: "#64748b",
+                    fontSize: 13,
+                    fontWeight: 700,
+                  }}
+                >
                   Generado: {formatFecha(new Date().toISOString())}
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 16,
+                marginBottom: 18,
+              }}
+            >
+              <div
+                style={{
+                  backgroundColor: "#f8fafc",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 16,
+                  padding: 18,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    marginBottom: 12,
+                    paddingBottom: 10,
+                    borderBottom: "1px solid #e2e8f0",
+                  }}
+                >
+                  <div style={{ fontSize: 20 }}>🔧</div>
+                  <h2
+                    style={{
+                      fontSize: 18,
+                      margin: 0,
+                      color: "#0f172a",
+                    }}
+                  >
+                    Detalle del equipo
+                  </h2>
+                </div>
+
+                <div style={{ display: "grid", gap: 9 }}>
+                  <CampoPDF label="Tipo" value={orden.equipo} />
+                  <CampoPDF label="Marca" value={orden.marca} />
+                  <CampoPDF label="Modelo" value={orden.modelo} />
+                  <CampoPDF label="N° Serie" value={orden.numero_serie} />
+                  <CampoPDF
+                    label="Accesorios"
+                    value={orden.accesorios_entregados}
+                  />
+                </div>
+              </div>
+
+              <div
+                style={{
+                  backgroundColor: "#f8fafc",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 16,
+                  padding: 18,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    marginBottom: 12,
+                    paddingBottom: 10,
+                    borderBottom: "1px solid #e2e8f0",
+                  }}
+                >
+                  <div style={{ fontSize: 20 }}>👤</div>
+                  <h2
+                    style={{
+                      fontSize: 18,
+                      margin: 0,
+                      color: "#0f172a",
+                    }}
+                  >
+                    Detalle del cliente
+                  </h2>
+                </div>
+
+                <div style={{ display: "grid", gap: 9 }}>
+                  <CampoPDF label="Cliente" value={orden.cliente} />
+                  <CampoPDF label="Email" value={orden.cliente_email} />
+                  <CampoPDF label="Prioridad" value={orden.prioridad || "Media"} />
+                  <CampoPDF
+                    label="Fecha ingreso"
+                    value={formatFecha(orden.created_at)}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                backgroundColor: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: 16,
+                padding: 18,
+                marginBottom: 18,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 18,
+                  marginBottom: 12,
+                  color: "#0f172a",
+                  fontWeight: 900,
+                }}
+              >
+                📝 Problema reportado y observaciones
+              </div>
+
+              <div style={{ fontSize: 14, lineHeight: 1.6 }}>
+                <p style={{ margin: "0 0 8px" }}>
+                  <strong>Problema reportado:</strong>{" "}
+                  {orden.problema_reportado || "-"}
+                </p>
+
+                <p style={{ margin: 0 }}>
+                  <strong>Observaciones iniciales:</strong>{" "}
+                  {orden.observaciones_iniciales || "-"}
                 </p>
               </div>
             </div>
 
             <div
               style={{
-                backgroundColor: "#f8fafc",
+                backgroundColor: "#ffffff",
                 border: "1px solid #e2e8f0",
                 borderRadius: 16,
-                padding: 20,
-                marginBottom: 22,
+                padding: 18,
+                marginBottom: 18,
+                breakInside: "avoid",
+                pageBreakInside: "avoid",
               }}
             >
-              <h2 style={{ fontSize: 20, margin: "0 0 16px" }}>
-                Resumen de la orden
-              </h2>
-
               <div
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 14,
-                  fontSize: 15,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  marginBottom: 14,
                 }}
               >
-                <CampoPDF label="Código" value={orden.codigo} />
-                <CampoPDF label="Estado actual" value={estadoActualTimeline} />
-                <CampoPDF label="Cliente" value={orden.cliente} />
-                <CampoPDF label="Email" value={orden.cliente_email} />
-                <CampoPDF label="Equipo" value={orden.equipo} />
-                <CampoPDF label="Prioridad" value={orden.prioridad || "Media"} />
-                <CampoPDF label="Marca" value={orden.marca} />
-                <CampoPDF label="Modelo" value={orden.modelo} />
-                <CampoPDF label="N° Serie" value={orden.numero_serie} />
-                <CampoPDF
-                  label="Fecha ingreso"
-                  value={formatFecha(orden.created_at)}
-                />
+                <h2
+                  style={{
+                    fontSize: 18,
+                    margin: 0,
+                    color: "#0f172a",
+                  }}
+                >
+                  📷 Fotos del estado inicial
+                </h2>
+
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: "#64748b",
+                    fontWeight: 700,
+                  }}
+                >
+                  {fotosIngreso.length} foto(s)
+                </span>
               </div>
+
+              {fotosIngreso.length === 0 ? (
+                <div style={{ color: "#64748b", fontSize: 14 }}>
+                  No hay fotos iniciales registradas.
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(4, 1fr)",
+                    gap: 10,
+                  }}
+                >
+                  {fotosIngreso.map((fotoUrl, index) => (
+                    <div
+                      key={`${fotoUrl}-${index}`}
+                      style={{
+                        border: "1px solid #e2e8f0",
+                        borderRadius: 12,
+                        padding: 7,
+                        height: 145,
+                        backgroundColor: "#f8fafc",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <img
+                        src={fotoUrl}
+                        alt={`Foto ingreso ${index + 1}`}
+                        style={{
+                          maxWidth: "100%",
+                          maxHeight: 130,
+                          objectFit: "contain",
+                          display: "block",
+                          borderRadius: 8,
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            <h2 style={{ fontSize: 22, margin: "0 0 16px", color: "#0f172a" }}>
+            <div
+              style={{
+                backgroundColor: "#eff6ff",
+                color: "#1e3a8a",
+                padding: "12px 16px",
+                borderRadius: 14,
+                fontSize: 18,
+                fontWeight: 900,
+                marginBottom: 14,
+                border: "1px solid #bfdbfe",
+              }}
+            >
               Historial de reportes
-            </h2>
+            </div>
 
             {reportesOrdenados.length === 0 ? (
               <div
@@ -1556,7 +1822,7 @@ export default function DetalleOrdenPage() {
                 No hay reportes registrados para esta orden.
               </div>
             ) : (
-              reportesOrdenados.map((reporte) => {
+              reportesOrdenados.map((reporte, reporteIndex) => {
                 const fotos = reporte.reporte_fotos || [];
                 const documentos = reporte.reporte_documentos || [];
                 const badge = badgeEstado(reporte.etapa);
@@ -1567,110 +1833,205 @@ export default function DetalleOrdenPage() {
                     style={{
                       border: "1px solid #e2e8f0",
                       borderRadius: 16,
-                      padding: 20,
-                      marginBottom: 18,
+                      padding: 18,
+                      marginBottom: 16,
                       backgroundColor: "#ffffff",
-                      pageBreakInside: "avoid",
                       breakInside: "avoid",
+                      pageBreakInside: "avoid",
                     }}
                   >
                     <div
                       style={{
                         display: "flex",
                         justifyContent: "space-between",
+                        alignItems: "center",
                         gap: 12,
                         marginBottom: 12,
-                        borderBottom: "1px solid #e2e8f0",
                         paddingBottom: 10,
+                        borderBottom: "1px solid #e2e8f0",
                       }}
                     >
-                      <span
+                      <div
                         style={{
-                          display: "inline-block",
-                          backgroundColor: badge.bg,
-                          color: badge.color,
-                          padding: "6px 12px",
-                          borderRadius: 999,
-                          fontSize: 13,
-                          fontWeight: 700,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
                         }}
                       >
-                        {normalizarEstado(reporte.etapa)}
-                      </span>
+                        <div
+                          style={{
+                            width: 30,
+                            height: 30,
+                            borderRadius: "50%",
+                            backgroundColor: badge.bg,
+                            color: badge.color,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: 13,
+                            fontWeight: 900,
+                          }}
+                        >
+                          {reporteIndex + 1}
+                        </div>
+
+                        <span
+                          style={{
+                            display: "inline-block",
+                            backgroundColor: badge.bg,
+                            color: badge.color,
+                            padding: "7px 13px",
+                            borderRadius: 999,
+                            fontSize: 13,
+                            fontWeight: 900,
+                          }}
+                        >
+                          {normalizarEstado(reporte.etapa)}
+                        </span>
+                      </div>
 
                       <div
                         style={{
                           color: "#64748b",
                           fontSize: 13,
-                          fontWeight: 600,
+                          fontWeight: 700,
                         }}
                       >
                         {formatFecha(reporte.created_at)}
                       </div>
                     </div>
 
-                    <div style={{ fontSize: 15, lineHeight: 1.7 }}>
-                      {reporte.descripcion ? (
-                        <p>
-                          <strong>Descripción:</strong> {reporte.descripcion}
-                        </p>
-                      ) : null}
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1fr",
+                        gap: 14,
+                        fontSize: 14,
+                        lineHeight: 1.6,
+                      }}
+                    >
+                      <div>
+                        {reporte.descripcion ? (
+                          <p style={{ margin: "0 0 8px" }}>
+                            <strong>Descripción:</strong> {reporte.descripcion}
+                          </p>
+                        ) : null}
 
-                      {reporte.hallazgos ? (
-                        <p>
-                          <strong>Hallazgos:</strong> {reporte.hallazgos}
-                        </p>
-                      ) : null}
+                        {reporte.hallazgos ? (
+                          <p style={{ margin: "0 0 8px" }}>
+                            <strong>Hallazgos:</strong> {reporte.hallazgos}
+                          </p>
+                        ) : null}
+                      </div>
 
-                      {reporte.acciones ? (
-                        <p>
-                          <strong>Acciones realizadas:</strong> {reporte.acciones}
-                        </p>
-                      ) : null}
+                      <div>
+                        {reporte.acciones ? (
+                          <p style={{ margin: "0 0 8px" }}>
+                            <strong>Acciones realizadas:</strong>{" "}
+                            {reporte.acciones}
+                          </p>
+                        ) : null}
 
-                      {reporte.costo != null ? (
-                        <p>
-                          <strong>Costo informado:</strong>{" "}
-                          {formatMoneda(reporte.costo)}
-                        </p>
-                      ) : null}
+                        {reporte.costo != null ? (
+                          <p style={{ margin: "0 0 8px" }}>
+                            <strong>Costo informado:</strong>{" "}
+                            {formatMoneda(reporte.costo)}
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
 
                     {documentos.length > 0 ? (
-                      <div style={{ marginTop: 12 }}>
-                        <p style={{ fontWeight: 700, fontSize: 14 }}>
-                          Documentos PDF
-                        </p>
+                      <div style={{ marginTop: 14 }}>
+                        <div
+                          style={{
+                            fontWeight: 900,
+                            fontSize: 14,
+                            marginBottom: 9,
+                            color: "#334155",
+                          }}
+                        >
+                          Documentos PDF adjuntos
+                        </div>
 
-                        {documentos.map((documento) => (
-                          <div
-                            key={documento.id}
-                            style={{
-                              border: "1px solid #e2e8f0",
-                              borderRadius: 10,
-                              padding: 10,
-                              marginBottom: 8,
-                              backgroundColor: "#f8fafc",
-                              fontSize: 13,
-                            }}
-                          >
-                            📄 {documento.nombre || "Documento PDF"}
-                          </div>
-                        ))}
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr 1fr",
+                            gap: 9,
+                          }}
+                        >
+                          {documentos.map((documento, index) => {
+                            const nombreEtapa = normalizarEstado(reporte.etapa);
+                            const textoBoton = `Ver PDF ${nombreEtapa}`;
+
+                            return (
+                              <a
+                                key={documento.id || `${documento.url}-${index}`}
+                                href={documento.url || "#"}
+                                data-pdf-url={documento.url || ""}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  gap: 10,
+                                  border: "1px solid #bfdbfe",
+                                  borderRadius: 12,
+                                  padding: "11px 12px",
+                                  backgroundColor: "#eff6ff",
+                                  color: "#0f172a",
+                                  textDecoration: "none",
+                                  fontSize: 13,
+                                  fontWeight: 800,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    display: "block",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  📄 {documento.nombre || "Documento PDF"}
+                                </span>
+
+                                <span
+                                  style={{
+                                    color: "#2563eb",
+                                    fontWeight: 900,
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {textoBoton}
+                                </span>
+                              </a>
+                            );
+                          })}
+                        </div>
                       </div>
                     ) : null}
 
                     {fotos.length > 0 ? (
-                      <div style={{ marginTop: 12 }}>
-                        <p style={{ fontWeight: 700, fontSize: 14 }}>
+                      <div style={{ marginTop: 14 }}>
+                        <div
+                          style={{
+                            fontWeight: 900,
+                            fontSize: 14,
+                            marginBottom: 9,
+                            color: "#334155",
+                          }}
+                        >
                           Evidencia fotográfica
-                        </p>
+                        </div>
 
                         <div
                           style={{
                             display: "grid",
                             gridTemplateColumns: "repeat(4, 1fr)",
-                            gap: 10,
+                            gap: 9,
                           }}
                         >
                           {fotos.map((foto) => (
@@ -1678,7 +2039,7 @@ export default function DetalleOrdenPage() {
                               key={foto.id}
                               style={{
                                 border: "1px solid #e2e8f0",
-                                borderRadius: 10,
+                                borderRadius: 12,
                                 padding: 7,
                                 backgroundColor: "#f8fafc",
                               }}
@@ -1699,6 +2060,7 @@ export default function DetalleOrdenPage() {
                                     maxHeight: 110,
                                     objectFit: "contain",
                                     display: "block",
+                                    borderRadius: 8,
                                   }}
                                 />
                               </div>
@@ -1727,7 +2089,7 @@ export default function DetalleOrdenPage() {
 
             <div
               style={{
-                marginTop: 28,
+                marginTop: 24,
                 paddingTop: 14,
                 borderTop: "1px solid #e2e8f0",
                 fontSize: 12,
