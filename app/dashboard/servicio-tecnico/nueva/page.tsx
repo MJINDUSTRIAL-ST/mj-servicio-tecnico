@@ -23,6 +23,7 @@ export default function NuevaOrden() {
   const [clienteId, setClienteId] = useState("");
 
   const [codigo, setCodigo] = useState("");
+  const [tecnicoIngreso, setTecnicoIngreso] = useState("");
   const [equipo, setEquipo] = useState("");
   const [marca, setMarca] = useState("");
   const [modelo, setModelo] = useState("");
@@ -64,6 +65,18 @@ export default function NuevaOrden() {
 
     cargarDatos();
   }, []);
+
+  function agregarFotos(files: FileList | null) {
+    if (!files || files.length === 0) return;
+
+    const nuevasFotos = Array.from(files);
+
+    setFotos((prev) => [...prev, ...nuevasFotos]);
+  }
+
+  function eliminarFoto(index: number) {
+    setFotos((prev) => prev.filter((_, i) => i !== index));
+  }
 
   function agregarDocumentos(tipo: string, files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -113,7 +126,6 @@ export default function NuevaOrden() {
     if (documentos.length === 0) return;
 
     for (const documento of documentos) {
-      const extension = documento.file.name.split(".").pop();
       const nombreLimpio = documento.file.name
         .replace(/\s+/g, "-")
         .replace(/[^a-zA-Z0-9._-]/g, "");
@@ -169,6 +181,11 @@ export default function NuevaOrden() {
       return;
     }
 
+    if (!tecnicoIngreso.trim()) {
+      alert("Ingresa el nombre del técnico o vendedor");
+      return;
+    }
+
     if (!equipo || !problemaReportado) {
       alert("Completa los campos obligatorios");
       return;
@@ -186,6 +203,7 @@ export default function NuevaOrden() {
             codigo,
             cliente: clienteSeleccionado.nombre,
             cliente_email: clienteSeleccionado.email,
+            tecnico_ingreso: tecnicoIngreso,
             equipo,
             estado: "Ingreso",
             prioridad,
@@ -260,12 +278,22 @@ export default function NuevaOrden() {
               </option>
             ))}
           </select>
+        </section>
 
-          {clientes.length === 0 && (
-            <p className="mt-3 text-sm text-slate-500">
-              No hay clientes. Crear uno primero.
-            </p>
-          )}
+        <section className="rounded-2xl border border-slate-200 bg-white p-6">
+          <h2 className="mb-4 text-lg font-bold">Técnico / Vendedor</h2>
+
+          <label className="mb-1 block text-sm font-semibold">
+            Nombre de quien ingresa la orden *
+          </label>
+
+          <input
+            placeholder="Ej: Andrés, Gustavo, Alexandra..."
+            value={tecnicoIngreso}
+            onChange={(e) => setTecnicoIngreso(e.target.value)}
+            required
+            className="w-full rounded-lg border border-slate-300 px-3 py-3"
+          />
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-6">
@@ -400,7 +428,10 @@ export default function NuevaOrden() {
                 accept="image/*"
                 capture="environment"
                 multiple
-                onChange={(e) => setFotos(Array.from(e.target.files || []))}
+                onChange={(e) => {
+                  agregarFotos(e.target.files);
+                  e.currentTarget.value = "";
+                }}
                 className="hidden"
               />
             </label>
@@ -418,19 +449,35 @@ export default function NuevaOrden() {
                 type="file"
                 accept="image/*"
                 multiple
-                onChange={(e) => setFotos(Array.from(e.target.files || []))}
+                onChange={(e) => {
+                  agregarFotos(e.target.files);
+                  e.currentTarget.value = "";
+                }}
                 className="hidden"
               />
             </label>
           </div>
 
           {fotos.length > 0 && (
-            <div className="mt-4 space-y-1 text-sm text-slate-600">
+            <div className="mt-4 space-y-2 text-sm text-slate-600">
               <p className="font-semibold">Fotos seleccionadas:</p>
               {fotos.map((foto, index) => (
-                <p key={`${foto.name}-${index}`}>
-                  {index + 1}. {foto.name}
-                </p>
+                <div
+                  key={`${foto.name}-${foto.lastModified}-${index}`}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2"
+                >
+                  <span>
+                    {index + 1}. {foto.name}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => eliminarFoto(index)}
+                    className="text-sm font-semibold text-red-600 hover:text-red-700"
+                  >
+                    Eliminar
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -541,7 +588,10 @@ function InputPDF({
         type="file"
         accept="application/pdf"
         multiple
-        onChange={(e) => onChange(tipo, e.target.files)}
+        onChange={(e) => {
+          onChange(tipo, e.target.files);
+          e.currentTarget.value = "";
+        }}
         className="hidden"
       />
     </label>
