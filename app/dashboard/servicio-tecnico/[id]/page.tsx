@@ -1530,7 +1530,7 @@ export default function DetalleOrdenPage() {
             >
               <div>
                 <img
-                  src="/logo-mj.png"
+                  src="/logo-informe.png"
                   alt="MJ Industrial"
                   style={{
                     width: 230,
