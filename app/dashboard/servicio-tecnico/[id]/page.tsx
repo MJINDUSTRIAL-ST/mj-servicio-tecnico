@@ -1070,33 +1070,39 @@ export default function DetalleOrdenPage() {
             }}
           >
             <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-                marginBottom: 16,
-              }}
-            >
-              <h2 style={{ fontSize: 18, margin: 0, color: "#0f172a" }}>
-                🧾 Reportes ({reportesOrdenados.length})
-              </h2>
+  style={{
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 16,
+    flexWrap: "wrap",
+  }}
+>
+  <h2 style={{ fontSize: 18, margin: 0, color: "#0f172a" }}>
+    🧾 Reportes ({reportesOrdenados.length})
+  </h2>
 
-              <Link
-                href={`/dashboard/servicio-tecnico/${orden.id}/nuevo-reporte`}
-                style={{
-                  backgroundColor: "#2563eb",
-                  color: "white",
-                  textDecoration: "none",
-                  padding: "10px 14px",
-                  borderRadius: 10,
-                  fontWeight: 800,
-                  fontSize: 13,
-                }}
-              >
-                + Nuevo Reporte
-              </Link>
-            </div>
+  <Link
+    href={`/dashboard/servicio-tecnico/${orden.id}/nuevo-reporte`}
+    style={{
+      backgroundColor: "#2563eb",
+      color: "white",
+      textDecoration: "none",
+      padding: "12px 18px",
+      borderRadius: 12,
+      fontWeight: 800,
+      fontSize: 14,
+      whiteSpace: "nowrap",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 8,
+      boxShadow: "0 2px 8px rgba(37,99,235,0.2)",
+    }}
+  >
+    → Siguiente etapa
+  </Link>
+</div>
 
             {reportesOrdenados.length === 0 ? (
               <div style={{ color: "#64748b" }}>
