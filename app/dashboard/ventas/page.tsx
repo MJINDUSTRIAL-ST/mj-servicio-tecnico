@@ -20,8 +20,14 @@ export default function VentasPage() {
   const [busqueda, setBusqueda] = useState("");
 
   useEffect(() => {
+  cargarVentas();
+
+  const interval = setInterval(() => {
     cargarVentas();
-  }, []);
+  }, 2000);
+
+  return () => clearInterval(interval);
+}, []);
 
   async function cargarVentas() {
     const { data, error } = await supabase
