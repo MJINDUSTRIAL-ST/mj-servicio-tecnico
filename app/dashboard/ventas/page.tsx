@@ -133,7 +133,7 @@ export default function VentasPage() {
 
                   <td className="px-6 py-5">
                     <Link
-                      href={`/cliente/portal/mis-compras/${venta.numero}`}
+                      href={`/dashboard/ventas/${venta.id}`}
                       className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
                     >
                       Ver
