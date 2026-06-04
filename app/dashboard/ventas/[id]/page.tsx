@@ -87,6 +87,7 @@ function Campo({ label, value }: { label: string; value?: string | null }) {
 export default function DetalleVentaPage() {
   const params = useParams();
   const router = useRouter();
+
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
 
   const [venta, setVenta] = useState<Venta | null>(null);
@@ -111,16 +112,22 @@ export default function DetalleVentaPage() {
       .from("ventas")
       .select("*")
       .eq("id", id)
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
 
-    if (error || !data) {
+    if (error) {
+      alert("Error cargando venta: " + error.message);
       setVenta(null);
       setLoading(false);
       return;
     }
 
-    const ventaData = data as Venta;
+    if (!data || data.length === 0) {
+      setVenta(null);
+      setLoading(false);
+      return;
+    }
+
+    const ventaData = data[0] as Venta;
 
     setVenta(ventaData);
     setProducto(ventaData.producto || ventaData.descripcion || "");
@@ -161,14 +168,15 @@ export default function DetalleVentaPage() {
       },
     ];
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("ventas")
       .update({
         estado: siguienteEstado,
         tecnico_responsable: tecnico,
         historial_estados: nuevoHistorial,
       })
-      .eq("id", venta.id);
+      .eq("id", venta.id)
+      .select("*");
 
     if (error) {
       alert("No se pudo actualizar el estado: " + error.message);
@@ -176,14 +184,19 @@ export default function DetalleVentaPage() {
       return;
     }
 
-    setVenta({
-      ...venta,
-      estado: siguienteEstado,
-      tecnico_responsable: tecnico,
-      historial_estados: nuevoHistorial,
-    });
+    if (!data || data.length === 0) {
+      alert(
+        "No se actualizó ninguna fila en Supabase. Revisa que el ID de la URL exista en la tabla ventas."
+      );
+      setGuardando(false);
+      return;
+    }
 
-    await cargarVenta();
+    const ventaActualizada = data[0] as Venta;
+
+    setVenta(ventaActualizada);
+    setProducto(ventaActualizada.producto || ventaActualizada.descripcion || "");
+    setDetalle(ventaActualizada.detalle || "");
     setGuardando(false);
   }
 
@@ -192,14 +205,15 @@ export default function DetalleVentaPage() {
 
     setGuardando(true);
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("ventas")
       .update({
         producto,
         descripcion: producto,
         detalle,
       })
-      .eq("id", venta.id);
+      .eq("id", venta.id)
+      .select("*");
 
     if (error) {
       alert("No se pudo guardar: " + error.message);
@@ -207,14 +221,17 @@ export default function DetalleVentaPage() {
       return;
     }
 
-    setVenta({
-      ...venta,
-      producto,
-      descripcion: producto,
-      detalle,
-    });
+    if (!data || data.length === 0) {
+      alert("No se actualizó ninguna fila.");
+      setGuardando(false);
+      return;
+    }
 
-    await cargarVenta();
+    const ventaActualizada = data[0] as Venta;
+
+    setVenta(ventaActualizada);
+    setProducto(ventaActualizada.producto || ventaActualizada.descripcion || "");
+    setDetalle(ventaActualizada.detalle || "");
     setEditando(false);
     setGuardando(false);
   }
