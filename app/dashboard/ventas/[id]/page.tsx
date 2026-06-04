@@ -5,6 +5,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
+type HistorialEstado = {
+  estado: string;
+  tecnico: string;
+  fecha: string;
+};
+
 type Venta = {
   id: string;
   codigo?: string | null;
@@ -16,12 +22,15 @@ type Venta = {
   detalle?: string | null;
   estado?: string | null;
   fecha?: string | null;
+  fecha_venta?: string | null;
   created_at?: string | null;
   factura_url?: string | null;
   orden_compra_url?: string | null;
   certificado_url?: string | null;
   documento_url?: string | null;
   imagen_url?: string | null;
+  tecnico_responsable?: string | null;
+  historial_estados?: HistorialEstado[] | null;
 };
 
 const ESTADOS = [
@@ -41,8 +50,12 @@ function normalizarEstado(estado?: string | null) {
 
 function formatFecha(fecha?: string | null) {
   if (!fecha) return "-";
+
   try {
-    return new Date(fecha).toLocaleDateString("es-CL");
+    return new Date(fecha).toLocaleString("es-CL", {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
   } catch {
     return fecha;
   }
@@ -122,12 +135,38 @@ export default function DetalleVentaPage() {
   async function avanzarEstado() {
     if (!venta?.id || !siguienteEstado) return;
 
+    const tecnico = prompt("Nombre del técnico o vendedor responsable:");
+
+    if (!tecnico) {
+      alert("Debes ingresar el nombre del responsable.");
+      return;
+    }
+
     setGuardando(true);
 
-    const { error } = await supabase
+    const historialActual = Array.isArray(venta.historial_estados)
+      ? venta.historial_estados
+      : [];
+
+    const nuevoHistorial: HistorialEstado[] = [
+      ...historialActual,
+      {
+        estado: siguienteEstado,
+        tecnico,
+        fecha: new Date().toISOString(),
+      },
+    ];
+
+    const { data, error } = await supabase
       .from("ventas")
-      .update({ estado: siguienteEstado })
-      .eq("id", venta.id);
+      .update({
+        estado: siguienteEstado,
+        tecnico_responsable: tecnico,
+        historial_estados: nuevoHistorial,
+      })
+      .eq("id", venta.id)
+      .select()
+      .single();
 
     if (error) {
       alert("No se pudo actualizar el estado: " + error.message);
@@ -135,7 +174,7 @@ export default function DetalleVentaPage() {
       return;
     }
 
-    setVenta((prev) => (prev ? { ...prev, estado: siguienteEstado } : prev));
+    setVenta(data as Venta);
     setGuardando(false);
   }
 
@@ -144,14 +183,16 @@ export default function DetalleVentaPage() {
 
     setGuardando(true);
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("ventas")
       .update({
         producto,
         descripcion: producto,
         detalle,
       })
-      .eq("id", venta.id);
+      .eq("id", venta.id)
+      .select()
+      .single();
 
     if (error) {
       alert("No se pudo guardar: " + error.message);
@@ -159,17 +200,7 @@ export default function DetalleVentaPage() {
       return;
     }
 
-    setVenta((prev) =>
-      prev
-        ? {
-            ...prev,
-            producto,
-            descripcion: producto,
-            detalle,
-          }
-        : prev
-    );
-
+    setVenta(data as Venta);
     setEditando(false);
     setGuardando(false);
   }
@@ -196,6 +227,10 @@ export default function DetalleVentaPage() {
     { label: "Documento", url: venta.documento_url },
   ].filter((doc) => doc.url);
 
+  const historial = Array.isArray(venta.historial_estados)
+    ? venta.historial_estados
+    : [];
+
   return (
     <main
       style={{
@@ -205,7 +240,7 @@ export default function DetalleVentaPage() {
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <div style={{ maxWidth: 760, margin: "0 auto" }}>
+      <div style={{ maxWidth: 780, margin: "0 auto" }}>
         <button
           onClick={() => router.push("/dashboard/ventas")}
           style={{
@@ -235,7 +270,8 @@ export default function DetalleVentaPage() {
             </h1>
 
             <div style={{ marginTop: 6, color: "#64748b", fontSize: 14 }}>
-              {venta.cliente || "-"} · {formatFecha(venta.fecha || venta.created_at)}
+              {venta.cliente || "-"} ·{" "}
+              {formatFecha(venta.fecha_venta || venta.fecha || venta.created_at)}
             </div>
           </div>
 
@@ -331,7 +367,7 @@ export default function DetalleVentaPage() {
                   borderRadius: 12,
                   padding: "13px 18px",
                   fontWeight: 900,
-                  cursor: "pointer",
+                  cursor: guardando ? "not-allowed" : "pointer",
                 }}
               >
                 {guardando ? "Guardando..." : "Guardar cambios"}
@@ -342,6 +378,7 @@ export default function DetalleVentaPage() {
               <Campo label="Producto" value={venta.producto || venta.descripcion} />
               <Campo label="Detalle" value={venta.detalle} />
               <Campo label="Estado" value={estadoActual} />
+              <Campo label="Responsable actual" value={venta.tecnico_responsable} />
             </div>
           )}
         </section>
@@ -433,6 +470,80 @@ export default function DetalleVentaPage() {
 
         <section
           style={{
+            backgroundColor: "white",
+            border: "1px solid #e2e8f0",
+            borderRadius: 18,
+            padding: 22,
+            marginBottom: 18,
+          }}
+        >
+          <h2 style={{ margin: "0 0 16px", fontSize: 18 }}>
+            🕓 Historial de etapas
+          </h2>
+
+          {historial.length === 0 ? (
+            <div style={{ color: "#64748b" }}>
+              Aún no hay cambios de etapa registrados.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {historial.map((item, index) => {
+                const itemBadge = badgeEstado(item.estado);
+
+                return (
+                  <div
+                    key={`${item.estado}-${item.fecha}-${index}`}
+                    style={{
+                      border: "1px solid #e2e8f0",
+                      backgroundColor: "#f8fafc",
+                      borderRadius: 14,
+                      padding: 14,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        alignItems: "center",
+                      }}
+                    >
+                      <span
+                        style={{
+                          backgroundColor: itemBadge.bg,
+                          color: itemBadge.color,
+                          padding: "6px 10px",
+                          borderRadius: 999,
+                          fontSize: 12,
+                          fontWeight: 900,
+                        }}
+                      >
+                        {item.estado}
+                      </span>
+
+                      <span style={{ color: "#64748b", fontSize: 12 }}>
+                        {formatFecha(item.fecha)}
+                      </span>
+                    </div>
+
+                    <div
+                      style={{
+                        marginTop: 8,
+                        color: "#0f172a",
+                        fontWeight: 700,
+                      }}
+                    >
+                      Responsable: {item.tecnico || "-"}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <section
+          style={{
             display: "flex",
             justifyContent: "space-between",
             gap: 12,
@@ -454,12 +565,14 @@ export default function DetalleVentaPage() {
               borderRadius: 12,
               padding: "14px 20px",
               fontWeight: 900,
-              cursor: siguienteEstado ? "pointer" : "not-allowed",
+              cursor: siguienteEstado && !guardando ? "pointer" : "not-allowed",
             }}
           >
-            {siguienteEstado
-              ? `→ Siguiente etapa: ${siguienteEstado}`
-              : "Venta entregada"}
+            {guardando
+              ? "Guardando..."
+              : siguienteEstado
+                ? `→ Siguiente etapa: ${siguienteEstado}`
+                : "Venta entregada"}
           </button>
         </section>
       </div>
