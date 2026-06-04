@@ -77,7 +77,9 @@ function Campo({ label, value }: { label: string; value?: string | null }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", gap: 20 }}>
       <strong style={{ color: "#64748b" }}>{label}:</strong>
-      <span style={{ color: "#0f172a", textAlign: "right" }}>{value || "-"}</span>
+      <span style={{ color: "#0f172a", textAlign: "right" }}>
+        {value || "-"}
+      </span>
     </div>
   );
 }
@@ -97,6 +99,7 @@ export default function DetalleVentaPage() {
 
   useEffect(() => {
     cargarVenta();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   async function cargarVenta() {
@@ -108,7 +111,8 @@ export default function DetalleVentaPage() {
       .from("ventas")
       .select("*")
       .eq("id", id)
-      .single();
+      .limit(1)
+      .maybeSingle();
 
     if (error || !data) {
       setVenta(null);
@@ -157,16 +161,14 @@ export default function DetalleVentaPage() {
       },
     ];
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from("ventas")
       .update({
         estado: siguienteEstado,
         tecnico_responsable: tecnico,
         historial_estados: nuevoHistorial,
       })
-      .eq("id", venta.id)
-      .select()
-      .single();
+      .eq("id", venta.id);
 
     if (error) {
       alert("No se pudo actualizar el estado: " + error.message);
@@ -174,7 +176,14 @@ export default function DetalleVentaPage() {
       return;
     }
 
-    setVenta(data as Venta);
+    setVenta({
+      ...venta,
+      estado: siguienteEstado,
+      tecnico_responsable: tecnico,
+      historial_estados: nuevoHistorial,
+    });
+
+    await cargarVenta();
     setGuardando(false);
   }
 
@@ -183,16 +192,14 @@ export default function DetalleVentaPage() {
 
     setGuardando(true);
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from("ventas")
       .update({
         producto,
         descripcion: producto,
         detalle,
       })
-      .eq("id", venta.id)
-      .select()
-      .single();
+      .eq("id", venta.id);
 
     if (error) {
       alert("No se pudo guardar: " + error.message);
@@ -200,7 +207,14 @@ export default function DetalleVentaPage() {
       return;
     }
 
-    setVenta(data as Venta);
+    setVenta({
+      ...venta,
+      producto,
+      descripcion: producto,
+      detalle,
+    });
+
+    await cargarVenta();
     setEditando(false);
     setGuardando(false);
   }
@@ -327,7 +341,9 @@ export default function DetalleVentaPage() {
           {editando ? (
             <div style={{ display: "grid", gap: 14 }}>
               <div>
-                <label style={{ fontWeight: 800, fontSize: 13 }}>Producto</label>
+                <label style={{ fontWeight: 800, fontSize: 13 }}>
+                  Producto
+                </label>
                 <input
                   value={producto}
                   onChange={(e) => setProducto(e.target.value)}
