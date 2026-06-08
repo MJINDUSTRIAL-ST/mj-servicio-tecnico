@@ -36,16 +36,26 @@ export async function POST(req: Request) {
     const { data, error } = await resend.emails.send({
       from: "MJ Industrial <notificaciones@mjindustrial.cl>",
       to: [email],
-      subject: `Actualización de venta ${numeroVenta}`,
+      subject: `Actualización de venta ${numeroVenta || ""}`,
       html: `
-        <div style="font-family: Arial, sans-serif; color: #0f172a;">
-          <h2>MJ Industrial</h2>
+        <div style="font-family: Arial, sans-serif; color: #0f172a; max-width: 700px; margin: 0 auto;">
+          <div style="text-align: center; padding: 18px 0 24px;">
+            <img
+              src="https://mjindustrial.cl/wp-content/uploads/2024/09/logo-mj-industrial.png"
+              alt="MJ Industrial"
+              style="max-width: 220px; height: auto;"
+            />
+          </div>
+
+          <h2 style="color: #f97316; margin: 0 0 18px;">
+            Actualización de venta
+          </h2>
 
           <p>Hola ${cliente || "Cliente"},</p>
 
           <p>Tu venta ha sido actualizada.</p>
 
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px;margin:16px 0;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin: 16px 0;">
             <p><strong>Número:</strong> ${numeroVenta || "-"}</p>
             <p><strong>Estado:</strong> ${estado || "-"}</p>
             ${
