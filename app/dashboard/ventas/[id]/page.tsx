@@ -208,6 +208,41 @@ export default function DetalleVentaPage() {
     };
   }
 
+  async function enviarCorreoVenta(ventaActualizada: Venta) {
+    if (!ventaActualizada.cliente_email || !siguienteEstado) return;
+
+    try {
+      const response = await fetch("/api/enviar-correo-venta", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: ventaActualizada.cliente_email,
+          cliente: ventaActualizada.cliente || "Cliente",
+          numeroVenta:
+            ventaActualizada.codigo ||
+            ventaActualizada.numero ||
+            ventaActualizada.id,
+          estado: siguienteEstado,
+          comentario: comentarioEtapa.trim() || "",
+        }),
+      });
+
+      if (!response.ok) {
+        console.error("Error enviando correo automático");
+        alert(
+          "La venta se actualizó, pero no se pudo enviar el correo automático."
+        );
+      }
+    } catch (error) {
+      console.error("Error enviando correo:", error);
+      alert(
+        "La venta se actualizó, pero ocurrió un error al enviar el correo automático."
+      );
+    }
+  }
+
   function limpiarFormularioAvance() {
     setResponsableEtapa("");
     setComentarioEtapa("");
@@ -279,6 +314,8 @@ export default function DetalleVentaPage() {
       }
 
       const ventaActualizada = data[0] as Venta;
+
+      await enviarCorreoVenta(ventaActualizada);
 
       setVenta(ventaActualizada);
       setProducto(ventaActualizada.producto || ventaActualizada.descripcion || "");
