@@ -707,23 +707,36 @@ export default function DetalleVentaPage() {
                         }}
                       >
                         {item.pdf_url ? (
-                          <a
-                            href={item.pdf_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              backgroundColor: "#2563eb",
-                              color: "white",
-                              padding: "8px 12px",
-                              borderRadius: 10,
-                              textDecoration: "none",
-                              fontSize: 13,
-                              fontWeight: 800,
-                            }}
-                          >
-                            Ver PDF
-                          </a>
-                        ) : null}
+  <>
+    <a
+      href={item.pdf_url}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        backgroundColor: "#2563eb",
+        color: "white",
+        padding: "8px 12px",
+        borderRadius: 10,
+        textDecoration: "none",
+        fontSize: 13,
+        fontWeight: 800,
+      }}
+    >
+      📄 {item.pdf_nombre || "Ver PDF"}
+    </a>
+
+    <iframe
+      src={item.pdf_url}
+      style={{
+        width: "100%",
+        height: 500,
+        border: "1px solid #e2e8f0",
+        borderRadius: 10,
+        marginTop: 10,
+      }}
+    />
+  </>
+) : null}
 
                         {item.foto_url ? (
                           <a
