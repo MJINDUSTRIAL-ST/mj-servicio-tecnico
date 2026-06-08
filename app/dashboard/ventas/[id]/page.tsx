@@ -9,6 +9,11 @@ type HistorialEstado = {
   estado: string;
   tecnico: string;
   fecha: string;
+  comentario?: string | null;
+  pdf_url?: string | null;
+  pdf_nombre?: string | null;
+  foto_url?: string | null;
+  foto_nombre?: string | null;
 };
 
 type Venta = {
@@ -40,6 +45,20 @@ const ESTADOS = [
   "Despachado",
   "Entregado",
 ];
+
+const PERSONAL_TECNICO = [
+  "Eduardo Vergara",
+  "Gustavo Santana",
+  "Francisco Romero",
+  "Gustavo Blanco",
+  "Andrés Berdejo",
+  "Jessirel Díaz",
+  "Sergio González",
+  "Álvaro Quezada",
+  "Roberto Ramírez",
+];
+
+const STORAGE_BUCKET = "ventas";
 
 function normalizarEstado(estado?: string | null) {
   if (!estado) return "Cotizada";
@@ -73,6 +92,14 @@ function badgeEstado(estado?: string | null) {
   return { bg: "#e2e8f0", color: "#334155" };
 }
 
+function limpiarNombreArchivo(nombre: string) {
+  return nombre
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9.\-_]/g, "-")
+    .toLowerCase();
+}
+
 function Campo({ label, value }: { label: string; value?: string | null }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", gap: 20 }}>
@@ -94,9 +121,15 @@ export default function DetalleVentaPage() {
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [editando, setEditando] = useState(false);
+  const [mostrarFormularioAvance, setMostrarFormularioAvance] = useState(false);
 
   const [producto, setProducto] = useState("");
   const [detalle, setDetalle] = useState("");
+
+  const [responsableEtapa, setResponsableEtapa] = useState("");
+  const [comentarioEtapa, setComentarioEtapa] = useState("");
+  const [pdfEtapa, setPdfEtapa] = useState<File | null>(null);
+  const [fotoEtapa, setFotoEtapa] = useState<File | null>(null);
 
   useEffect(() => {
     cargarVenta();
@@ -143,61 +176,121 @@ export default function DetalleVentaPage() {
     return ESTADOS[index + 1];
   }, [estadoActual]);
 
-  async function avanzarEstado() {
+  async function subirArchivoEtapa(
+    archivo: File | null,
+    tipo: "pdf" | "foto"
+  ): Promise<{ url: string; nombre: string } | null> {
+    if (!archivo || !venta?.id || !siguienteEstado) return null;
+
+    const timestamp = Date.now();
+    const nombreLimpio = limpiarNombreArchivo(archivo.name);
+    const estadoLimpio = limpiarNombreArchivo(siguienteEstado);
+    const ruta = `${venta.id}/${estadoLimpio}/${tipo}-${timestamp}-${nombreLimpio}`;
+
+    const { error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(ruta, archivo, {
+        cacheControl: "3600",
+        upsert: false,
+      });
+
+    if (error) {
+      throw new Error(
+        `No se pudo subir el archivo ${archivo.name}: ${error.message}`
+      );
+    }
+
+    const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(ruta);
+
+    return {
+      url: data.publicUrl,
+      nombre: archivo.name,
+    };
+  }
+
+  function limpiarFormularioAvance() {
+    setResponsableEtapa("");
+    setComentarioEtapa("");
+    setPdfEtapa(null);
+    setFotoEtapa(null);
+    setMostrarFormularioAvance(false);
+
+    const pdfInput = document.getElementById("pdf-etapa") as HTMLInputElement | null;
+    const fotoInput = document.getElementById("foto-etapa") as HTMLInputElement | null;
+
+    if (pdfInput) pdfInput.value = "";
+    if (fotoInput) fotoInput.value = "";
+  }
+
+  async function guardarYAvanzarEstado() {
     if (!venta?.id || !siguienteEstado) return;
 
-    const tecnico = prompt("Nombre del técnico o vendedor responsable:");
-
-    if (!tecnico) {
-      alert("Debes ingresar el nombre del responsable.");
+    if (!responsableEtapa) {
+      alert("Debes seleccionar un responsable.");
       return;
     }
 
     setGuardando(true);
 
-    const historialActual = Array.isArray(venta.historial_estados)
-      ? venta.historial_estados
-      : [];
+    try {
+      const pdfSubido = await subirArchivoEtapa(pdfEtapa, "pdf");
+      const fotoSubida = await subirArchivoEtapa(fotoEtapa, "foto");
 
-    const nuevoHistorial: HistorialEstado[] = [
-      ...historialActual,
-      {
-        estado: siguienteEstado,
-        tecnico,
-        fecha: new Date().toISOString(),
-      },
-    ];
+      const historialActual = Array.isArray(venta.historial_estados)
+        ? venta.historial_estados
+        : [];
 
-    const { data, error } = await supabase
-      .from("ventas")
-      .update({
-        estado: siguienteEstado,
-        tecnico_responsable: tecnico,
-        historial_estados: nuevoHistorial,
-      })
-      .eq("id", venta.id)
-      .select("*");
+      const nuevoHistorial: HistorialEstado[] = [
+        ...historialActual,
+        {
+          estado: siguienteEstado,
+          tecnico: responsableEtapa,
+          fecha: new Date().toISOString(),
+          comentario: comentarioEtapa.trim() || null,
+          pdf_url: pdfSubido?.url || null,
+          pdf_nombre: pdfSubido?.nombre || null,
+          foto_url: fotoSubida?.url || null,
+          foto_nombre: fotoSubida?.nombre || null,
+        },
+      ];
 
-    if (error) {
-      alert("No se pudo actualizar el estado: " + error.message);
+      const { data, error } = await supabase
+        .from("ventas")
+        .update({
+          estado: siguienteEstado,
+          tecnico_responsable: responsableEtapa,
+          historial_estados: nuevoHistorial,
+        })
+        .eq("id", venta.id)
+        .select("*");
+
+      if (error) {
+        alert("No se pudo actualizar el estado: " + error.message);
+        setGuardando(false);
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        alert(
+          "No se actualizó ninguna fila en Supabase. Revisa que el ID exista en la tabla ventas."
+        );
+        setGuardando(false);
+        return;
+      }
+
+      const ventaActualizada = data[0] as Venta;
+
+      setVenta(ventaActualizada);
+      setProducto(ventaActualizada.producto || ventaActualizada.descripcion || "");
+      setDetalle(ventaActualizada.detalle || "");
+      limpiarFormularioAvance();
       setGuardando(false);
-      return;
-    }
-
-    if (!data || data.length === 0) {
-      alert(
-        "No se actualizó ninguna fila en Supabase. Revisa que el ID de la URL exista en la tabla ventas."
-      );
+    } catch (error) {
+      const mensaje =
+        error instanceof Error ? error.message : "Error desconocido al guardar.";
+      alert(mensaje);
       setGuardando(false);
-      return;
     }
-
-    const ventaActualizada = data[0] as Venta;
-
-    setVenta(ventaActualizada);
-    setProducto(ventaActualizada.producto || ventaActualizada.descripcion || "");
-    setDetalle(ventaActualizada.detalle || "");
-    setGuardando(false);
   }
 
   async function guardarCambios() {
@@ -358,9 +451,7 @@ export default function DetalleVentaPage() {
           {editando ? (
             <div style={{ display: "grid", gap: 14 }}>
               <div>
-                <label style={{ fontWeight: 800, fontSize: 13 }}>
-                  Producto
-                </label>
+                <label style={{ fontWeight: 800, fontSize: 13 }}>Producto</label>
                 <input
                   value={producto}
                   onChange={(e) => setProducto(e.target.value)}
@@ -559,21 +650,209 @@ export default function DetalleVentaPage() {
                       </span>
                     </div>
 
-                    <div
-                      style={{
-                        marginTop: 8,
-                        color: "#0f172a",
-                        fontWeight: 700,
-                      }}
-                    >
+                    <div style={{ marginTop: 8, color: "#0f172a", fontWeight: 700 }}>
                       Responsable: {item.tecnico || "-"}
                     </div>
+
+                    {item.comentario ? (
+                      <div style={{ marginTop: 8, color: "#334155", fontSize: 14 }}>
+                        Comentario: {item.comentario}
+                      </div>
+                    ) : null}
+
+                    {(item.pdf_url || item.foto_url) ? (
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 10,
+                          flexWrap: "wrap",
+                          marginTop: 12,
+                        }}
+                      >
+                        {item.pdf_url ? (
+                          <a
+                            href={item.pdf_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              backgroundColor: "#2563eb",
+                              color: "white",
+                              padding: "8px 12px",
+                              borderRadius: 10,
+                              textDecoration: "none",
+                              fontSize: 13,
+                              fontWeight: 800,
+                            }}
+                          >
+                            Ver PDF
+                          </a>
+                        ) : null}
+
+                        {item.foto_url ? (
+                          <a
+                            href={item.foto_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              backgroundColor: "#16a34a",
+                              color: "white",
+                              padding: "8px 12px",
+                              borderRadius: 10,
+                              textDecoration: "none",
+                              fontSize: 13,
+                              fontWeight: 800,
+                            }}
+                          >
+                            Ver foto
+                          </a>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}
             </div>
           )}
         </section>
+
+        {mostrarFormularioAvance && siguienteEstado ? (
+          <section
+            style={{
+              backgroundColor: "white",
+              border: "2px solid #2563eb",
+              borderRadius: 18,
+              padding: 22,
+              marginBottom: 18,
+            }}
+          >
+            <h2 style={{ margin: "0 0 16px", fontSize: 18 }}>
+              Avanzar a etapa: {siguienteEstado}
+            </h2>
+
+            <div style={{ display: "grid", gap: 14 }}>
+              <div>
+                <label style={{ fontWeight: 800, fontSize: 13 }}>
+                  Responsable técnico / vendedor
+                </label>
+
+                <select
+                  value={responsableEtapa}
+                  onChange={(e) => setResponsableEtapa(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: 12,
+                    borderRadius: 10,
+                    border: "1px solid #cbd5e1",
+                    marginTop: 6,
+                    backgroundColor: "white",
+                  }}
+                >
+                  <option value="">Seleccionar responsable</option>
+                  {PERSONAL_TECNICO.map((nombre) => (
+                    <option key={nombre} value={nombre}>
+                      {nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontWeight: 800, fontSize: 13 }}>
+                  Comentario de la etapa
+                </label>
+
+                <textarea
+                  value={comentarioEtapa}
+                  onChange={(e) => setComentarioEtapa(e.target.value)}
+                  placeholder="Ej: Cliente aprobó por correo, equipo listo para retiro, despacho coordinado, etc."
+                  style={{
+                    width: "100%",
+                    minHeight: 90,
+                    padding: 12,
+                    borderRadius: 10,
+                    border: "1px solid #cbd5e1",
+                    marginTop: 6,
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontWeight: 800, fontSize: 13 }}>
+                  PDF de respaldo
+                </label>
+
+                <input
+                  id="pdf-etapa"
+                  type="file"
+                  accept="application/pdf"
+                  onChange={(e) => setPdfEtapa(e.target.files?.[0] || null)}
+                  style={{
+                    width: "100%",
+                    padding: 12,
+                    borderRadius: 10,
+                    border: "1px solid #cbd5e1",
+                    marginTop: 6,
+                    backgroundColor: "#f8fafc",
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontWeight: 800, fontSize: 13 }}>
+                  Foto de respaldo
+                </label>
+
+                <input
+                  id="foto-etapa"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setFotoEtapa(e.target.files?.[0] || null)}
+                  style={{
+                    width: "100%",
+                    padding: 12,
+                    borderRadius: 10,
+                    border: "1px solid #cbd5e1",
+                    marginTop: 6,
+                    backgroundColor: "#f8fafc",
+                  }}
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+                <button
+                  onClick={limpiarFormularioAvance}
+                  disabled={guardando}
+                  style={{
+                    backgroundColor: "white",
+                    border: "1px solid #cbd5e1",
+                    borderRadius: 12,
+                    padding: "13px 18px",
+                    fontWeight: 900,
+                    cursor: guardando ? "not-allowed" : "pointer",
+                  }}
+                >
+                  Cancelar
+                </button>
+
+                <button
+                  onClick={guardarYAvanzarEstado}
+                  disabled={guardando}
+                  style={{
+                    backgroundColor: "#2563eb",
+                    color: "white",
+                    border: "none",
+                    borderRadius: 12,
+                    padding: "13px 18px",
+                    fontWeight: 900,
+                    cursor: guardando ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {guardando ? "Guardando..." : "Guardar y avanzar"}
+                </button>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         <section
           style={{
@@ -589,7 +868,9 @@ export default function DetalleVentaPage() {
           </div>
 
           <button
-            onClick={avanzarEstado}
+            onClick={() => {
+              if (siguienteEstado) setMostrarFormularioAvance(true);
+            }}
             disabled={!siguienteEstado || guardando}
             style={{
               backgroundColor: siguienteEstado ? "#2563eb" : "#94a3b8",
