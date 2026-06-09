@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
@@ -13,7 +14,12 @@ export default function ClientePortalLayout({
   const router = useRouter();
 
   const cerrarSesion = async () => {
+    localStorage.removeItem("cliente_id");
+    localStorage.removeItem("cliente_email");
+    localStorage.removeItem("cliente_nombre");
+
     await supabase.auth.signOut();
+
     router.push("/cliente");
   };
 
@@ -21,14 +27,16 @@ export default function ClientePortalLayout({
     <main className="min-h-screen bg-slate-100 text-slate-900">
       <div className="flex min-h-screen">
         <aside className="relative w-64 border-r border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-6 py-6">
-            <div className="rounded-xl border border-orange-200 bg-white p-4">
-              <h1 className="text-2xl font-extrabold text-slate-900">
-                MJ Industrial
-              </h1>
-              <p className="mt-1 text-xs text-slate-500">
-                maquinaria y equipos de izaje
-              </p>
+          <div className="border-b border-slate-200 px-4 py-4">
+            <div className="rounded-xl border border-orange-200 bg-white p-3">
+              <Image
+                src="/logo-cliente.png"
+                alt="MJ Industrial"
+                width={260}
+                height={80}
+                className="w-full h-auto"
+                priority
+              />
             </div>
           </div>
 
