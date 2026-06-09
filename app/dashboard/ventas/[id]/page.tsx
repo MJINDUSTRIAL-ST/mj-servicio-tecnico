@@ -222,15 +222,19 @@ export default function DetalleVentaPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email: ventaActualizada.cliente_email,
-          cliente: ventaActualizada.cliente || "Cliente",
-          numeroVenta:
-            ventaActualizada.codigo ||
-            ventaActualizada.numero ||
-            ventaActualizada.id,
-          estado: siguienteEstado,
-          comentario: comentarioEtapa.trim() || "",
-        }),
+  email: ventaActualizada.cliente_email,
+  cliente: ventaActualizada.cliente || "Cliente",
+  numeroVenta:
+    ventaActualizada.codigo ||
+    ventaActualizada.numero ||
+    ventaActualizada.id,
+  estado: siguienteEstado,
+  comentario: comentarioEtapa.trim() || "",
+  pdfUrl: pdfSubido?.url || "",
+  pdfNombre: pdfSubido?.nombre || "",
+  fotoUrl: fotoSubida?.url || "",
+  fotoNombre: fotoSubida?.nombre || "",
+}),
       });
 
       if (!response.ok) {
