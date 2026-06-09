@@ -12,11 +12,14 @@ export default function ClienteLoginPage() {
   const [mostrarPassword, setMostrarPassword] = useState(false);
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(false);
+  const [recuperando, setRecuperando] = useState(false);
+  const [mensajeRecuperacion, setMensajeRecuperacion] = useState("");
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
     setError("");
+    setMensajeRecuperacion("");
 
     const emailLimpio = email.trim().toLowerCase();
     const codigoLimpio = password.trim();
@@ -56,6 +59,47 @@ export default function ClienteLoginPage() {
 
     router.push("/cliente/portal");
   };
+
+  async function recuperarCodigo() {
+    setError("");
+    setMensajeRecuperacion("");
+
+    const emailLimpio = email.trim().toLowerCase();
+
+    if (!emailLimpio) {
+      setMensajeRecuperacion("Ingresa tu correo electrónico primero.");
+      return;
+    }
+
+    try {
+      setRecuperando(true);
+
+      const response = await fetch("/api/recuperar-codigo-cliente", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: emailLimpio,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Error recuperando acceso");
+      }
+
+      setMensajeRecuperacion(
+        "Si el correo existe, hemos enviado el código de acceso."
+      );
+    } catch (error) {
+      console.error(error);
+      setMensajeRecuperacion("Ocurrió un error al enviar el correo.");
+    } finally {
+      setRecuperando(false);
+    }
+  }
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-[#020b2d] text-white px-4">
@@ -107,7 +151,24 @@ export default function ClienteLoginPage() {
             {cargando ? "Ingresando..." : "Ingresar"}
           </button>
 
+          <button
+            type="button"
+            onClick={recuperarCodigo}
+            disabled={recuperando}
+            className="text-sm text-orange-400 hover:text-orange-300 disabled:opacity-60"
+          >
+            {recuperando
+              ? "Enviando..."
+              : "¿Olvidaste tu código de acceso?"}
+          </button>
+
           {error && <p className="text-red-400 text-center">{error}</p>}
+
+          {mensajeRecuperacion && (
+            <p className="text-green-400 text-center text-sm">
+              {mensajeRecuperacion}
+            </p>
+          )}
         </form>
       </div>
     </main>
