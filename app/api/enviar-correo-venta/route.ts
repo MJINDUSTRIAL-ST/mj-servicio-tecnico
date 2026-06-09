@@ -20,7 +20,17 @@ export async function POST(req: Request) {
     const resend = new Resend(apiKey);
     const body = await req.json();
 
-    const { email, cliente, numeroVenta, estado, comentario } = body;
+    const {
+      email,
+      cliente,
+      numeroVenta,
+      estado,
+      comentario,
+      pdfUrl,
+      pdfNombre,
+      fotoUrl,
+      fotoNombre,
+    } = body;
 
     if (!email) {
       return NextResponse.json(
@@ -31,6 +41,53 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    const bloqueAdjuntos =
+      pdfUrl || fotoUrl
+        ? `
+          <div style="margin:22px 0 0;">
+            <h3 style="margin:0 0 12px;color:#111827;font-size:17px;">
+              Documentos adjuntos
+            </h3>
+
+            ${
+              pdfUrl
+                ? `
+                  <a
+                    href="${pdfUrl}"
+                    target="_blank"
+                    style="display:inline-block;background:#2563eb;color:white;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:700;font-size:14px;margin:0 8px 10px 0;"
+                  >
+                    📄 ${pdfNombre || "Ver PDF"}
+                  </a>
+                `
+                : ""
+            }
+
+            ${
+              fotoUrl
+                ? `
+                  <a
+                    href="${fotoUrl}"
+                    target="_blank"
+                    style="display:inline-block;background:#16a34a;color:white;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:700;font-size:14px;margin:0 8px 10px 0;"
+                  >
+                    🖼️ ${fotoNombre || "Ver foto"}
+                  </a>
+
+                  <div style="margin-top:12px;">
+                    <img
+                      src="${fotoUrl}"
+                      alt="${fotoNombre || "Foto adjunta"}"
+                      style="max-width:100%;border-radius:12px;border:1px solid #e5e7eb;"
+                    />
+                  </div>
+                `
+                : ""
+            }
+          </div>
+        `
+        : "";
 
     const { data, error } = await resend.emails.send({
       from: "MJ Industrial <notificaciones@mjindustrial.cl>",
@@ -80,6 +137,8 @@ export async function POST(req: Request) {
                     : ""
                 }
               </div>
+
+              ${bloqueAdjuntos}
 
               <p style="font-size:15px;line-height:1.6;margin:22px 0 0;">
                 Gracias por confiar en <strong>MJ Industrial</strong>.

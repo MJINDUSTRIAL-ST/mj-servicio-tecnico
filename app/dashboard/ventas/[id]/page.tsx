@@ -208,7 +208,11 @@ export default function DetalleVentaPage() {
     };
   }
 
-  async function enviarCorreoVenta(ventaActualizada: Venta) {
+  async function enviarCorreoVenta(
+  ventaActualizada: Venta,
+  pdfSubido?: { url: string; nombre: string } | null,
+  fotoSubida?: { url: string; nombre: string } | null
+) {
     if (!ventaActualizada.cliente_email || !siguienteEstado) return;
 
     try {
@@ -315,7 +319,7 @@ export default function DetalleVentaPage() {
 
       const ventaActualizada = data[0] as Venta;
 
-      await enviarCorreoVenta(ventaActualizada);
+      await enviarCorreoVenta(ventaActualizada, pdfSubido, fotoSubida);
 
       setVenta(ventaActualizada);
       setProducto(ventaActualizada.producto || ventaActualizada.descripcion || "");
