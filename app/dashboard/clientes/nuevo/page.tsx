@@ -56,17 +56,41 @@ export default function NuevoClientePage() {
         ]);
 
       if (error) {
-        console.error(error);
-        alert(
-          "Error al guardar cliente: " +
-            error.message
-        );
-        return;
-      }
+  console.error(error);
+  alert(
+    "Error al guardar cliente: " +
+      error.message
+  );
+  return;
+}
 
-      alert(
-        "Cliente creado correctamente"
-      );
+if (
+  email.trim() &&
+  codigoAcceso.trim()
+) {
+  await fetch(
+    "/api/enviar-correo-cliente",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type":
+          "application/json",
+      },
+      body: JSON.stringify({
+        email: email
+          .trim()
+          .toLowerCase(),
+        nombre: nombre.trim(),
+        codigoAcceso:
+          codigoAcceso.trim(),
+      }),
+    }
+  );
+}
+
+alert(
+  "Cliente creado correctamente"
+);
 
       // REDIRIGE AL DASHBOARD
       router.push(
