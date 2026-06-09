@@ -12,26 +12,28 @@ type Orden = {
 
 export default function ClientePortalHomePage() {
   const router = useRouter();
+
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [loading, setLoading] = useState(true);
+  const [clienteNombre, setClienteNombre] = useState("");
 
   useEffect(() => {
     const fetchData = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const clienteId = localStorage.getItem("cliente_id");
+      const clienteEmail = localStorage.getItem("cliente_email");
+      const nombreGuardado = localStorage.getItem("cliente_nombre");
 
-      if (!session) {
+      if (!clienteId || !clienteEmail) {
         router.push("/cliente");
         return;
       }
 
-      const email = session.user.email;
+      setClienteNombre(nombreGuardado || "");
 
       const { data, error } = await supabase
         .from("ordenes")
         .select("id, estado")
-        .eq("cliente_email", email);
+        .eq("cliente_email", clienteEmail);
 
       if (!error) {
         setOrdenes(data || []);
@@ -49,12 +51,13 @@ export default function ClientePortalHomePage() {
     (o) => o.estado === "Listo" || o.estado === "Listo p/Entrega"
   ).length;
 
-  const cotizacion = ordenes.filter(
-    (o) => o.estado === "Cotización"
-  ).length;
+  const cotizacion = ordenes.filter((o) => o.estado === "Cotización").length;
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
+  const handleLogout = () => {
+    localStorage.removeItem("cliente_id");
+    localStorage.removeItem("cliente_email");
+    localStorage.removeItem("cliente_nombre");
+
     router.push("/cliente");
   };
 
@@ -63,7 +66,7 @@ export default function ClientePortalHomePage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-4xl font-bold tracking-tight">
-            Bienvenido al Portal de Clientes 👋
+            Bienvenido{clienteNombre ? `, ${clienteNombre}` : ""} 👋
           </h1>
 
           <p className="mt-3 text-lg text-slate-500">
@@ -91,9 +94,7 @@ export default function ClientePortalHomePage() {
             En <strong>Mis Compras</strong> puedes revisar el historial de tus
             pedidos.
           </li>
-          <li>
-            Haz clic en cualquier módulo para ver el detalle.
-          </li>
+          <li>Haz clic en cualquier módulo para ver el detalle.</li>
         </ul>
       </div>
 
@@ -130,9 +131,7 @@ export default function ClientePortalHomePage() {
             href="/cliente/portal/mis-compras"
             className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md"
           >
-            <p className="text-sm font-semibold text-blue-500">
-              Mis Compras
-            </p>
+            <p className="text-sm font-semibold text-blue-500">Mis Compras</p>
 
             <h3 className="mt-3 text-3xl font-bold">0</h3>
 
