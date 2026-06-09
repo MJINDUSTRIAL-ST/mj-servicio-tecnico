@@ -18,26 +18,43 @@ export default function ClienteLoginPage() {
 
     setError("");
 
-    if (!email || !password) {
+    const emailLimpio = email.trim().toLowerCase();
+    const codigoLimpio = password.trim();
+
+    if (!emailLimpio || !codigoLimpio) {
       setError("Completa todos los campos");
       return;
     }
 
     setCargando(true);
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim().toLowerCase(),
-      password: password.trim(),
-    });
+    const { data, error } = await supabase
+      .from("clientes")
+      .select("*")
+      .eq("email", emailLimpio)
+      .eq("codigo_acceso", codigoLimpio)
+      .limit(1);
 
     setCargando(false);
 
-    if (error || !data.session) {
+    if (error) {
+      console.error(error);
+      setError("Error al validar el acceso");
+      return;
+    }
+
+    if (!data || data.length === 0) {
       setError("Correo o contraseña incorrectos");
       return;
     }
 
-    window.location.href = "/cliente/portal";
+    const cliente = data[0];
+
+    localStorage.setItem("cliente_id", cliente.id);
+    localStorage.setItem("cliente_email", cliente.email || emailLimpio);
+    localStorage.setItem("cliente_nombre", cliente.nombre || "");
+
+    router.push("/cliente/portal");
   };
 
   return (
@@ -67,7 +84,7 @@ export default function ClienteLoginPage() {
           <div className="relative">
             <input
               type={mostrarPassword ? "text" : "password"}
-              placeholder="Contraseña"
+              placeholder="Código de acceso"
               className="p-3 rounded-lg bg-white/10 outline-none w-full pr-24"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
