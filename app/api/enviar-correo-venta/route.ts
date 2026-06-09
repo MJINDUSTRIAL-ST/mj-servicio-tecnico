@@ -41,7 +41,7 @@ export async function POST(req: Request) {
           <div style="max-width:680px;margin:0 auto;padding:24px;">
             <div style="background:#111827;border-radius:16px 16px 0 0;padding:28px;text-align:center;">
               <img
-                src="https://mjindustrial.cl/wp-content/uploads/2024/09/logo-mj-industrial.png"
+                src="https://mjindustrial.cl/wp-content/uploads/2025/11/imgi_22_logo-web_Mesa-de-trabajo-1.png"
                 alt="MJ Industrial"
                 style="max-width:220px;height:auto;"
               />
