@@ -75,13 +75,7 @@ export async function POST(req: Request) {
                     🖼️ ${fotoNombre || "Ver foto"}
                   </a>
 
-                  <div style="margin-top:12px;">
-                    <img
-                      src="${fotoUrl}"
-                      alt="${fotoNombre || "Foto adjunta"}"
-                      style="max-width:100%;border-radius:12px;border:1px solid #e5e7eb;"
-                    />
-                  </div>
+                
                 `
                 : ""
             }
