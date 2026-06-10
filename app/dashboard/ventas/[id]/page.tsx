@@ -85,7 +85,8 @@ function badgeEstado(estado?: string | null) {
 
   if (actual === "Cotizada") return { bg: "#fef3c7", color: "#b45309" };
   if (actual === "Aprobada") return { bg: "#dbeafe", color: "#2563eb" };
-  if (actual === "Lista para despacho") return { bg: "#dcfce7", color: "#15803d" };
+  if (actual === "Lista para despacho")
+    return { bg: "#dcfce7", color: "#15803d" };
   if (actual === "Despachado") return { bg: "#e0e7ff", color: "#4338ca" };
   if (actual === "Entregado") return { bg: "#bbf7d0", color: "#166534" };
 
@@ -209,10 +210,10 @@ export default function DetalleVentaPage() {
   }
 
   async function enviarCorreoVenta(
-  ventaActualizada: Venta,
-  pdfSubido?: { url: string; nombre: string } | null,
-  fotoSubida?: { url: string; nombre: string } | null
-) {
+    ventaActualizada: Venta,
+    pdfSubido?: { url: string; nombre: string } | null,
+    fotoSubida?: { url: string; nombre: string } | null
+  ) {
     if (!ventaActualizada.cliente_email || !siguienteEstado) return;
 
     try {
@@ -222,23 +223,22 @@ export default function DetalleVentaPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-  email: ventaActualizada.cliente_email,
-  cliente: ventaActualizada.cliente || "Cliente",
-  numeroVenta:
-    ventaActualizada.codigo ||
-    ventaActualizada.numero ||
-    ventaActualizada.id,
-  estado: siguienteEstado,
-  comentario: comentarioEtapa.trim() || "",
-  pdfUrl: pdfSubido?.url || "",
-  pdfNombre: pdfSubido?.nombre || "",
-  fotoUrl: fotoSubida?.url || "",
-  fotoNombre: fotoSubida?.nombre || "",
-}),
+          email: ventaActualizada.cliente_email,
+          cliente: ventaActualizada.cliente || "Cliente",
+          numeroVenta:
+            ventaActualizada.codigo ||
+            ventaActualizada.numero ||
+            ventaActualizada.id,
+          estado: siguienteEstado,
+          comentario: comentarioEtapa.trim() || "",
+          pdfUrl: pdfSubido?.url || "",
+          pdfNombre: pdfSubido?.nombre || "",
+          fotoUrl: fotoSubida?.url || "",
+          fotoNombre: fotoSubida?.nombre || "",
+        }),
       });
 
       if (!response.ok) {
-        console.error("Error enviando correo automático");
         alert(
           "La venta se actualizó, pero no se pudo enviar el correo automático."
         );
@@ -314,9 +314,7 @@ export default function DetalleVentaPage() {
       }
 
       if (!data || data.length === 0) {
-        alert(
-          "No se actualizó ninguna fila en Supabase. Revisa que el ID exista en la tabla ventas."
-        );
+        alert("No se actualizó ninguna fila en Supabase.");
         setGuardando(false);
         return;
       }
@@ -409,7 +407,7 @@ export default function DetalleVentaPage() {
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <div style={{ maxWidth: 780, margin: "0 auto" }}>
+      <div style={{ maxWidth: 1080, margin: "0 auto" }}>
         <button
           onClick={() => router.push("/dashboard/ventas")}
           style={{
@@ -455,7 +453,7 @@ export default function DetalleVentaPage() {
               cursor: "pointer",
             }}
           >
-            ✏️ {editando ? "Cancelar" : "Editar"}
+            {editando ? "Cancelar" : "Editar"}
           </button>
         </header>
 
@@ -470,203 +468,214 @@ export default function DetalleVentaPage() {
         >
           <div
             style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 16,
-              alignItems: "center",
-              marginBottom: 16,
+              display: "grid",
+              gridTemplateColumns: "1.4fr 1fr",
+              gap: 20,
             }}
           >
-            <h2 style={{ margin: 0, fontSize: 18 }}>📦 Producto / Equipo</h2>
-
-            <span
-              style={{
-                backgroundColor: badge.bg,
-                color: badge.color,
-                padding: "7px 12px",
-                borderRadius: 999,
-                fontSize: 12,
-                fontWeight: 900,
-              }}
-            >
-              {estadoActual}
-            </span>
-          </div>
-
-          {editando ? (
-            <div style={{ display: "grid", gap: 14 }}>
-              <div>
-                <label style={{ fontWeight: 800, fontSize: 13 }}>Producto</label>
-                <input
-                  value={producto}
-                  onChange={(e) => setProducto(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: 12,
-                    borderRadius: 10,
-                    border: "1px solid #cbd5e1",
-                    marginTop: 6,
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ fontWeight: 800, fontSize: 13 }}>Detalle</label>
-                <textarea
-                  value={detalle}
-                  onChange={(e) => setDetalle(e.target.value)}
-                  style={{
-                    width: "100%",
-                    minHeight: 100,
-                    padding: 12,
-                    borderRadius: 10,
-                    border: "1px solid #cbd5e1",
-                    marginTop: 6,
-                  }}
-                />
-              </div>
-
-              <button
-                onClick={guardarCambios}
-                disabled={guardando}
+            <div>
+              <div
                 style={{
-                  backgroundColor: "#16a34a",
-                  color: "white",
-                  border: "none",
-                  borderRadius: 12,
-                  padding: "13px 18px",
-                  fontWeight: 900,
-                  cursor: guardando ? "not-allowed" : "pointer",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 16,
+                  alignItems: "center",
+                  marginBottom: 16,
                 }}
               >
-                {guardando ? "Guardando..." : "Guardar cambios"}
-              </button>
+                <h2 style={{ margin: 0, fontSize: 18 }}>Producto / Equipo</h2>
+
+                <span
+                  style={{
+                    backgroundColor: badge.bg,
+                    color: badge.color,
+                    padding: "7px 12px",
+                    borderRadius: 999,
+                    fontSize: 12,
+                    fontWeight: 900,
+                  }}
+                >
+                  {estadoActual}
+                </span>
+              </div>
+
+              {editando ? (
+                <div style={{ display: "grid", gap: 14 }}>
+                  <div>
+                    <label style={{ fontWeight: 800, fontSize: 13 }}>
+                      Producto
+                    </label>
+                    <input
+                      value={producto}
+                      onChange={(e) => setProducto(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: 12,
+                        borderRadius: 10,
+                        border: "1px solid #cbd5e1",
+                        marginTop: 6,
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ fontWeight: 800, fontSize: 13 }}>
+                      Detalle
+                    </label>
+                    <textarea
+                      value={detalle}
+                      onChange={(e) => setDetalle(e.target.value)}
+                      style={{
+                        width: "100%",
+                        minHeight: 100,
+                        padding: 12,
+                        borderRadius: 10,
+                        border: "1px solid #cbd5e1",
+                        marginTop: 6,
+                      }}
+                    />
+                  </div>
+
+                  <button
+                    onClick={guardarCambios}
+                    disabled={guardando}
+                    style={{
+                      backgroundColor: "#16a34a",
+                      color: "white",
+                      border: "none",
+                      borderRadius: 12,
+                      padding: "13px 18px",
+                      fontWeight: 900,
+                      cursor: guardando ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {guardando ? "Guardando..." : "Guardar cambios"}
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: "grid", gap: 10 }}>
+                  <Campo
+                    label="Producto"
+                    value={venta.producto || venta.descripcion}
+                  />
+                  <Campo label="Detalle" value={venta.detalle} />
+                  <Campo
+                    label="Responsable actual"
+                    value={venta.tecnico_responsable}
+                  />
+                </div>
+              )}
+
+              <div style={{ marginTop: 30 }}>
+                <h3
+                  style={{
+                    margin: "0 0 18px",
+                    fontSize: 15,
+                    color: "#334155",
+                  }}
+                >
+                  Avance de venta
+                </h3>
+
+                <div style={{ position: "relative", padding: "10px 0 4px" }}>
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      right: 0,
+                      top: 19,
+                      height: 4,
+                      backgroundColor: "#e2e8f0",
+                      borderRadius: 999,
+                    }}
+                  />
+
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      top: 19,
+                      height: 4,
+                      width: `${
+                        ((Math.max(ESTADOS.indexOf(estadoActual), 0) + 1) /
+                          ESTADOS.length) *
+                        100
+                      }%`,
+                      backgroundColor: "#f97316",
+                      borderRadius: 999,
+                    }}
+                  />
+
+                  <div
+                    style={{
+                      position: "relative",
+                      display: "grid",
+                      gridTemplateColumns: `repeat(${ESTADOS.length}, 1fr)`,
+                    }}
+                  >
+                    {ESTADOS.map((estado, index) => {
+                      const pasoActual = Math.max(
+                        ESTADOS.indexOf(estadoActual),
+                        0
+                      );
+                      const activo = index <= pasoActual;
+
+                      return (
+                        <div
+                          key={estado}
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            textAlign: "center",
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: 18,
+                              height: 18,
+                              borderRadius: 999,
+                              backgroundColor: activo ? "#f97316" : "#cbd5e1",
+                              border: "4px solid white",
+                              boxShadow: "0 0 0 1px #e2e8f0",
+                            }}
+                          />
+
+                          <span
+                            style={{
+                              marginTop: 10,
+                              fontSize: 11,
+                              fontWeight: activo ? 700 : 500,
+                              color: activo ? "#0f172a" : "#94a3b8",
+                            }}
+                          >
+                            {estado}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
             </div>
-          ) : (
-            <div style={{ display: "grid", gap: 10 }}>
-              <Campo label="Producto" value={venta.producto || venta.descripcion} />
-              <Campo label="Detalle" value={venta.detalle} />
-              <Campo label="Estado" value={estadoActual} />
-              <Campo label="Responsable actual" value={venta.tecnico_responsable} />
-            </div>
-          )}
-        </section>
 
-        <section
-          style={{
-            backgroundColor: "white",
-            border: "1px solid #e2e8f0",
-            borderRadius: 18,
-            padding: 22,
-            marginBottom: 18,
-          }}
-        >
-          <h2 style={{ margin: "0 0 16px", fontSize: 18 }}>👤 Cliente</h2>
-
-          <div style={{ display: "grid", gap: 10 }}>
-            <Campo label="Cliente" value={venta.cliente} />
-            <Campo label="Email" value={venta.cliente_email} />
-          </div>
-        </section>
-
-<section
-  style={{
-    backgroundColor: "white",
-    border: "1px solid #e2e8f0",
-    borderRadius: 18,
-    padding: 22,
-    marginBottom: 18,
-  }}
->
-  <h2 style={{ margin: "0 0 18px", fontSize: 18 }}>
-    Avance de venta
-  </h2>
-
-  <div style={{ position: "relative", padding: "10px 0 4px" }}>
-    <div
-      style={{
-        position: "absolute",
-        left: 0,
-        right: 0,
-        top: 19,
-        height: 4,
-        backgroundColor: "#e2e8f0",
-        borderRadius: 999,
-      }}
-    />
-
-    <div
-      style={{
-        position: "absolute",
-        left: 0,
-        top: 19,
-        height: 4,
-        width: `${
-          ((Math.max(ESTADOS.indexOf(estadoActual), 0) + 1) /
-            ESTADOS.length) *
-          100
-        }%`,
-        backgroundColor: "#f97316",
-        borderRadius: 999,
-      }}
-    />
-
-    <div
-      style={{
-        position: "relative",
-        display: "grid",
-        gridTemplateColumns: `repeat(${ESTADOS.length}, 1fr)`,
-      }}
-    >
-      {ESTADOS.map((estado, index) => {
-        const pasoActual = Math.max(
-          ESTADOS.indexOf(estadoActual),
-          0
-        );
-
-        const activo = index <= pasoActual;
-
-        return (
-          <div
-            key={estado}
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              textAlign: "center",
-            }}
-          >
             <div
               style={{
-                width: 18,
-                height: 18,
-                borderRadius: 999,
-                backgroundColor: activo
-                  ? "#f97316"
-                  : "#cbd5e1",
-                border: "4px solid white",
-                boxShadow: "0 0 0 1px #e2e8f0",
-              }}
-            />
-
-            <span
-              style={{
-                marginTop: 10,
-                fontSize: 12,
-                fontWeight: activo ? 700 : 500,
-                color: activo
-                  ? "#0f172a"
-                  : "#94a3b8",
+                backgroundColor: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                borderRadius: 14,
+                padding: 18,
               }}
             >
-              {estado}
-            </span>
+              <h2 style={{ margin: "0 0 16px", fontSize: 18 }}>Cliente</h2>
+
+              <div style={{ display: "grid", gap: 10 }}>
+                <Campo label="Cliente" value={venta.cliente} />
+                <Campo label="Email" value={venta.cliente_email} />
+              </div>
+            </div>
           </div>
-        );
-      })}
-    </div>
-  </div>
-</section>
+        </section>
 
         <section
           style={{
@@ -677,7 +686,7 @@ export default function DetalleVentaPage() {
             marginBottom: 18,
           }}
         >
-          <h2 style={{ margin: "0 0 16px", fontSize: 18 }}>📄 Documentos</h2>
+          <h2 style={{ margin: "0 0 16px", fontSize: 18 }}>Documentos</h2>
 
           {documentos.length === 0 ? (
             <div style={{ color: "#64748b" }}>No hay documentos adjuntos.</div>
@@ -720,7 +729,7 @@ export default function DetalleVentaPage() {
               marginBottom: 18,
             }}
           >
-            <h2 style={{ margin: "0 0 16px", fontSize: 18 }}>🖼️ Imagen</h2>
+            <h2 style={{ margin: "0 0 16px", fontSize: 18 }}>Imagen</h2>
 
             <img
               src={venta.imagen_url}
@@ -746,7 +755,7 @@ export default function DetalleVentaPage() {
           }}
         >
           <h2 style={{ margin: "0 0 16px", fontSize: 18 }}>
-            🕓 Historial de etapas
+            Historial de etapas
           </h2>
 
           {historial.length === 0 ? (
@@ -794,12 +803,24 @@ export default function DetalleVentaPage() {
                       </span>
                     </div>
 
-                    <div style={{ marginTop: 8, color: "#0f172a", fontWeight: 700 }}>
+                    <div
+                      style={{
+                        marginTop: 8,
+                        color: "#0f172a",
+                        fontWeight: 700,
+                      }}
+                    >
                       Responsable: {item.tecnico || "-"}
                     </div>
 
                     {item.comentario ? (
-                      <div style={{ marginTop: 8, color: "#334155", fontSize: 14 }}>
+                      <div
+                        style={{
+                          marginTop: 8,
+                          color: "#334155",
+                          fontSize: 14,
+                        }}
+                      >
                         Comentario: {item.comentario}
                       </div>
                     ) : null}
@@ -814,36 +835,37 @@ export default function DetalleVentaPage() {
                         }}
                       >
                         {item.pdf_url ? (
-  <>
-    <a
-      href={item.pdf_url}
-      target="_blank"
-      rel="noopener noreferrer"
-      style={{
-        backgroundColor: "#2563eb",
-        color: "white",
-        padding: "8px 12px",
-        borderRadius: 10,
-        textDecoration: "none",
-        fontSize: 13,
-        fontWeight: 800,
-      }}
-    >
-      📄 {item.pdf_nombre || "Ver PDF"}
-    </a>
+                          <div>
+                            <a
+                              href={item.pdf_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: "inline-block",
+                                backgroundColor: "#2563eb",
+                                color: "white",
+                                padding: "8px 12px",
+                                borderRadius: 10,
+                                textDecoration: "none",
+                                fontSize: 13,
+                                fontWeight: 800,
+                              }}
+                            >
+                              {item.pdf_nombre || "Ver PDF"}
+                            </a>
 
-    <iframe
-      src={item.pdf_url}
-      style={{
-        width: "100%",
-        height: 500,
-        border: "1px solid #e2e8f0",
-        borderRadius: 10,
-        marginTop: 10,
-      }}
-    />
-  </>
-) : null}
+                            <iframe
+                              src={item.pdf_url}
+                              style={{
+                                width: 260,
+                                height: 180,
+                                border: "1px solid #e2e8f0",
+                                borderRadius: 10,
+                                marginTop: 10,
+                              }}
+                            />
+                          </div>
+                        ) : null}
 
                         {item.foto_url ? (
                           <a
@@ -858,6 +880,7 @@ export default function DetalleVentaPage() {
                               textDecoration: "none",
                               fontSize: 13,
                               fontWeight: 800,
+                              height: "fit-content",
                             }}
                           >
                             Ver foto
