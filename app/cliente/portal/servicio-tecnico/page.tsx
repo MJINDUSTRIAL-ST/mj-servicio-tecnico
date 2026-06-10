@@ -17,8 +17,19 @@ type Orden = {
   tecnico_responsable?: string | null;
 };
 
+const PASOS = [
+  "Ingresada",
+  "Diagnóstico",
+  "Cotización",
+  "Aprobada",
+  "En reparación",
+  "Listo p/Entrega",
+  "Entregado",
+];
+
 function normalizarEstado(estado?: string | null) {
   if (!estado) return "Ingresada";
+  if (estado === "Listo") return "Listo p/Entrega";
   return estado;
 }
 
@@ -40,7 +51,6 @@ function colorEstado(estado?: string | null) {
   if (actual === "Cotización") return "bg-yellow-50 text-yellow-800";
   if (actual === "Aprobada") return "bg-indigo-50 text-indigo-800";
   if (actual === "En reparación") return "bg-orange-50 text-orange-800";
-  if (actual === "Listo") return "bg-green-50 text-green-800";
   if (actual === "Listo p/Entrega") return "bg-green-50 text-green-800";
   if (actual === "Entregado") return "bg-emerald-50 text-emerald-800";
 
@@ -98,9 +108,7 @@ export default function ClienteServicioTecnicoPage() {
         (o) => normalizarEstado(o.estado) === "Cotización"
       ).length,
       listas: ordenes.filter(
-        (o) =>
-          normalizarEstado(o.estado) === "Listo" ||
-          normalizarEstado(o.estado) === "Listo p/Entrega"
+        (o) => normalizarEstado(o.estado) === "Listo p/Entrega"
       ).length,
       entregadas: ordenes.filter(
         (o) => normalizarEstado(o.estado) === "Entregado"
@@ -123,27 +131,11 @@ export default function ClienteServicioTecnicoPage() {
 
       <div className="mt-6 grid gap-4 md:grid-cols-3 lg:grid-cols-6">
         <ResumenCard titulo="Total" valor={resumen.total} clase="bg-slate-50" />
-        <ResumenCard
-          titulo="Ingresadas"
-          valor={resumen.ingresadas}
-          clase="bg-slate-50"
-        />
-        <ResumenCard
-          titulo="Diagnóstico"
-          valor={resumen.diagnostico}
-          clase="bg-blue-50"
-        />
-        <ResumenCard
-          titulo="Cotización"
-          valor={resumen.cotizacion}
-          clase="bg-yellow-50"
-        />
+        <ResumenCard titulo="Ingresadas" valor={resumen.ingresadas} clase="bg-slate-50" />
+        <ResumenCard titulo="Diagnóstico" valor={resumen.diagnostico} clase="bg-blue-50" />
+        <ResumenCard titulo="Cotización" valor={resumen.cotizacion} clase="bg-yellow-50" />
         <ResumenCard titulo="Listas" valor={resumen.listas} clase="bg-green-50" />
-        <ResumenCard
-          titulo="Entregadas"
-          valor={resumen.entregadas}
-          clase="bg-emerald-50"
-        />
+        <ResumenCard titulo="Entregadas" valor={resumen.entregadas} clase="bg-emerald-50" />
       </div>
 
       {ordenes.length === 0 ? (
@@ -154,46 +146,91 @@ export default function ClienteServicioTecnicoPage() {
         <div className="mt-10 grid gap-5">
           {ordenes.map((orden) => {
             const estadoActual = normalizarEstado(orden.estado);
+            const pasoActual = Math.max(PASOS.indexOf(estadoActual), 0);
 
             return (
               <Link
                 key={orden.id}
                 href={`/cliente/portal/servicio-tecnico/${orden.id}`}
-                className="block rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-md"
+                className="block rounded-3xl border border-slate-200 bg-white p-8 shadow-sm transition hover:shadow-md"
               >
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
                   <div>
-                    <h2 className="text-2xl font-bold">
+                    <h2 className="text-2xl font-bold text-slate-900">
                       {orden.codigo || "Orden sin código"}
                     </h2>
 
-                    <p className="mt-2 font-semibold">
+                    <p className="mt-2 text-lg font-medium text-slate-700">
                       {orden.equipo || "Equipo sin nombre"}
                     </p>
 
-                    <p className="mt-2 text-sm text-slate-400">
-                      Fecha ingreso: {formatFecha(orden.created_at)}
-                    </p>
-
-                    {orden.tecnico_responsable ? (
-                      <p className="mt-1 text-sm text-slate-500">
-                        Responsable: {orden.tecnico_responsable}
+                    <div className="mt-5 grid gap-2 text-sm text-slate-500">
+                      <p>
+                        <strong>Fecha ingreso:</strong>{" "}
+                        {formatFecha(orden.created_at)}
                       </p>
-                    ) : null}
+
+                      <p>
+                        <strong>Responsable:</strong>{" "}
+                        {orden.tecnico_responsable || "Pendiente"}
+                      </p>
+
+                      <p>
+                        <strong>Prioridad:</strong>{" "}
+                        {orden.prioridad || "Normal"}
+                      </p>
+                    </div>
                   </div>
 
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-bold ${colorEstado(
-                      estadoActual
-                    )}`}
-                  >
-                    {estadoActual}
-                  </span>
+                  <div className="flex flex-col items-start lg:items-end">
+                    <span
+                      className={`rounded-full px-4 py-2 text-sm font-bold ${colorEstado(
+                        estadoActual
+                      )}`}
+                    >
+                      {estadoActual}
+                    </span>
+
+                    <span className="mt-4 text-sm font-semibold text-blue-600">
+                      Ver detalle
+                    </span>
+                  </div>
                 </div>
 
-                <p className="mt-4 text-sm font-semibold text-blue-600">
-                  Ver detalle →
-                </p>
+                <div className="mt-8">
+                  <div className="relative">
+                    <div className="absolute left-0 top-2 h-1 w-full bg-slate-200" />
+
+                    <div
+                      className="absolute left-0 top-2 h-1 bg-orange-500"
+                      style={{
+                        width: `${((pasoActual + 1) / PASOS.length) * 100}%`,
+                      }}
+                    />
+
+                    <div className="relative flex justify-between">
+                      {PASOS.map((paso, index) => (
+                        <div key={paso} className="flex w-full flex-col items-center">
+                          <div
+                            className={`h-5 w-5 rounded-full border-4 border-white ${
+                              index <= pasoActual ? "bg-orange-500" : "bg-slate-300"
+                            }`}
+                          />
+
+                          <span
+                            className={`mt-3 text-center text-xs ${
+                              index <= pasoActual
+                                ? "font-semibold text-slate-800"
+                                : "text-slate-400"
+                            }`}
+                          >
+                            {paso}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </Link>
             );
           })}
