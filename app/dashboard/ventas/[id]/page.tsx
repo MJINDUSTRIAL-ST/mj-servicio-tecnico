@@ -569,6 +569,105 @@ export default function DetalleVentaPage() {
           </div>
         </section>
 
+<section
+  style={{
+    backgroundColor: "white",
+    border: "1px solid #e2e8f0",
+    borderRadius: 18,
+    padding: 22,
+    marginBottom: 18,
+  }}
+>
+  <h2 style={{ margin: "0 0 18px", fontSize: 18 }}>
+    Avance de venta
+  </h2>
+
+  <div style={{ position: "relative", padding: "10px 0 4px" }}>
+    <div
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        top: 19,
+        height: 4,
+        backgroundColor: "#e2e8f0",
+        borderRadius: 999,
+      }}
+    />
+
+    <div
+      style={{
+        position: "absolute",
+        left: 0,
+        top: 19,
+        height: 4,
+        width: `${
+          ((Math.max(ESTADOS.indexOf(estadoActual), 0) + 1) /
+            ESTADOS.length) *
+          100
+        }%`,
+        backgroundColor: "#f97316",
+        borderRadius: 999,
+      }}
+    />
+
+    <div
+      style={{
+        position: "relative",
+        display: "grid",
+        gridTemplateColumns: `repeat(${ESTADOS.length}, 1fr)`,
+      }}
+    >
+      {ESTADOS.map((estado, index) => {
+        const pasoActual = Math.max(
+          ESTADOS.indexOf(estadoActual),
+          0
+        );
+
+        const activo = index <= pasoActual;
+
+        return (
+          <div
+            key={estado}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                width: 18,
+                height: 18,
+                borderRadius: 999,
+                backgroundColor: activo
+                  ? "#f97316"
+                  : "#cbd5e1",
+                border: "4px solid white",
+                boxShadow: "0 0 0 1px #e2e8f0",
+              }}
+            />
+
+            <span
+              style={{
+                marginTop: 10,
+                fontSize: 12,
+                fontWeight: activo ? 700 : 500,
+                color: activo
+                  ? "#0f172a"
+                  : "#94a3b8",
+              }}
+            >
+              {estado}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+</section>
+
         <section
           style={{
             backgroundColor: "white",

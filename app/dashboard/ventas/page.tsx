@@ -20,7 +20,6 @@ const ESTADOS_VENTA = [
   "Cotizada",
   "Aprobada",
   "Preparación",
-  "Lista para despacho",
   "Despachado",
   "Entregado",
 ];
@@ -37,7 +36,6 @@ function colorEstado(estado?: string | null) {
   if (actual === "Cotizada") return "bg-yellow-50 text-yellow-800";
   if (actual === "Aprobada") return "bg-blue-50 text-blue-800";
   if (actual === "Preparación") return "bg-orange-50 text-orange-800";
-  if (actual === "Lista para despacho") return "bg-green-50 text-green-800";
   if (actual === "Despachado") return "bg-indigo-50 text-indigo-800";
   if (actual === "Entregado") return "bg-emerald-50 text-emerald-800";
 
@@ -96,7 +94,6 @@ export default function VentasPage() {
       ).length,
       despacho: ventas.filter(
         (v) =>
-          normalizarEstado(v.estado) === "Lista para despacho" ||
           normalizarEstado(v.estado) === "Despachado"
       ).length,
       entregadas: ventas.filter(
