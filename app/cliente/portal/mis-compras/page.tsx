@@ -153,7 +153,7 @@ export default function MisComprasPage() {
             return (
               <Link
                 key={compra.id}
-                href={`/cliente/portal/mis-compras/${compra.numero || compra.id}`}
+                href={`/cliente/portal/mis-compras/${compra.id}`}
                 className="block rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-md"
               >
                 <div className="flex items-start justify-between gap-4">
