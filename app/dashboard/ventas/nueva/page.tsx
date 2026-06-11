@@ -71,30 +71,45 @@ export default function NuevaVentaPage() {
     cargarDatos();
   }, []);
 
-  async function subirPDF(file: File | null, tipo: string) {
-    if (!file) return null;
+async function subirPDF(file: File | null, tipo: string) {
+  if (!file) return null;
 
-    const nombreLimpio = file.name
-      .toLowerCase()
-      .replaceAll(" ", "-")
-      .replaceAll("/", "-");
+  const nombreLimpio = file.name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9.\-_]/g, "-")
+    .replace(/-+/g, "-")
+    .toLowerCase();
 
-    const ruta = `${numero}/${tipo}-${Date.now()}-${nombreLimpio}`;
+  const numeroLimpio = numero
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9.\-_]/g, "-")
+    .replace(/-+/g, "-")
+    .toLowerCase();
 
-    const { error } = await supabase.storage
-      .from("ventas")
-      .upload(ruta, file, {
-        upsert: true,
-        contentType: "application/pdf",
-      });
+  const tipoLimpio = tipo
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9.\-_]/g, "-")
+    .replace(/-+/g, "-")
+    .toLowerCase();
 
-    if (error) {
-      throw new Error(`Error subiendo ${tipo}: ${error.message}`);
-    }
+  const ruta = `${numeroLimpio}/${tipoLimpio}-${Date.now()}-${nombreLimpio}`;
 
-    const { data } = supabase.storage.from("ventas").getPublicUrl(ruta);
-    return data.publicUrl;
+  const { error } = await supabase.storage.from("ventas").upload(ruta, file, {
+    upsert: true,
+    contentType: "application/pdf",
+  });
+
+  if (error) {
+    throw new Error(`Error subiendo ${tipo}: ${error.message}`);
   }
+
+  const { data } = supabase.storage.from("ventas").getPublicUrl(ruta);
+
+  return data.publicUrl;
+}
 
   async function guardarVenta(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
