@@ -29,7 +29,29 @@ const PASOS = [
 
 function normalizarEstado(estado?: string | null) {
   if (!estado) return "Ingresada";
-  if (estado === "Listo") return "Listo p/Entrega";
+
+  const texto = estado.trim().toLowerCase();
+
+  if (texto === "ingreso") return "Ingresada";
+  if (texto === "ingresada") return "Ingresada";
+
+  if (texto === "diagnostico") return "Diagnóstico";
+  if (texto === "diagnóstico") return "Diagnóstico";
+
+  if (texto === "cotizacion") return "Cotización";
+  if (texto === "cotización") return "Cotización";
+
+  if (texto === "aprobada") return "Aprobada";
+
+  if (texto === "reparacion") return "En reparación";
+  if (texto === "reparación") return "En reparación";
+  if (texto === "en reparación") return "En reparación";
+
+  if (texto === "listo") return "Listo p/Entrega";
+  if (texto === "listo p/entrega") return "Listo p/Entrega";
+
+  if (texto === "entregado") return "Entregado";
+
   return estado;
 }
 
