@@ -129,6 +129,9 @@ export default function ClienteServicioTecnicoPage() {
       cotizacion: ordenes.filter(
         (o) => normalizarEstado(o.estado) === "Cotización"
       ).length,
+      reparacion: ordenes.filter(
+  (o) => normalizarEstado(o.estado) === "En reparación"
+).length,
       listas: ordenes.filter(
         (o) => normalizarEstado(o.estado) === "Listo p/Entrega"
       ).length,
@@ -151,11 +154,12 @@ export default function ClienteServicioTecnicoPage() {
     <div className="mx-auto max-w-6xl">
       <h1 className="text-4xl font-bold">Servicio Técnico</h1>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-3 lg:grid-cols-6">
+      <div className="mt-6 grid gap-4 md:grid-cols-3 lg:grid-cols-7">
         <ResumenCard titulo="Total" valor={resumen.total} clase="bg-slate-50" />
         <ResumenCard titulo="Ingresadas" valor={resumen.ingresadas} clase="bg-slate-50" />
         <ResumenCard titulo="Diagnóstico" valor={resumen.diagnostico} clase="bg-blue-50" />
         <ResumenCard titulo="Cotización" valor={resumen.cotizacion} clase="bg-yellow-50" />
+        <ResumenCard titulo="Reparación" valor={resumen.reparacion} clase="bg-orange-50" />
         <ResumenCard titulo="Listas" valor={resumen.listas} clase="bg-green-50" />
         <ResumenCard titulo="Entregadas" valor={resumen.entregadas} clase="bg-emerald-50" />
       </div>
