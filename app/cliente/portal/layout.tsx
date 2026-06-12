@@ -66,6 +66,12 @@ export default function ClientePortalLayout({
               >
                 Mis Compras
               </Link>
+              <Link
+  href="/cliente/portal/proximos-vencimientos"
+  className="ml-4 block rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+>
+  Próximos vencimientos
+</Link>
             </nav>
           </div>
 
@@ -74,7 +80,8 @@ export default function ClientePortalLayout({
               type="button"
               onClick={cerrarSesion}
               className="cursor-pointer text-sm font-medium text-slate-500 hover:text-slate-900"
-            >
+>
+
               Cerrar sesión
             </button>
           </div>
