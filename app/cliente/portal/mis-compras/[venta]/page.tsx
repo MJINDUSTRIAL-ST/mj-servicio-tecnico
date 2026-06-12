@@ -24,6 +24,14 @@ type Compra = {
   vencimiento_certificado?: string | null;
 };
 
+type Retiro = {
+  id: string;
+  fecha_retiro: string;
+  hora_retiro: string;
+  estado: string;
+  observaciones?: string | null;
+};
+
 const ESTADOS = [
   "Cotizada",
   "Aprobada",
@@ -71,6 +79,7 @@ export default function DetalleCompraPage() {
 
   const [compra, setCompra] = useState<Compra | null>(null);
   const [loading, setLoading] = useState(true);
+  const [retiro, setRetiro] = useState<Retiro | null>(null);
 
   useEffect(() => {
     cargarCompra();
@@ -99,6 +108,17 @@ export default function DetalleCompraPage() {
     }
 
     setCompra(data[0] as Compra);
+    const { data: retiroData } = await supabase
+  .from("retiros")
+  .select("*")
+  .eq("tipo", "venta")
+  .eq("referencia_id", ventaId)
+  .eq("estado", "Agendado")
+  .limit(1);
+
+if (retiroData && retiroData.length > 0) {
+  setRetiro(retiroData[0] as Retiro);
+}
     setLoading(false);
   }
 
@@ -230,24 +250,34 @@ export default function DetalleCompraPage() {
             ))
           )}
         </div>
-        {estadoActual === "Lista para despacho" ? (
-          <div className="mt-8 rounded-xl border border-blue-200 bg-blue-50 p-5">
-            <p className="font-bold text-slate-900">Retiro disponible</p>
-            <p className="mt-1 text-sm text-slate-600">
-              Tu compra ya está lista para ser retirada. Agenda un horario antes de venir.
-            </p>
+    {retiro ? (
+  <div className="mt-8 rounded-xl border border-green-200 bg-green-50 p-5">
+    <p className="font-bold text-slate-900">Retiro agendado</p>
+    <p className="mt-1 text-sm text-slate-600">
+      Fecha: {formatFecha(retiro.fecha_retiro)}
+    </p>
+    <p className="mt-1 text-sm text-slate-600">
+      Hora: {retiro.hora_retiro}
+    </p>
+  </div>
+) : estadoActual === "Lista para despacho" ? (
+  <div className="mt-8 rounded-xl border border-blue-200 bg-blue-50 p-5">
+    <p className="font-bold text-slate-900">Retiro disponible</p>
+    <p className="mt-1 text-sm text-slate-600">
+      Tu compra ya está lista para ser retirada. Agenda un horario antes de venir.
+    </p>
 
-            <button
-              type="button"
-              onClick={() =>
-                router.push(`/cliente/portal/agendar-retiro/venta/${compra.id}`)
-              }
-              className="mt-4 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
-            >
-              Agendar retiro
-            </button>
-          </div>
-        ) : null}
+    <button
+      type="button"
+      onClick={() =>
+        router.push(`/cliente/portal/agendar-retiro/venta/${compra.id}`)
+      }
+      className="mt-4 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+    >
+      Agendar retiro
+    </button>
+  </div>
+) : null}
 
         <div className="mt-8 rounded-xl border border-slate-200 bg-slate-50 p-4">
           <p className="font-semibold text-blue-600">Certificado</p>
