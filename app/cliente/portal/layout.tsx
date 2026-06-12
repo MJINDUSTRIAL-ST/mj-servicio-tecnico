@@ -72,6 +72,12 @@ export default function ClientePortalLayout({
 >
   Próximos vencimientos
 </Link>
+<Link
+  href="/cliente/portal/retiros"
+  className="ml-4 block rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+>
+  Retiros agendados
+</Link>
             </nav>
           </div>
 
