@@ -38,6 +38,17 @@ type Venta = {
   historial_estados?: HistorialEstado[] | null;
 };
 
+type Retiro = {
+  id: string;
+  tipo?: string | null;
+  referencia_id?: string | null;
+  cliente_email?: string | null;
+  fecha_retiro?: string | null;
+  hora_retiro?: string | null;
+  observaciones?: string | null;
+  estado?: string | null;
+};
+
 const ESTADOS = [
   "Cotizada",
   "Aprobada",
@@ -119,6 +130,7 @@ export default function DetalleVentaPage() {
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
 
   const [venta, setVenta] = useState<Venta | null>(null);
+  const [retiro, setRetiro] = useState<Retiro | null>(null);
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [editando, setEditando] = useState(false);
@@ -166,6 +178,19 @@ export default function DetalleVentaPage() {
     setVenta(ventaData);
     setProducto(ventaData.producto || ventaData.descripcion || "");
     setDetalle(ventaData.detalle || "");
+    const { data: retiroData } = await supabase
+  .from("retiros")
+  .select("*")
+  .eq("tipo", "venta")
+  .eq("referencia_id", ventaData.id)
+  .eq("estado", "Agendado")
+  .limit(1);
+
+if (retiroData && retiroData.length > 0) {
+  setRetiro(retiroData[0] as Retiro);
+} else {
+  setRetiro(null);
+}
     setLoading(false);
   }
 
@@ -676,6 +701,28 @@ export default function DetalleVentaPage() {
             </div>
           </div>
         </section>
+        {retiro ? (
+  <section
+    style={{
+      backgroundColor: "#f0fdf4",
+      border: "1px solid #bbf7d0",
+      borderRadius: 18,
+      padding: 22,
+      marginBottom: 18,
+    }}
+  >
+    <h2 style={{ margin: "0 0 16px", fontSize: 18, color: "#166534" }}>
+      Retiro agendado
+    </h2>
+
+    <div style={{ display: "grid", gap: 10 }}>
+      <Campo label="Fecha retiro" value={retiro.fecha_retiro} />
+      <Campo label="Hora retiro" value={retiro.hora_retiro} />
+      <Campo label="Estado" value={retiro.estado} />
+      <Campo label="Observaciones" value={retiro.observaciones} />
+    </div>
+  </section>
+) : null}
 
         <section
           style={{
