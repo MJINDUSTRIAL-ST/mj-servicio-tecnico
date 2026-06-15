@@ -10,10 +10,20 @@ type Orden = {
   estado: string;
 };
 
+type Compra = {
+  id: string;
+};
+
+type Retiro = {
+  id: string;
+};
+
 export default function ClientePortalHomePage() {
   const router = useRouter();
 
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
+  const [compras, setCompras] = useState<Compra[]>([]);
+  const [retiros, setRetiros] = useState<Retiro[]>([]);
   const [loading, setLoading] = useState(true);
   const [clienteNombre, setClienteNombre] = useState("");
 
@@ -30,14 +40,29 @@ export default function ClientePortalHomePage() {
 
       setClienteNombre(nombreGuardado || "");
 
-      const { data, error } = await supabase
+      const email = clienteEmail.trim().toLowerCase();
+
+      const { data: ordenesData } = await supabase
         .from("ordenes")
         .select("id, estado")
-        .eq("cliente_email", clienteEmail);
+        .eq("cliente_email", email);
 
-      if (!error) {
-        setOrdenes(data || []);
-      }
+      setOrdenes((ordenesData || []) as Orden[]);
+
+      const { data: comprasData } = await supabase
+        .from("ventas")
+        .select("id")
+        .eq("cliente_email", email);
+
+      setCompras((comprasData || []) as Compra[]);
+
+      const { data: retirosData } = await supabase
+        .from("retiros")
+        .select("id")
+        .eq("cliente_email", email)
+        .eq("estado", "Agendado");
+
+      setRetiros((retirosData || []) as Retiro[]);
 
       setLoading(false);
     };
@@ -46,6 +71,8 @@ export default function ClientePortalHomePage() {
   }, [router]);
 
   const totalOrdenes = ordenes.length;
+  const totalCompras = compras.length;
+  const totalRetiros = retiros.length;
 
   const listoEntrega = ordenes.filter(
     (o) => o.estado === "Listo" || o.estado === "Listo p/Entrega"
@@ -62,7 +89,7 @@ export default function ClientePortalHomePage() {
   };
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="mx-auto max-w-6xl">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-4xl font-bold tracking-tight">
@@ -94,6 +121,10 @@ export default function ClientePortalHomePage() {
             En <strong>Mis Compras</strong> puedes revisar el historial de tus
             pedidos.
           </li>
+          <li>
+            En <strong>Retiros Agendados</strong> puedes revisar tus horarios de
+            retiro programados.
+          </li>
           <li>Haz clic en cualquier módulo para ver el detalle.</li>
         </ul>
       </div>
@@ -101,7 +132,7 @@ export default function ClientePortalHomePage() {
       {loading ? (
         <p className="mt-6 text-slate-500">Cargando...</p>
       ) : (
-        <div className="mt-8 grid gap-6 md:grid-cols-2">
+        <div className="mt-8 grid gap-6 md:grid-cols-3">
           <Link
             href="/cliente/portal/servicio-tecnico"
             className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md"
@@ -133,9 +164,22 @@ export default function ClientePortalHomePage() {
           >
             <p className="text-sm font-semibold text-blue-500">Mis Compras</p>
 
-            <h3 className="mt-3 text-3xl font-bold">0</h3>
+            <h3 className="mt-3 text-3xl font-bold">{totalCompras}</h3>
 
             <p className="mt-2 text-slate-500">compras en total</p>
+          </Link>
+
+          <Link
+            href="/cliente/portal/retiros"
+            className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md"
+          >
+            <p className="text-sm font-semibold text-green-600">
+              Retiros Agendados
+            </p>
+
+            <h3 className="mt-3 text-3xl font-bold">{totalRetiros}</h3>
+
+            <p className="mt-2 text-slate-500">retiros programados</p>
           </Link>
         </div>
       )}
