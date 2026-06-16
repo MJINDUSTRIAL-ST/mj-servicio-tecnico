@@ -41,7 +41,21 @@ export default function RetirosDashboardPage() {
   ).length;
 
   return (
+
     <div className="p-8">
+        <button
+  onClick={() => window.history.back()}
+  style={{
+    border: "none",
+    background: "transparent",
+    color: "#64748b",
+    fontWeight: 700,
+    cursor: "pointer",
+    marginBottom: 18,
+  }}
+>
+  ← Volver atrás
+</button>
       <h1 className="text-3xl font-bold mb-2">
         Retiros Agendados
       </h1>
