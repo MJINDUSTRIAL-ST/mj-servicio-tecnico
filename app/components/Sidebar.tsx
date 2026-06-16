@@ -153,6 +153,16 @@ export default function Sidebar() {
           >
             Ventas
           </Link>
+
+<Link
+  href="/dashboard/retiros"
+  style={getItemStyle("retiros")}
+  onMouseEnter={() => setHovered("retiros")}
+  onMouseLeave={() => setHovered(null)}
+  onFocus={(e) => e.target.blur()}
+>
+  Retiros Agendados
+</Link>
         </div>
       </div>
 
