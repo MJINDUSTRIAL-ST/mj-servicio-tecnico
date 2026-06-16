@@ -26,9 +26,9 @@ type Compra = {
 
 type Retiro = {
   id: string;
-  fecha_retiro: string;
-  hora_retiro: string;
-  estado: string;
+  fecha_retiro: string | null;
+  hora_retiro: string | null;
+  estado: string | null;
   observaciones?: string | null;
 };
 
@@ -108,17 +108,19 @@ export default function DetalleCompraPage() {
     }
 
     setCompra(data[0] as Compra);
-    const { data: retiroData } = await supabase
-  .from("retiros")
-  .select("*")
-  .eq("tipo", "venta")
-  .eq("referencia_id", ventaId)
-  .eq("estado", "Agendado")
-  .limit(1);
 
-if (retiroData && retiroData.length > 0) {
-  setRetiro(retiroData[0] as Retiro);
-}
+    const { data: retiroData, error: retiroError } = await supabase
+      .from("retiros")
+      .select("*")
+      .eq("tipo", "venta")
+      .eq("referencia_id", ventaId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (!retiroError && retiroData && retiroData.length > 0) {
+      setRetiro(retiroData[0] as Retiro);
+    }
+
     setLoading(false);
   }
 
@@ -250,34 +252,52 @@ if (retiroData && retiroData.length > 0) {
             ))
           )}
         </div>
-    {retiro ? (
-  <div className="mt-8 rounded-xl border border-green-200 bg-green-50 p-5">
-    <p className="font-bold text-slate-900">Retiro agendado</p>
-    <p className="mt-1 text-sm text-slate-600">
-      Fecha: {formatFecha(retiro.fecha_retiro)}
-    </p>
-    <p className="mt-1 text-sm text-slate-600">
-      Hora: {retiro.hora_retiro}
-    </p>
-  </div>
-) : estadoActual === "Lista para despacho" ? (
-  <div className="mt-8 rounded-xl border border-blue-200 bg-blue-50 p-5">
-    <p className="font-bold text-slate-900">Retiro disponible</p>
-    <p className="mt-1 text-sm text-slate-600">
-      Tu compra ya está lista para ser retirada. Agenda un horario antes de venir.
-    </p>
 
-    <button
-      type="button"
-      onClick={() =>
-        router.push(`/cliente/portal/agendar-retiro/venta/${compra.id}`)
-      }
-      className="mt-4 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
-    >
-      Agendar retiro
-    </button>
-  </div>
-) : null}
+        {retiro?.estado === "Retirado" ? (
+          <div className="mt-8 rounded-xl border border-green-200 bg-green-50 p-5">
+            <p className="font-bold text-green-800">Producto retirado</p>
+            <p className="mt-1 text-sm text-slate-600">
+              Este producto ya fue retirado.
+            </p>
+            <p className="mt-1 text-sm text-slate-600">
+              Fecha retiro: {formatFecha(retiro.fecha_retiro)}
+            </p>
+            <p className="mt-1 text-sm text-slate-600">
+              Hora retiro: {retiro.hora_retiro || "-"}
+            </p>
+          </div>
+        ) : retiro ? (
+          <div className="mt-8 rounded-xl border border-green-200 bg-green-50 p-5">
+            <p className="font-bold text-slate-900">Retiro agendado</p>
+            <p className="mt-1 text-sm text-slate-600">
+              Fecha: {formatFecha(retiro.fecha_retiro)}
+            </p>
+            <p className="mt-1 text-sm text-slate-600">
+              Hora: {retiro.hora_retiro || "-"}
+            </p>
+            <p className="mt-1 text-sm text-slate-600">
+              Estado: {retiro.estado || "Agendado"}
+            </p>
+          </div>
+        ) : estadoActual === "Lista para despacho" ? (
+          <div className="mt-8 rounded-xl border border-blue-200 bg-blue-50 p-5">
+            <p className="font-bold text-slate-900">Retiro disponible</p>
+            <p className="mt-1 text-sm text-slate-600">
+              Tu compra ya está lista para ser retirada. Agenda un horario antes
+              de venir.
+            </p>
+
+            <button
+              type="button"
+              onClick={() =>
+                router.push(`/cliente/portal/agendar-retiro/venta/${compra.id}`)
+              }
+              className="mt-4 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Agendar retiro
+            </button>
+          </div>
+        ) : null}
 
         <div className="mt-8 rounded-xl border border-slate-200 bg-slate-50 p-4">
           <p className="font-semibold text-blue-600">Certificado</p>
