@@ -11,6 +11,22 @@ type Retiro = {
   estado: string;
 };
 
+type Venta = {
+  producto?: string | null;
+  descripcion?: string | null;
+  detalle?: string | null;
+  numero?: string | null;
+};
+
+type Orden = {
+  equipo?: string | null;
+  producto?: string | null;
+  descripcion?: string | null;
+  detalle?: string | null;
+  numero?: string | null;
+  codigo?: string | null;
+};
+
 const HORARIOS = ["11:00", "12:00", "15:00", "16:00"];
 
 function esDiaHabil(fecha: string) {
@@ -34,9 +50,15 @@ export default function AgendarRetiroPage() {
   const [observaciones, setObservaciones] = useState("");
   const [retirosOcupados, setRetirosOcupados] = useState<Retiro[]>([]);
   const [guardando, setGuardando] = useState(false);
+  const [productoEquipo, setProductoEquipo] = useState("");
 
   const clienteEmail =
     typeof window !== "undefined" ? localStorage.getItem("cliente_email") : null;
+
+  useEffect(() => {
+    cargarProductoEquipo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tipo, id]);
 
   useEffect(() => {
     if (fecha) {
@@ -44,6 +66,50 @@ export default function AgendarRetiroPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fecha]);
+
+  async function cargarProductoEquipo() {
+    if (!tipo || !id) return;
+
+    if (tipo === "venta") {
+      const { data, error } = await supabase
+        .from("ventas")
+        .select("producto, descripcion, detalle, numero")
+        .eq("id", id)
+        .limit(1);
+
+      if (!error && data && data.length > 0) {
+        const venta = data[0] as Venta;
+        setProductoEquipo(
+          venta.producto ||
+            venta.descripcion ||
+            venta.detalle ||
+            venta.numero ||
+            "Compra"
+        );
+      }
+
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("ordenes")
+      .select("equipo, producto, descripcion, detalle, numero, codigo")
+      .eq("id", id)
+      .limit(1);
+
+    if (!error && data && data.length > 0) {
+      const orden = data[0] as Orden;
+      setProductoEquipo(
+        orden.equipo ||
+          orden.producto ||
+          orden.descripcion ||
+          orden.detalle ||
+          orden.numero ||
+          orden.codigo ||
+          "Servicio técnico"
+      );
+    }
+  }
 
   async function cargarHorariosOcupados() {
     const { data, error } = await supabase
@@ -93,6 +159,7 @@ export default function AgendarRetiroPage() {
         tipo,
         referencia_id: id,
         cliente_email: clienteEmail.trim().toLowerCase(),
+        producto_equipo: productoEquipo || null,
         fecha_retiro: fecha,
         hora_retiro: hora,
         observaciones: observaciones.trim() || null,
@@ -132,6 +199,13 @@ export default function AgendarRetiroPage() {
 
         <p className="mt-4 text-slate-500">ID:</p>
         <p className="font-semibold">{id}</p>
+
+        {productoEquipo ? (
+          <>
+            <p className="mt-4 text-slate-500">Producto / equipo:</p>
+            <p className="font-semibold">{productoEquipo}</p>
+          </>
+        ) : null}
 
         <div className="mt-8">
           <label className="block text-sm font-semibold">Fecha de retiro</label>
