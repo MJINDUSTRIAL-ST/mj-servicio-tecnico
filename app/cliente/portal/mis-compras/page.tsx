@@ -23,6 +23,15 @@ type Retiro = {
   tipo?: string | null;
 };
 
+type FiltroEstado =
+  | "Todos"
+  | "Cotizada"
+  | "Aprobada"
+  | "Lista para despacho"
+  | "Retiro agendado"
+  | "Despachado"
+  | "Entregado";
+
 function normalizarEstado(estado?: string | null) {
   if (!estado) return "Cotizada";
   if (estado === "Pendiente") return "Cotizada";
@@ -30,21 +39,15 @@ function normalizarEstado(estado?: string | null) {
   return estado;
 }
 
-function obtenerEstadoVisible(
-  compra: Compra,
-  retiros: Retiro[]
-) {
-  const retiro = retiros.find(
-    (r) => r.referencia_id === compra.id
-  );
+function obtenerEstadoVisible(compra: Compra, retiros: Retiro[]) {
+  const retiro = retiros.find((r) => r.referencia_id === compra.id);
 
-  if (
-    retiro &&
-    retiro.estado === "Agendado"
-  ) {
-    return retiro.tipo === "venta"
-      ? "Retiro agendado"
-      : "Despacho solicitado";
+  if (retiro && retiro.estado === "Agendado") {
+    return "Retiro agendado";
+  }
+
+  if (retiro && retiro.estado === "Retirado") {
+    return "Entregado";
   }
 
   return normalizarEstado(compra.estado);
@@ -57,9 +60,11 @@ function formatFecha(fecha?: string | null) {
 
 export default function MisComprasPage() {
   const router = useRouter();
+
   const [compras, setCompras] = useState<Compra[]>([]);
   const [retiros, setRetiros] = useState<Retiro[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filtro, setFiltro] = useState<FiltroEstado>("Todos");
 
   useEffect(() => {
     cargarCompras();
@@ -86,34 +91,46 @@ export default function MisComprasPage() {
       return;
     }
 
-    setCompras((data || []) as Compra[]);
-    const ventaIds = (data || []).map((v) => v.id);
+    const comprasData = (data || []) as Compra[];
+    setCompras(comprasData);
 
-if (ventaIds.length > 0) {
-  const { data: retirosData } = await supabase
-    .from("retiros")
-    .select("*")
-    .in("referencia_id", ventaIds);
+    const ventaIds = comprasData.map((v) => v.id);
 
-  setRetiros((retirosData || []) as Retiro[]);
-}
+    if (ventaIds.length > 0) {
+      const { data: retirosData } = await supabase
+        .from("retiros")
+        .select("*")
+        .in("referencia_id", ventaIds);
+
+      setRetiros((retirosData || []) as Retiro[]);
+    }
+
     setLoading(false);
   }
 
+  const comprasConEstado = useMemo(() => {
+    return compras.map((compra) => ({
+      ...compra,
+      estadoVisible: obtenerEstadoVisible(compra, retiros),
+    }));
+  }, [compras, retiros]);
+
   const resumen = useMemo(() => {
     return {
-      total: compras.length,
-      cotizadas: compras.filter((c) => normalizarEstado(c.estado) === "Cotizada").length,
-      aprobadas: compras.filter((c) => normalizarEstado(c.estado) === "Aprobada").length,
-      listas: compras.filter(
-  (c) =>
-    obtenerEstadoVisible(c, retiros) ===
-    "Lista para despacho"
-).length,
-      despachadas: compras.filter((c) => normalizarEstado(c.estado) === "Despachado").length,
-      entregadas: compras.filter((c) => normalizarEstado(c.estado) === "Entregado").length,
+      total: comprasConEstado.length,
+      cotizadas: comprasConEstado.filter((c) => c.estadoVisible === "Cotizada").length,
+      aprobadas: comprasConEstado.filter((c) => c.estadoVisible === "Aprobada").length,
+      listas: comprasConEstado.filter((c) => c.estadoVisible === "Lista para despacho").length,
+      retirosAgendados: comprasConEstado.filter((c) => c.estadoVisible === "Retiro agendado").length,
+      despachadas: comprasConEstado.filter((c) => c.estadoVisible === "Despachado").length,
+      entregadas: comprasConEstado.filter((c) => c.estadoVisible === "Entregado").length,
     };
-  }, [compras]);
+  }, [comprasConEstado]);
+
+  const comprasFiltradas = useMemo(() => {
+    if (filtro === "Todos") return comprasConEstado;
+    return comprasConEstado.filter((c) => c.estadoVisible === filtro);
+  }, [comprasConEstado, filtro]);
 
   if (loading) {
     return (
@@ -128,22 +145,39 @@ if (ventaIds.length > 0) {
     <div className="mx-auto max-w-6xl">
       <h1 className="text-4xl font-bold">Mis Compras</h1>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-3 lg:grid-cols-6">
-        <ResumenCard titulo="Total" valor={resumen.total} clase="bg-slate-50" />
-        <ResumenCard titulo="Cotizadas" valor={resumen.cotizadas} clase="bg-yellow-50" />
-        <ResumenCard titulo="Aprobadas" valor={resumen.aprobadas} clase="bg-blue-50" />
-        <ResumenCard titulo="Listas" valor={resumen.listas} clase="bg-green-50" />
-        <ResumenCard titulo="Despachadas" valor={resumen.despachadas} clase="bg-indigo-50" />
-        <ResumenCard titulo="Entregadas" valor={resumen.entregadas} clase="bg-emerald-50" />
+      <div className="mt-6 grid gap-4 md:grid-cols-3 lg:grid-cols-7">
+        <ResumenCard titulo="Total" valor={resumen.total} clase="bg-slate-50" activo={filtro === "Todos"} onClick={() => setFiltro("Todos")} />
+        <ResumenCard titulo="Cotizadas" valor={resumen.cotizadas} clase="bg-yellow-50" activo={filtro === "Cotizada"} onClick={() => setFiltro("Cotizada")} />
+        <ResumenCard titulo="Aprobadas" valor={resumen.aprobadas} clase="bg-blue-50" activo={filtro === "Aprobada"} onClick={() => setFiltro("Aprobada")} />
+        <ResumenCard titulo="Listas" valor={resumen.listas} clase="bg-green-50" activo={filtro === "Lista para despacho"} onClick={() => setFiltro("Lista para despacho")} />
+        <ResumenCard titulo="Retiros" valor={resumen.retirosAgendados} clase="bg-orange-50" activo={filtro === "Retiro agendado"} onClick={() => setFiltro("Retiro agendado")} />
+        <ResumenCard titulo="Despachadas" valor={resumen.despachadas} clase="bg-indigo-50" activo={filtro === "Despachado"} onClick={() => setFiltro("Despachado")} />
+        <ResumenCard titulo="Entregadas" valor={resumen.entregadas} clase="bg-emerald-50" activo={filtro === "Entregado"} onClick={() => setFiltro("Entregado")} />
       </div>
 
-      {compras.length === 0 ? (
+      <div className="mt-6 flex items-center justify-between">
+        <p className="text-sm font-semibold text-slate-500">
+          Mostrando: {filtro === "Todos" ? "Todas las compras" : filtro}
+        </p>
+
+        {filtro !== "Todos" ? (
+          <button
+            type="button"
+            onClick={() => setFiltro("Todos")}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+          >
+            Limpiar filtro
+          </button>
+        ) : null}
+      </div>
+
+      {comprasFiltradas.length === 0 ? (
         <div className="mt-10 rounded-2xl border border-slate-200 bg-white p-6 text-slate-500">
-          No tienes compras registradas.
+          No hay compras en este estado.
         </div>
       ) : (
         <div className="mt-10 grid gap-5">
-          {compras.map((compra) => (
+          {comprasFiltradas.map((compra) => (
             <Link
               key={compra.id}
               href={`/cliente/portal/mis-compras/${compra.id}`}
@@ -169,7 +203,7 @@ if (ventaIds.length > 0) {
                 </div>
 
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-700">
-                 {obtenerEstadoVisible(compra, retiros)}
+                  {compra.estadoVisible}
                 </span>
               </div>
 
@@ -188,15 +222,25 @@ function ResumenCard({
   titulo,
   valor,
   clase,
+  activo,
+  onClick,
 }: {
   titulo: string;
   valor: number;
   clase: string;
+  activo: boolean;
+  onClick: () => void;
 }) {
   return (
-    <div className={`rounded-2xl p-5 ${clase}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-2xl p-5 text-left transition hover:scale-[1.02] ${clase} ${
+        activo ? "ring-2 ring-blue-600" : ""
+      }`}
+    >
       <p className="text-sm font-semibold text-slate-600">{titulo}</p>
       <p className="mt-1 text-3xl font-bold text-slate-900">{valor}</p>
-    </div>
+    </button>
   );
 }
