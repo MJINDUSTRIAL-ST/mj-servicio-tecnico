@@ -17,11 +17,37 @@ type Compra = {
   cliente_email?: string | null;
 };
 
+type Retiro = {
+  referencia_id?: string | null;
+  estado?: string | null;
+  tipo?: string | null;
+};
+
 function normalizarEstado(estado?: string | null) {
   if (!estado) return "Cotizada";
   if (estado === "Pendiente") return "Cotizada";
   if (estado === "Completada") return "Entregado";
   return estado;
+}
+
+function obtenerEstadoVisible(
+  compra: Compra,
+  retiros: Retiro[]
+) {
+  const retiro = retiros.find(
+    (r) => r.referencia_id === compra.id
+  );
+
+  if (
+    retiro &&
+    retiro.estado === "Agendado"
+  ) {
+    return retiro.tipo === "venta"
+      ? "Retiro agendado"
+      : "Despacho solicitado";
+  }
+
+  return normalizarEstado(compra.estado);
 }
 
 function formatFecha(fecha?: string | null) {
@@ -32,6 +58,7 @@ function formatFecha(fecha?: string | null) {
 export default function MisComprasPage() {
   const router = useRouter();
   const [compras, setCompras] = useState<Compra[]>([]);
+  const [retiros, setRetiros] = useState<Retiro[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -60,6 +87,16 @@ export default function MisComprasPage() {
     }
 
     setCompras((data || []) as Compra[]);
+    const ventaIds = (data || []).map((v) => v.id);
+
+if (ventaIds.length > 0) {
+  const { data: retirosData } = await supabase
+    .from("retiros")
+    .select("*")
+    .in("referencia_id", ventaIds);
+
+  setRetiros((retirosData || []) as Retiro[]);
+}
     setLoading(false);
   }
 
@@ -68,7 +105,11 @@ export default function MisComprasPage() {
       total: compras.length,
       cotizadas: compras.filter((c) => normalizarEstado(c.estado) === "Cotizada").length,
       aprobadas: compras.filter((c) => normalizarEstado(c.estado) === "Aprobada").length,
-      listas: compras.filter((c) => normalizarEstado(c.estado) === "Lista para despacho").length,
+      listas: compras.filter(
+  (c) =>
+    obtenerEstadoVisible(c, retiros) ===
+    "Lista para despacho"
+).length,
       despachadas: compras.filter((c) => normalizarEstado(c.estado) === "Despachado").length,
       entregadas: compras.filter((c) => normalizarEstado(c.estado) === "Entregado").length,
     };
@@ -128,7 +169,7 @@ export default function MisComprasPage() {
                 </div>
 
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-700">
-                  {normalizarEstado(compra.estado)}
+                 {obtenerEstadoVisible(compra, retiros)}
                 </span>
               </div>
 
