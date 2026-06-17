@@ -27,15 +27,18 @@ export async function POST(req: Request) {
     const resend = new Resend(apiKey);
     const body = await req.json();
 
-    const {
-      email,
-      nombre,
-      productoEquipo,
-      fechaRetiro,
-      horaRetiro,
-      observaciones,
-      tipo,
-    } = body;
+const {
+  email,
+  nombre,
+  producto,
+  productoEquipo,
+  fechaRetiro,
+  horaRetiro,
+  observaciones,
+  tipo,
+} = body;
+
+const productoFinal = productoEquipo || producto || "-";
 
     if (!email || !fechaRetiro || !horaRetiro) {
       return NextResponse.json(
@@ -75,7 +78,7 @@ export async function POST(req: Request) {
 
               <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:18px;margin:18px 0;">
                 <p style="margin:0 0 10px;">
-                  <strong>Producto / equipo:</strong> ${productoEquipo || "-"}
+                  <strong>Producto / equipo:</strong> ${productoFinal}
                 </p>
 
                 <p style="margin:0 0 10px;">
