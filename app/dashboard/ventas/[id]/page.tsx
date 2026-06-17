@@ -43,17 +43,28 @@ type Retiro = {
   tipo?: string | null;
   referencia_id?: string | null;
   cliente_email?: string | null;
+  producto_equipo?: string | null;
   fecha_retiro?: string | null;
   hora_retiro?: string | null;
+  fecha_retirado?: string | null;
   observaciones?: string | null;
   estado?: string | null;
+  created_at?: string | null;
 };
 
-const ESTADOS = [
+const ESTADOS_DESPACHO = [
   "Cotizada",
   "Aprobada",
   "Lista para despacho",
   "Despachado",
+  "Entregado",
+];
+
+const ESTADOS_RETIRO = [
+  "Cotizada",
+  "Aprobada",
+  "Lista para despacho",
+  "Retiro agendado",
   "Entregado",
 ];
 
@@ -75,7 +86,13 @@ function normalizarEstado(estado?: string | null) {
   if (!estado) return "Cotizada";
   if (estado === "Pendiente") return "Cotizada";
   if (estado === "Completada") return "Entregado";
+  if (estado === "Lista para despacho/retiro") return "Lista para despacho";
   return estado;
+}
+
+function mostrarEstado(estado?: string | null) {
+  if (estado === "Lista para despacho") return "Lista para despacho/retiro";
+  return estado || "-";
 }
 
 function formatFecha(fecha?: string | null) {
@@ -98,6 +115,8 @@ function badgeEstado(estado?: string | null) {
   if (actual === "Aprobada") return { bg: "#dbeafe", color: "#2563eb" };
   if (actual === "Lista para despacho")
     return { bg: "#dcfce7", color: "#15803d" };
+  if (actual === "Retiro agendado")
+    return { bg: "#fef9c3", color: "#a16207" };
   if (actual === "Despachado") return { bg: "#e0e7ff", color: "#4338ca" };
   if (actual === "Entregado") return { bg: "#bbf7d0", color: "#166534" };
 
@@ -178,29 +197,45 @@ export default function DetalleVentaPage() {
     setVenta(ventaData);
     setProducto(ventaData.producto || ventaData.descripcion || "");
     setDetalle(ventaData.detalle || "");
-    const { data: retiroData } = await supabase
-  .from("retiros")
-  .select("*")
-  .eq("tipo", "venta")
-  .eq("referencia_id", ventaData.id)
-  .eq("estado", "Agendado")
-  .limit(1);
 
-if (retiroData && retiroData.length > 0) {
-  setRetiro(retiroData[0] as Retiro);
-} else {
-  setRetiro(null);
-}
+    const { data: retiroData } = await supabase
+      .from("retiros")
+      .select("*")
+      .eq("tipo", "venta")
+      .eq("referencia_id", ventaData.id)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (retiroData && retiroData.length > 0) {
+      setRetiro(retiroData[0] as Retiro);
+    } else {
+      setRetiro(null);
+    }
+
     setLoading(false);
   }
 
-  const estadoActual = normalizarEstado(venta?.estado);
+  const estadoBase = normalizarEstado(venta?.estado);
+
+  const estadoActual =
+    retiro?.estado === "Agendado"
+      ? "Retiro agendado"
+      : retiro?.estado === "Retirado"
+        ? "Entregado"
+        : estadoBase;
+
+  const estadosFlujo =
+    retiro?.estado === "Agendado" || retiro?.estado === "Retirado"
+      ? ESTADOS_RETIRO
+      : ESTADOS_DESPACHO;
 
   const siguienteEstado = useMemo(() => {
-    const index = ESTADOS.indexOf(estadoActual);
-    if (index < 0 || index >= ESTADOS.length - 1) return null;
-    return ESTADOS[index + 1];
-  }, [estadoActual]);
+    const index = estadosFlujo.indexOf(estadoActual);
+
+    if (index < 0 || index >= estadosFlujo.length - 1) return null;
+
+    return estadosFlujo[index + 1];
+  }, [estadoActual, estadosFlujo]);
 
   async function subirArchivoEtapa(
     archivo: File | null,
@@ -254,7 +289,7 @@ if (retiroData && retiroData.length > 0) {
             ventaActualizada.codigo ||
             ventaActualizada.numero ||
             ventaActualizada.id,
-          estado: siguienteEstado,
+          estado: mostrarEstado(siguienteEstado),
           comentario: comentarioEtapa.trim() || "",
           pdfUrl: pdfSubido?.url || "",
           pdfNombre: pdfSubido?.nombre || "",
@@ -283,8 +318,12 @@ if (retiroData && retiroData.length > 0) {
     setFotoEtapa(null);
     setMostrarFormularioAvance(false);
 
-    const pdfInput = document.getElementById("pdf-etapa") as HTMLInputElement | null;
-    const fotoInput = document.getElementById("foto-etapa") as HTMLInputElement | null;
+    const pdfInput = document.getElementById(
+      "pdf-etapa"
+    ) as HTMLInputElement | null;
+    const fotoInput = document.getElementById(
+      "foto-etapa"
+    ) as HTMLInputElement | null;
 
     if (pdfInput) pdfInput.value = "";
     if (fotoInput) fotoInput.value = "";
@@ -344,6 +383,16 @@ if (retiroData && retiroData.length > 0) {
         return;
       }
 
+      if (retiro?.estado === "Agendado" && siguienteEstado === "Entregado") {
+        await supabase
+          .from("retiros")
+          .update({
+            estado: "Retirado",
+            fecha_retirado: new Date().toISOString(),
+          })
+          .eq("id", retiro.id);
+      }
+
       const ventaActualizada = data[0] as Venta;
 
       await enviarCorreoVenta(ventaActualizada, pdfSubido, fotoSubida);
@@ -351,6 +400,7 @@ if (retiroData && retiroData.length > 0) {
       setVenta(ventaActualizada);
       setProducto(ventaActualizada.producto || ventaActualizada.descripcion || "");
       setDetalle(ventaActualizada.detalle || "");
+      await cargarVenta();
       limpiarFormularioAvance();
       setGuardando(false);
     } catch (error) {
@@ -410,7 +460,7 @@ if (retiroData && retiroData.length > 0) {
     );
   }
 
-  const badge = badgeEstado(venta.estado);
+  const badge = badgeEstado(estadoActual);
 
   const documentos = [
     { label: "Factura", url: venta.factura_url },
@@ -422,6 +472,8 @@ if (retiroData && retiroData.length > 0) {
   const historial = Array.isArray(venta.historial_estados)
     ? venta.historial_estados
     : [];
+
+  const pasoActual = Math.max(estadosFlujo.indexOf(estadoActual), 0);
 
   return (
     <main
@@ -520,7 +572,7 @@ if (retiroData && retiroData.length > 0) {
                     fontWeight: 900,
                   }}
                 >
-                  {estadoActual}
+                  {mostrarEstado(estadoActual)}
                 </span>
               </div>
 
@@ -621,11 +673,7 @@ if (retiroData && retiroData.length > 0) {
                       left: 0,
                       top: 19,
                       height: 4,
-                      width: `${
-                        ((Math.max(ESTADOS.indexOf(estadoActual), 0) + 1) /
-                          ESTADOS.length) *
-                        100
-                      }%`,
+                      width: `${((pasoActual + 1) / estadosFlujo.length) * 100}%`,
                       backgroundColor: "#f97316",
                       borderRadius: 999,
                     }}
@@ -635,14 +683,10 @@ if (retiroData && retiroData.length > 0) {
                     style={{
                       position: "relative",
                       display: "grid",
-                      gridTemplateColumns: `repeat(${ESTADOS.length}, 1fr)`,
+                      gridTemplateColumns: `repeat(${estadosFlujo.length}, 1fr)`,
                     }}
                   >
-                    {ESTADOS.map((estado, index) => {
-                      const pasoActual = Math.max(
-                        ESTADOS.indexOf(estadoActual),
-                        0
-                      );
+                    {estadosFlujo.map((estado, index) => {
                       const activo = index <= pasoActual;
 
                       return (
@@ -674,7 +718,7 @@ if (retiroData && retiroData.length > 0) {
                               color: activo ? "#0f172a" : "#94a3b8",
                             }}
                           >
-                            {estado}
+                            {mostrarEstado(estado)}
                           </span>
                         </div>
                       );
@@ -701,28 +745,35 @@ if (retiroData && retiroData.length > 0) {
             </div>
           </div>
         </section>
-        {retiro ? (
-  <section
-    style={{
-      backgroundColor: "#f0fdf4",
-      border: "1px solid #bbf7d0",
-      borderRadius: 18,
-      padding: 22,
-      marginBottom: 18,
-    }}
-  >
-    <h2 style={{ margin: "0 0 16px", fontSize: 18, color: "#166534" }}>
-      Retiro agendado
-    </h2>
 
-    <div style={{ display: "grid", gap: 10 }}>
-      <Campo label="Fecha retiro" value={retiro.fecha_retiro} />
-      <Campo label="Hora retiro" value={retiro.hora_retiro} />
-      <Campo label="Estado" value={retiro.estado} />
-      <Campo label="Observaciones" value={retiro.observaciones} />
-    </div>
-  </section>
-) : null}
+        {retiro ? (
+          <section
+            style={{
+              backgroundColor: retiro.estado === "Retirado" ? "#ecfdf5" : "#f0fdf4",
+              border: "1px solid #bbf7d0",
+              borderRadius: 18,
+              padding: 22,
+              marginBottom: 18,
+            }}
+          >
+            <h2 style={{ margin: "0 0 16px", fontSize: 18, color: "#166534" }}>
+              {retiro.estado === "Retirado"
+                ? "Producto retirado / entregado"
+                : "Retiro agendado"}
+            </h2>
+
+            <div style={{ display: "grid", gap: 10 }}>
+              <Campo label="Producto" value={retiro.producto_equipo} />
+              <Campo label="Fecha retiro" value={retiro.fecha_retiro} />
+              <Campo label="Hora retiro" value={retiro.hora_retiro} />
+              <Campo label="Estado" value={retiro.estado} />
+              <Campo label="Observaciones" value={retiro.observaciones} />
+              {retiro.fecha_retirado ? (
+                <Campo label="Retirado el" value={formatFecha(retiro.fecha_retirado)} />
+              ) : null}
+            </div>
+          </section>
+        ) : null}
 
         <section
           style={{
@@ -842,7 +893,7 @@ if (retiroData && retiroData.length > 0) {
                           fontWeight: 900,
                         }}
                       >
-                        {item.estado}
+                        {mostrarEstado(item.estado)}
                       </span>
 
                       <span style={{ color: "#64748b", fontSize: 12 }}>
@@ -871,70 +922,6 @@ if (retiroData && retiroData.length > 0) {
                         Comentario: {item.comentario}
                       </div>
                     ) : null}
-
-                    {(item.pdf_url || item.foto_url) ? (
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 10,
-                          flexWrap: "wrap",
-                          marginTop: 12,
-                        }}
-                      >
-                        {item.pdf_url ? (
-                          <div>
-                            <a
-                              href={item.pdf_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{
-                                display: "inline-block",
-                                backgroundColor: "#2563eb",
-                                color: "white",
-                                padding: "8px 12px",
-                                borderRadius: 10,
-                                textDecoration: "none",
-                                fontSize: 13,
-                                fontWeight: 800,
-                              }}
-                            >
-                              {item.pdf_nombre || "Ver PDF"}
-                            </a>
-
-                            <iframe
-                              src={item.pdf_url}
-                              style={{
-                                width: 260,
-                                height: 180,
-                                border: "1px solid #e2e8f0",
-                                borderRadius: 10,
-                                marginTop: 10,
-                              }}
-                            />
-                          </div>
-                        ) : null}
-
-                        {item.foto_url ? (
-                          <a
-                            href={item.foto_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              backgroundColor: "#16a34a",
-                              color: "white",
-                              padding: "8px 12px",
-                              borderRadius: 10,
-                              textDecoration: "none",
-                              fontSize: 13,
-                              fontWeight: 800,
-                              height: "fit-content",
-                            }}
-                          >
-                            Ver foto
-                          </a>
-                        ) : null}
-                      </div>
-                    ) : null}
                   </div>
                 );
               })}
@@ -953,7 +940,7 @@ if (retiroData && retiroData.length > 0) {
             }}
           >
             <h2 style={{ margin: "0 0 16px", fontSize: 18 }}>
-              Avanzar a etapa: {siguienteEstado}
+              Avanzar a etapa: {mostrarEstado(siguienteEstado)}
             </h2>
 
             <div style={{ display: "grid", gap: 14 }}>
@@ -991,7 +978,7 @@ if (retiroData && retiroData.length > 0) {
                 <textarea
                   value={comentarioEtapa}
                   onChange={(e) => setComentarioEtapa(e.target.value)}
-                  placeholder="Ej: Cliente aprobó por correo, equipo listo para retiro, despacho coordinado, etc."
+                  placeholder="Ej: Cliente aprobó por correo, retiro coordinado, producto entregado, etc."
                   style={{
                     width: "100%",
                     minHeight: 90,
@@ -1003,80 +990,21 @@ if (retiroData && retiroData.length > 0) {
                 />
               </div>
 
-              <div>
-                <label style={{ fontWeight: 800, fontSize: 13 }}>
-                  PDF de respaldo
-                </label>
-
-                <input
-                  id="pdf-etapa"
-                  type="file"
-                  accept="application/pdf"
-                  onChange={(e) => setPdfEtapa(e.target.files?.[0] || null)}
-                  style={{
-                    width: "100%",
-                    padding: 12,
-                    borderRadius: 10,
-                    border: "1px solid #cbd5e1",
-                    marginTop: 6,
-                    backgroundColor: "#f8fafc",
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ fontWeight: 800, fontSize: 13 }}>
-                  Foto de respaldo
-                </label>
-
-                <input
-                  id="foto-etapa"
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setFotoEtapa(e.target.files?.[0] || null)}
-                  style={{
-                    width: "100%",
-                    padding: 12,
-                    borderRadius: 10,
-                    border: "1px solid #cbd5e1",
-                    marginTop: 6,
-                    backgroundColor: "#f8fafc",
-                  }}
-                />
-              </div>
-
-              <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
-                <button
-                  onClick={limpiarFormularioAvance}
-                  disabled={guardando}
-                  style={{
-                    backgroundColor: "white",
-                    border: "1px solid #cbd5e1",
-                    borderRadius: 12,
-                    padding: "13px 18px",
-                    fontWeight: 900,
-                    cursor: guardando ? "not-allowed" : "pointer",
-                  }}
-                >
-                  Cancelar
-                </button>
-
-                <button
-                  onClick={guardarYAvanzarEstado}
-                  disabled={guardando}
-                  style={{
-                    backgroundColor: "#2563eb",
-                    color: "white",
-                    border: "none",
-                    borderRadius: 12,
-                    padding: "13px 18px",
-                    fontWeight: 900,
-                    cursor: guardando ? "not-allowed" : "pointer",
-                  }}
-                >
-                  {guardando ? "Guardando..." : "Guardar y avanzar"}
-                </button>
-              </div>
+              <button
+                onClick={guardarYAvanzarEstado}
+                disabled={guardando}
+                style={{
+                  backgroundColor: "#2563eb",
+                  color: "white",
+                  border: "none",
+                  borderRadius: 12,
+                  padding: "13px 18px",
+                  fontWeight: 900,
+                  cursor: guardando ? "not-allowed" : "pointer",
+                }}
+              >
+                {guardando ? "Guardando..." : "Guardar y avanzar"}
+              </button>
             </div>
           </section>
         ) : null}
@@ -1090,8 +1018,10 @@ if (retiroData && retiroData.length > 0) {
             marginTop: 20,
           }}
         >
-          <div style={{ color: "#64748b", fontSize: 13 }}>
-            Flujo: Cotizada → Aprobada → Lista para despacho → Despachado → Entregado
+          <div style={{ color: "#64748b", fontSize: 13, lineHeight: 1.6 }}>
+            Flujo despacho: Cotizada → Aprobada → Lista para despacho/retiro → Despachado → Entregado
+            <br />
+            Flujo retiro: Cotizada → Aprobada → Lista para despacho/retiro → Retiro agendado → Entregado
           </div>
 
           <button
@@ -1112,7 +1042,9 @@ if (retiroData && retiroData.length > 0) {
             {guardando
               ? "Guardando..."
               : siguienteEstado
-                ? `→ Siguiente etapa: ${siguienteEstado}`
+                ? estadoActual === "Retiro agendado"
+                  ? "→ Marcar como entregado"
+                  : `→ Siguiente etapa: ${mostrarEstado(siguienteEstado)}`
                 : "Venta entregada"}
           </button>
         </section>
