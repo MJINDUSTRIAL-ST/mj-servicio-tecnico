@@ -9,6 +9,7 @@ type Retiro = {
   tipo?: string | null;
   referencia_id?: string | null;
   cliente_email?: string | null;
+  producto_equipo?: string | null;
   fecha_retiro?: string | null;
   hora_retiro?: string | null;
   fecha_retirado?: string | null;
@@ -36,8 +37,17 @@ function colorEstado(estado?: string | null) {
 }
 
 function tituloRetiro(retiro: Retiro) {
-  const tipoTexto =
-    retiro.tipo === "venta" ? "compra" : "servicio técnico";
+  const nombre = retiro.producto_equipo?.trim();
+
+  if (nombre) {
+    if (retiro.estado === "Retirado") {
+      return `Producto retirado: ${nombre}`;
+    }
+
+    return `Retiro de: ${nombre}`;
+  }
+
+  const tipoTexto = retiro.tipo === "venta" ? "compra" : "servicio técnico";
 
   if (retiro.estado === "Retirado") {
     return `Producto retirado de ${tipoTexto}`;
@@ -163,11 +173,13 @@ function RetiroCard({
               Observaciones: {retiro.observaciones}
             </p>
           ) : null}
+
           {retiro.estado === "Retirado" && retiro.fecha_retirado ? (
-  <p className="mt-2 text-sm font-medium text-green-700">
-    Retirado el: {new Date(retiro.fecha_retirado).toLocaleString("es-CL")}
-  </p>
-) : null}
+            <p className="mt-2 text-sm font-medium text-green-700">
+              Retirado el:{" "}
+              {new Date(retiro.fecha_retirado).toLocaleString("es-CL")}
+            </p>
+          ) : null}
         </div>
 
         <span
