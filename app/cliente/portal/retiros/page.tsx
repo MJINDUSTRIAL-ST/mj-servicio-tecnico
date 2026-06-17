@@ -11,6 +11,7 @@ type Retiro = {
   cliente_email?: string | null;
   fecha_retiro?: string | null;
   hora_retiro?: string | null;
+  fecha_retirado?: string | null;
   observaciones?: string | null;
   estado?: string | null;
   created_at?: string | null;
@@ -162,6 +163,11 @@ function RetiroCard({
               Observaciones: {retiro.observaciones}
             </p>
           ) : null}
+          {retiro.estado === "Retirado" && retiro.fecha_retirado ? (
+  <p className="mt-2 text-sm font-medium text-green-700">
+    Retirado el: {new Date(retiro.fecha_retirado).toLocaleString("es-CL")}
+  </p>
+) : null}
         </div>
 
         <span

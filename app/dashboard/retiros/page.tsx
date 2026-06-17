@@ -70,7 +70,10 @@ export default function RetirosDashboardPage() {
 
     const { error } = await supabase
       .from("retiros")
-      .update({ estado: "Retirado" })
+      .update({
+  estado: "Retirado",
+  fecha_retirado: new Date().toISOString(),
+})
       .eq("id", id);
 
     if (error) {
