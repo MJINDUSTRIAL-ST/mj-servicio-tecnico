@@ -181,12 +181,32 @@ export default function AgendarRetiroPage() {
       return;
     }
 
-    alert("Retiro agendado correctamente.");
-    router.push(
-      tipo === "venta"
-        ? "/cliente/portal/mis-compras"
-        : "/cliente/portal/servicio-tecnico"
-    );
+try {
+  await fetch("/api/enviar-correo-retiro", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      email: clienteEmail,
+      tipo,
+      producto: productoEquipo || "Producto",
+      fechaRetiro: fecha,
+      horaRetiro: hora,
+      observaciones,
+    }),
+  });
+} catch (e) {
+  console.error("Error enviando correo:", e);
+}
+
+alert("Retiro agendado correctamente.");
+
+router.push(
+  tipo === "venta"
+    ? "/cliente/portal/mis-compras"
+    : "/cliente/portal/servicio-tecnico"
+);
   }
 
   return (
