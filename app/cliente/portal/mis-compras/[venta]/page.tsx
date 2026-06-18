@@ -26,9 +26,10 @@ type Compra = {
 
 type Retiro = {
   id: string;
-  fecha_retiro: string | null;
-  hora_retiro: string | null;
-  estado: string | null;
+  tipo?: string | null;
+  fecha_retiro?: string | null;
+  hora_retiro?: string | null;
+  estado?: string | null;
   observaciones?: string | null;
 };
 
@@ -57,14 +58,26 @@ function formatFecha(fecha?: string | null) {
   }
 }
 
-function colorEstado(estado?: string | null) {
-  const actual = normalizarEstado(estado);
+function estadoVisible(compra: Compra, retiro: Retiro | null) {
+  if (retiro?.tipo === "despacho" && retiro.estado === "Solicitado") {
+    return "Despacho solicitado";
+  }
 
-  if (actual === "Cotizada") return "bg-yellow-50 text-yellow-800";
-  if (actual === "Aprobada") return "bg-blue-50 text-blue-800";
-  if (actual === "Lista para despacho") return "bg-green-50 text-green-800";
-  if (actual === "Despachado") return "bg-indigo-50 text-indigo-800";
-  if (actual === "Entregado") return "bg-emerald-50 text-emerald-800";
+  if (retiro?.tipo === "venta" && retiro.estado === "Agendado") {
+    return "Retiro agendado";
+  }
+
+  return normalizarEstado(compra.estado);
+}
+
+function colorEstado(estado: string) {
+  if (estado === "Cotizada") return "bg-yellow-50 text-yellow-800";
+  if (estado === "Aprobada") return "bg-blue-50 text-blue-800";
+  if (estado === "Lista para despacho") return "bg-green-50 text-green-800";
+  if (estado === "Retiro agendado") return "bg-green-50 text-green-800";
+  if (estado === "Despacho solicitado") return "bg-blue-50 text-blue-800";
+  if (estado === "Despachado") return "bg-indigo-50 text-indigo-800";
+  if (estado === "Entregado") return "bg-emerald-50 text-emerald-800";
 
   return "bg-slate-100 text-slate-700";
 }
@@ -80,9 +93,11 @@ export default function DetalleCompraPage() {
   const [compra, setCompra] = useState<Compra | null>(null);
   const [loading, setLoading] = useState(true);
   const [retiro, setRetiro] = useState<Retiro | null>(null);
+  const [solicitandoDespacho, setSolicitandoDespacho] = useState(false);
 
   useEffect(() => {
     cargarCompra();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function cargarCompra() {
@@ -107,23 +122,55 @@ export default function DetalleCompraPage() {
       return;
     }
 
-    setCompra(data[0] as Compra);
+    const compraData = data[0] as Compra;
+    setCompra(compraData);
 
- const { data: retiroData, error: retiroError } = await supabase
-  .from("retiros")
-  .select("*")
-  .eq("referencia_id", (data[0] as Compra).id)
-  .order("created_at", { ascending: false })
-  .limit(1)
-  .maybeSingle();
+    const { data: retiroData, error: retiroError } = await supabase
+      .from("retiros")
+      .select("*")
+      .eq("referencia_id", compraData.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-if (!retiroError && retiroData) {
-  setRetiro(retiroData as Retiro);
-} else {
-  setRetiro(null);
-}
+    if (!retiroError && retiroData) {
+      setRetiro(retiroData as Retiro);
+    } else {
+      setRetiro(null);
+    }
 
     setLoading(false);
+  }
+
+  async function solicitarDespacho() {
+    if (!compra) return;
+
+    if (!compra.cliente_email) {
+      alert("No se encontró el correo del cliente.");
+      return;
+    }
+
+    setSolicitandoDespacho(true);
+
+    const { error } = await supabase.from("retiros").insert({
+      tipo: "despacho",
+      referencia_id: compra.id,
+      cliente_email: compra.cliente_email.trim().toLowerCase(),
+      producto_equipo: compra.producto || compra.descripcion || null,
+      estado: "Solicitado",
+      observaciones: "Solicitud de despacho ingresada desde portal cliente",
+    });
+
+    if (error) {
+      console.error(error);
+      alert("Error al solicitar despacho.");
+      setSolicitandoDespacho(false);
+      return;
+    }
+
+    alert("Despacho solicitado correctamente.");
+    await cargarCompra();
+    setSolicitandoDespacho(false);
   }
 
   if (loading) {
@@ -143,6 +190,7 @@ if (!retiroError && retiroData) {
   }
 
   const estadoActual = normalizarEstado(compra.estado);
+  const estadoMostrado = estadoVisible(compra, retiro);
   const pasoActual = Math.max(ESTADOS.indexOf(estadoActual), 0);
 
   const documentos = [
@@ -185,10 +233,10 @@ if (!retiroError && retiroData) {
 
           <span
             className={`rounded-full px-4 py-2 text-sm font-semibold ${colorEstado(
-              estadoActual
+              estadoMostrado
             )}`}
           >
-            {estadoActual}
+            {estadoMostrado}
           </span>
         </div>
 
@@ -255,77 +303,72 @@ if (!retiroError && retiroData) {
           )}
         </div>
 
-       {retiro ? (
-  <div className="mt-8 rounded-xl border border-green-200 bg-green-50 p-5">
-    <p className="font-bold text-slate-900">Retiro agendado</p>
+        {retiro?.tipo === "despacho" ? (
+          <div className="mt-8 rounded-xl border border-blue-200 bg-blue-50 p-5">
+            <p className="font-bold text-slate-900">Despacho solicitado</p>
 
-    <p className="mt-1 text-sm text-slate-600">
-      Tu retiro fue agendado correctamente.
-    </p>
+            <p className="mt-1 text-sm text-slate-600">
+              Hemos recibido tu solicitud de despacho. Nuestro equipo coordinará la entrega y te enviaremos un correo de confirmación con la fecha y horario estimado.
+            </p>
 
-    <p className="mt-4 text-sm text-slate-600">
-      <strong>Fecha:</strong> {formatFecha(retiro.fecha_retiro)}
-    </p>
+            <p className="mt-4 text-sm text-slate-600">
+              <strong>Estado:</strong> {retiro.estado || "Solicitado"}
+            </p>
+          </div>
+        ) : retiro ? (
+          <div className="mt-8 rounded-xl border border-green-200 bg-green-50 p-5">
+            <p className="font-bold text-slate-900">Retiro agendado</p>
 
-    <p className="mt-1 text-sm text-slate-600">
-      <strong>Hora:</strong> {retiro.hora_retiro}
-    </p>
+            <p className="mt-1 text-sm text-slate-600">
+              Tu retiro fue agendado correctamente.
+            </p>
 
-    {retiro.observaciones ? (
-      <p className="mt-1 text-sm text-slate-600">
-        <strong>Observaciones:</strong> {retiro.observaciones}
-      </p>
-    ) : null}
-  </div>
-) : estadoActual === "Lista para despacho" ? (
-  <div className="mt-8 rounded-xl border border-blue-200 bg-blue-50 p-5">
-    <p className="font-bold text-slate-900">¿Cómo deseas recibir tu pedido?</p>
+            <p className="mt-4 text-sm text-slate-600">
+              <strong>Fecha:</strong> {formatFecha(retiro.fecha_retiro)}
+            </p>
 
-    <p className="mt-1 text-sm text-slate-600">
-      Tu compra ya está lista. Puedes agendar retiro en sucursal o solicitar despacho.
-    </p>
+            <p className="mt-1 text-sm text-slate-600">
+              <strong>Hora:</strong> {retiro.hora_retiro || "-"}
+            </p>
 
-    <div className="mt-5 flex flex-wrap gap-3">
-      <button
-        type="button"
-        onClick={() =>
-          router.push(`/cliente/portal/agendar-retiro/venta/${compra.id}`)
-        }
-        className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
-      >
-        Agendar retiro
-      </button>
+            {retiro.observaciones ? (
+              <p className="mt-1 text-sm text-slate-600">
+                <strong>Observaciones:</strong> {retiro.observaciones}
+              </p>
+            ) : null}
+          </div>
+        ) : estadoActual === "Lista para despacho" ? (
+          <div className="mt-8 rounded-xl border border-blue-200 bg-blue-50 p-5">
+            <p className="font-bold text-slate-900">
+              ¿Cómo deseas recibir tu pedido?
+            </p>
 
-      <button
-        type="button"
-      onClick={async () => {
-  const { error } = await supabase
-    .from("retiros")
-    .insert({
-      tipo: "despacho",
-      referencia_id: compra.id,
-      cliente_email: compra.cliente_email,
-      producto_equipo: compra.producto,
-      estado: "Solicitado",
-    });
+            <p className="mt-1 text-sm text-slate-600">
+              Tu compra ya está lista. Puedes agendar retiro en sucursal o solicitar despacho.
+            </p>
 
-  if (error) {
-    alert("Error al solicitar despacho");
-    console.error(error);
-    return;
-  }
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() =>
+                  router.push(`/cliente/portal/agendar-retiro/venta/${compra.id}`)
+                }
+                className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+              >
+                Agendar retiro
+              </button>
 
-  alert("Despacho solicitado correctamente");
-  await cargarCompra();
-  window.location.reload();
-}}
-        className="rounded-xl border border-blue-300 bg-white px-5 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-50"
-      >
-        Solicitar despacho
-      </button>
-    </div>
-  </div>
-) : null}
+              <button
+                type="button"
+                onClick={solicitarDespacho}
+                disabled={solicitandoDespacho}
+                className="rounded-xl border border-blue-300 bg-white px-5 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {solicitandoDespacho ? "Solicitando..." : "Solicitar despacho"}
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-8 rounded-xl border border-slate-200 bg-slate-50 p-4">
           <p className="font-semibold text-blue-600">Certificado</p>
