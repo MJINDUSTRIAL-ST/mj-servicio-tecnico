@@ -316,6 +316,7 @@ if (!retiroError && retiroData) {
   }
 
   alert("Despacho solicitado correctamente");
+  await cargarCompra();
   window.location.reload();
 }}
         className="rounded-xl border border-blue-300 bg-white px-5 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-50"
