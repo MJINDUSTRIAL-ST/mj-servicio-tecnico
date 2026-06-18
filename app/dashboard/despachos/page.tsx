@@ -124,29 +124,13 @@ export default function DespachosPage() {
     setGuardando(true);
 
     const { error } = await supabase
-  .from("retiros")
-  .update({
-    estado: "Programado",
-    fecha_retiro: fechaProgramada,
-    hora_retiro: horaProgramada,
-  })
-  .eq("id", despachoSeleccionado.id);
-
-if (!error) {
-  await fetch("/api/enviar-correo-programacion-despacho", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      email: despachoSeleccionado.cliente_email,
-      producto: despachoSeleccionado.producto_equipo,
-      fecha: fechaProgramada,
-      hora: horaProgramada,
-      numero: despachoSeleccionado.referencia_id,
-    }),
-  });
-}
+      .from("retiros")
+      .update({
+        estado: "Programado",
+        fecha_retiro: fechaProgramada,
+        hora_retiro: horaProgramada,
+      })
+      .eq("id", despachoSeleccionado.id);
 
     if (error) {
       console.error(error);
@@ -166,6 +150,7 @@ if (!error) {
           producto: despachoSeleccionado.producto_equipo,
           fecha: fechaProgramada,
           hora: horaProgramada,
+          numero: despachoSeleccionado.referencia_id,
         }),
       });
     } catch (errorCorreo) {
@@ -179,16 +164,34 @@ if (!error) {
     await cargarDespachos();
   }
 
-  async function cambiarEstado(id: string, estado: string) {
+  async function cambiarEstado(item: Despacho, estado: string) {
     const { error } = await supabase
       .from("retiros")
       .update({ estado })
-      .eq("id", id);
+      .eq("id", item.id);
 
     if (error) {
       alert("No se pudo actualizar el estado.");
       console.error(error);
       return;
+    }
+
+    if (estado === "Despachado") {
+      try {
+        await fetch("/api/enviar-correo-despacho", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: item.cliente_email,
+            producto: item.producto_equipo,
+            numero: item.referencia_id,
+          }),
+        });
+      } catch (errorCorreo) {
+        console.error("Error enviando correo de despacho:", errorCorreo);
+      }
     }
 
     await cargarDespachos();
@@ -319,9 +322,7 @@ if (!error) {
 
                           <button
                             type="button"
-                            onClick={() =>
-                              cambiarEstado(item.id, "Despachado")
-                            }
+                            onClick={() => cambiarEstado(item, "Despachado")}
                             className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700"
                           >
                             Despachado
@@ -332,7 +333,7 @@ if (!error) {
                       {item.estado === "Despachado" ? (
                         <button
                           type="button"
-                          onClick={() => cambiarEstado(item.id, "Entregado")}
+                          onClick={() => cambiarEstado(item, "Entregado")}
                           className="rounded-lg bg-green-600 px-3 py-2 text-xs font-bold text-white hover:bg-green-700"
                         >
                           Entregado
