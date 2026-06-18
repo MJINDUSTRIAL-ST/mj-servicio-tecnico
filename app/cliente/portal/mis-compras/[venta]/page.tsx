@@ -168,6 +168,18 @@ export default function DetalleCompraPage() {
       return;
     }
 
+    await fetch("/api/enviar-correo-despacho", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    email: compra.cliente_email,
+    producto: compra.producto,
+    numero: compra.numero,
+  }),
+});
+
     alert("Despacho solicitado correctamente.");
     await cargarCompra();
     setSolicitandoDespacho(false);
