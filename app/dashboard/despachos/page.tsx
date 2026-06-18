@@ -19,8 +19,9 @@ type Filtro = "Todos" | "Solicitado" | "Programado" | "Despachado" | "Entregado"
 
 function formatFecha(fecha?: string | null) {
   if (!fecha) return "-";
+
   try {
-    return new Date(fecha).toLocaleDateString("es-CL");
+    return new Date(`${fecha}T12:00:00`).toLocaleDateString("es-CL");
   } catch {
     return fecha;
   }
@@ -31,6 +32,7 @@ function badgeEstado(estado?: string | null) {
   if (estado === "Programado") return "bg-yellow-50 text-yellow-800";
   if (estado === "Despachado") return "bg-indigo-50 text-indigo-800";
   if (estado === "Entregado") return "bg-green-50 text-green-800";
+
   return "bg-slate-100 text-slate-700";
 }
 
@@ -38,6 +40,14 @@ export default function DespachosPage() {
   const [despachos, setDespachos] = useState<Despacho[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState<Filtro>("Todos");
+
+  const [mostrarModal, setMostrarModal] = useState(false);
+  const [despachoSeleccionado, setDespachoSeleccionado] =
+    useState<Despacho | null>(null);
+
+  const [fechaProgramada, setFechaProgramada] = useState("");
+  const [horaProgramada, setHoraProgramada] = useState("");
+  const [guardando, setGuardando] = useState(false);
 
   useEffect(() => {
     cargarDespachos();
@@ -76,29 +86,74 @@ export default function DespachosPage() {
     return despachos.filter((d) => d.estado === filtro);
   }, [despachos, filtro]);
 
-  async function programarDespacho(item: Despacho) {
-    const fecha = prompt("Ingresa fecha de despacho (YYYY-MM-DD):");
-    if (!fecha) return;
+  function abrirModalProgramar(item: Despacho) {
+    setDespachoSeleccionado(item);
+    setFechaProgramada(item.fecha_retiro || "");
+    setHoraProgramada(item.hora_retiro || "");
+    setMostrarModal(true);
+  }
 
-    const hora = prompt("Ingresa horario estimado de despacho (Ej: 10:00 - 13:00):");
-    if (!hora) return;
+  function cerrarModal() {
+    if (guardando) return;
+
+    setMostrarModal(false);
+    setDespachoSeleccionado(null);
+    setFechaProgramada("");
+    setHoraProgramada("");
+  }
+
+  async function confirmarProgramacion() {
+    if (!despachoSeleccionado) return;
+
+    if (!fechaProgramada) {
+      alert("Debes seleccionar una fecha de despacho.");
+      return;
+    }
+
+    if (!horaProgramada) {
+      alert("Debes seleccionar una hora de despacho.");
+      return;
+    }
+
+    setGuardando(true);
 
     const { error } = await supabase
       .from("retiros")
       .update({
         estado: "Programado",
-        fecha_retiro: fecha,
-        hora_retiro: hora,
+        fecha_retiro: fechaProgramada,
+        hora_retiro: horaProgramada,
       })
-      .eq("id", item.id);
+      .eq("id", despachoSeleccionado.id);
 
     if (error) {
-      alert("No se pudo programar el despacho.");
       console.error(error);
+      alert("No se pudo programar el despacho.");
+      setGuardando(false);
       return;
     }
 
+    try {
+      await fetch("/api/enviar-correo-programacion-despacho", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: despachoSeleccionado.cliente_email,
+          producto: despachoSeleccionado.producto_equipo,
+          fecha: fechaProgramada,
+          hora: horaProgramada,
+        }),
+      });
+    } catch (errorCorreo) {
+      console.error("Error enviando correo de programación:", errorCorreo);
+    }
+
     alert("Despacho programado correctamente.");
+
+    setGuardando(false);
+    cerrarModal();
     await cargarDespachos();
   }
 
@@ -127,11 +182,40 @@ export default function DespachosPage() {
       <p className="mt-2 text-slate-500">Ventas con solicitud de despacho.</p>
 
       <div className="mt-8 grid gap-4 md:grid-cols-5">
-        <ResumenCard titulo="Total despachos" valor={resumen.total} activo={filtro === "Todos"} onClick={() => setFiltro("Todos")} />
-        <ResumenCard titulo="Solicitados" valor={resumen.solicitados} activo={filtro === "Solicitado"} onClick={() => setFiltro("Solicitado")} />
-        <ResumenCard titulo="Programados" valor={resumen.programados} activo={filtro === "Programado"} onClick={() => setFiltro("Programado")} />
-        <ResumenCard titulo="Despachados" valor={resumen.despachados} activo={filtro === "Despachado"} onClick={() => setFiltro("Despachado")} />
-        <ResumenCard titulo="Entregados" valor={resumen.entregados} activo={filtro === "Entregado"} onClick={() => setFiltro("Entregado")} />
+        <ResumenCard
+          titulo="Total despachos"
+          valor={resumen.total}
+          activo={filtro === "Todos"}
+          onClick={() => setFiltro("Todos")}
+        />
+
+        <ResumenCard
+          titulo="Solicitados"
+          valor={resumen.solicitados}
+          activo={filtro === "Solicitado"}
+          onClick={() => setFiltro("Solicitado")}
+        />
+
+        <ResumenCard
+          titulo="Programados"
+          valor={resumen.programados}
+          activo={filtro === "Programado"}
+          onClick={() => setFiltro("Programado")}
+        />
+
+        <ResumenCard
+          titulo="Despachados"
+          valor={resumen.despachados}
+          activo={filtro === "Despachado"}
+          onClick={() => setFiltro("Despachado")}
+        />
+
+        <ResumenCard
+          titulo="Entregados"
+          valor={resumen.entregados}
+          activo={filtro === "Entregado"}
+          onClick={() => setFiltro("Entregado")}
+        />
       </div>
 
       <p className="mt-5 text-sm font-semibold text-slate-500">
@@ -155,7 +239,10 @@ export default function DespachosPage() {
           <tbody>
             {despachosFiltrados.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                <td
+                  colSpan={7}
+                  className="px-4 py-8 text-center text-slate-500"
+                >
                   No hay despachos en este filtro.
                 </td>
               </tr>
@@ -163,20 +250,35 @@ export default function DespachosPage() {
               despachosFiltrados.map((item) => (
                 <tr key={item.id} className="border-t border-slate-200">
                   <td className="px-4 py-4">{formatFecha(item.created_at)}</td>
+
                   <td className="px-4 py-4">{item.cliente_email || "-"}</td>
-                  <td className="px-4 py-4 font-semibold">{item.producto_equipo || "-"}</td>
-                  <td className="px-4 py-4">{formatFecha(item.fecha_retiro)}</td>
-                  <td className="px-4 py-4">{item.hora_retiro || "-"}</td>
+
+                  <td className="px-4 py-4 font-semibold">
+                    {item.producto_equipo || "-"}
+                  </td>
+
                   <td className="px-4 py-4">
-                    <span className={`rounded-full px-3 py-1 text-xs font-bold ${badgeEstado(item.estado)}`}>
+                    {formatFecha(item.fecha_retiro)}
+                  </td>
+
+                  <td className="px-4 py-4">{item.hora_retiro || "-"}</td>
+
+                  <td className="px-4 py-4">
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-bold ${badgeEstado(
+                        item.estado
+                      )}`}
+                    >
                       {item.estado || "Solicitado"}
                     </span>
                   </td>
+
                   <td className="px-4 py-4">
                     <div className="flex flex-wrap gap-2">
                       {item.estado === "Solicitado" ? (
                         <button
-                          onClick={() => programarDespacho(item)}
+                          type="button"
+                          onClick={() => abrirModalProgramar(item)}
                           className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"
                         >
                           Programar
@@ -184,16 +286,30 @@ export default function DespachosPage() {
                       ) : null}
 
                       {item.estado === "Programado" ? (
-                        <button
-                          onClick={() => cambiarEstado(item.id, "Despachado")}
-                          className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700"
-                        >
-                          Despachado
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => abrirModalProgramar(item)}
+                            className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50"
+                          >
+                            Editar fecha
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              cambiarEstado(item.id, "Despachado")
+                            }
+                            className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700"
+                          >
+                            Despachado
+                          </button>
+                        </>
                       ) : null}
 
                       {item.estado === "Despachado" ? (
                         <button
+                          type="button"
                           onClick={() => cambiarEstado(item.id, "Entregado")}
                           className="rounded-lg bg-green-600 px-3 py-2 text-xs font-bold text-white hover:bg-green-700"
                         >
@@ -214,6 +330,64 @@ export default function DespachosPage() {
           </tbody>
         </table>
       </div>
+
+      {mostrarModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="text-xl font-bold">Programar despacho</h2>
+
+            <p className="mt-2 text-sm text-slate-500">
+              Selecciona fecha y hora para el despacho del producto.
+            </p>
+
+            <div className="mt-5">
+              <label className="mb-2 block text-sm font-semibold text-slate-700">
+                Fecha de despacho
+              </label>
+
+              <input
+                type="date"
+                value={fechaProgramada}
+                onChange={(e) => setFechaProgramada(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-blue-600"
+              />
+            </div>
+
+            <div className="mt-4">
+              <label className="mb-2 block text-sm font-semibold text-slate-700">
+                Hora de despacho
+              </label>
+
+              <input
+                type="time"
+                value={horaProgramada}
+                onChange={(e) => setHoraProgramada(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-blue-600"
+              />
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={cerrarModal}
+                disabled={guardando}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={confirmarProgramacion}
+                disabled={guardando}
+                className="rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {guardando ? "Guardando..." : "Programar despacho"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -234,9 +408,7 @@ function ResumenCard({
       type="button"
       onClick={onClick}
       className={`rounded-2xl border p-5 text-left transition hover:shadow-md ${
-        activo
-          ? "border-blue-600 bg-blue-50"
-          : "border-slate-200 bg-white"
+        activo ? "border-blue-600 bg-blue-50" : "border-slate-200 bg-white"
       }`}
     >
       <p className="text-sm font-semibold text-slate-600">{titulo}</p>
