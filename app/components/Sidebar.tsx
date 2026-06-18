@@ -9,19 +9,13 @@ export default function Sidebar() {
   const router = useRouter();
   const [hovered, setHovered] = useState<string | null>(null);
 
-  const getItemStyle = (
-    key: string
-  ): React.CSSProperties => {
+  const getItemStyle = (key: string): React.CSSProperties => {
     const isHover = hovered === key;
 
     return {
       textDecoration: "none",
-      backgroundColor: isHover
-        ? "#2563eb"
-        : "transparent",
-      color: isHover
-        ? "white"
-        : "rgba(255,255,255,0.72)",
+      backgroundColor: isHover ? "#2563eb" : "transparent",
+      color: isHover ? "white" : "rgba(255,255,255,0.72)",
       padding: "14px 16px",
       borderRadius: 12,
       fontWeight: isHover ? 600 : 500,
@@ -42,8 +36,7 @@ export default function Sidebar() {
         bottom: 0,
         width: 260,
         backgroundColor: "#000000",
-        borderRight:
-          "1px solid rgba(255,255,255,0.06)",
+        borderRight: "1px solid rgba(255,255,255,0.06)",
         color: "white",
         padding: "20px 16px",
         boxSizing: "border-box",
@@ -53,7 +46,6 @@ export default function Sidebar() {
       }}
     >
       <div>
-        {/* Logo */}
         <div
           style={{
             marginTop: 12,
@@ -62,13 +54,7 @@ export default function Sidebar() {
             justifyContent: "center",
           }}
         >
-          <Link
-            href="/dashboard/servicio-tecnico"
-            style={{
-              textDecoration: "none",
-              display: "block",
-            }}
-          >
+          <Link href="/dashboard/servicio-tecnico" style={{ textDecoration: "none", display: "block" }}>
             <img
               src="/logo-mj.png"
               alt="MJ Industrial"
@@ -82,26 +68,13 @@ export default function Sidebar() {
           </Link>
         </div>
 
-        {/* Menú */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 10,
-          }}
-        >
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <Link
             href="/dashboard/servicio-tecnico"
             style={getItemStyle("dashboard")}
-            onMouseEnter={() =>
-              setHovered("dashboard")
-            }
-            onMouseLeave={() =>
-              setHovered(null)
-            }
-            onFocus={(e) =>
-              e.target.blur()
-            }
+            onMouseEnter={() => setHovered("dashboard")}
+            onMouseLeave={() => setHovered(null)}
+            onFocus={(e) => e.target.blur()}
           >
             Dashboard
           </Link>
@@ -109,15 +82,9 @@ export default function Sidebar() {
           <Link
             href="/dashboard/clientes"
             style={getItemStyle("clientes")}
-            onMouseEnter={() =>
-              setHovered("clientes")
-            }
-            onMouseLeave={() =>
-              setHovered(null)
-            }
-            onFocus={(e) =>
-              e.target.blur()
-            }
+            onMouseEnter={() => setHovered("clientes")}
+            onMouseLeave={() => setHovered(null)}
+            onFocus={(e) => e.target.blur()}
           >
             Clientes
           </Link>
@@ -125,15 +92,9 @@ export default function Sidebar() {
           <Link
             href="/dashboard/servicio-tecnico"
             style={getItemStyle("servicio")}
-            onMouseEnter={() =>
-              setHovered("servicio")
-            }
-            onMouseLeave={() =>
-              setHovered(null)
-            }
-            onFocus={(e) =>
-              e.target.blur()
-            }
+            onMouseEnter={() => setHovered("servicio")}
+            onMouseLeave={() => setHovered(null)}
+            onFocus={(e) => e.target.blur()}
           >
             Servicio Técnico
           </Link>
@@ -141,42 +102,43 @@ export default function Sidebar() {
           <Link
             href="/dashboard/ventas"
             style={getItemStyle("ventas")}
-            onMouseEnter={() =>
-              setHovered("ventas")
-            }
-            onMouseLeave={() =>
-              setHovered(null)
-            }
-            onFocus={(e) =>
-              e.target.blur()
-            }
+            onMouseEnter={() => setHovered("ventas")}
+            onMouseLeave={() => setHovered(null)}
+            onFocus={(e) => e.target.blur()}
           >
             Ventas
           </Link>
 
-<Link
-  href="/dashboard/retiros"
-  style={getItemStyle("retiros")}
-  onMouseEnter={() => setHovered("retiros")}
-  onMouseLeave={() => setHovered(null)}
-  onFocus={(e) => e.target.blur()}
->
-  Retiros Agendados
-</Link>
+          <Link
+            href="/dashboard/retiros"
+            style={getItemStyle("retiros")}
+            onMouseEnter={() => setHovered("retiros")}
+            onMouseLeave={() => setHovered(null)}
+            onFocus={(e) => e.target.blur()}
+          >
+            Retiros Agendados
+          </Link>
+
+          <Link
+            href="/dashboard/despachos"
+            style={getItemStyle("despachos")}
+            onMouseEnter={() => setHovered("despachos")}
+            onMouseLeave={() => setHovered(null)}
+            onFocus={(e) => e.target.blur()}
+          >
+            Despachos Solicitados
+          </Link>
         </div>
       </div>
 
-      {/* Logout */}
       <button
         onClick={async () => {
           await supabase.auth.signOut();
           router.push("/personal");
         }}
         style={{
-          background:
-            "rgba(255,255,255,0.03)",
-          border:
-            "1px solid rgba(255,255,255,0.08)",
+          background: "rgba(255,255,255,0.03)",
+          border: "1px solid rgba(255,255,255,0.08)",
           color: "rgba(255,255,255,0.72)",
           padding: "14px 16px",
           borderRadius: 12,
