@@ -21,9 +21,15 @@ function formatFecha(fecha?: string | null) {
   if (!fecha) return "-";
 
   try {
-    return new Date(`${fecha}T12:00:00`).toLocaleDateString("es-CL");
+    const d = new Date(fecha);
+
+    if (isNaN(d.getTime())) {
+      return "-";
+    }
+
+    return d.toLocaleDateString("es-CL");
   } catch {
-    return fecha;
+    return "-";
   }
 }
 
@@ -118,13 +124,29 @@ export default function DespachosPage() {
     setGuardando(true);
 
     const { error } = await supabase
-      .from("retiros")
-      .update({
-        estado: "Programado",
-        fecha_retiro: fechaProgramada,
-        hora_retiro: horaProgramada,
-      })
-      .eq("id", despachoSeleccionado.id);
+  .from("retiros")
+  .update({
+    estado: "Programado",
+    fecha_retiro: fechaProgramada,
+    hora_retiro: horaProgramada,
+  })
+  .eq("id", despachoSeleccionado.id);
+
+if (!error) {
+  await fetch("/api/enviar-correo-programacion-despacho", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      email: despachoSeleccionado.cliente_email,
+      producto: despachoSeleccionado.producto_equipo,
+      fecha: fechaProgramada,
+      hora: horaProgramada,
+      numero: despachoSeleccionado.referencia_id,
+    }),
+  });
+}
 
     if (error) {
       console.error(error);
