@@ -109,17 +109,19 @@ export default function DetalleCompraPage() {
 
     setCompra(data[0] as Compra);
 
-    const { data: retiroData, error: retiroError } = await supabase
-      .from("retiros")
-      .select("*")
-      .eq("tipo", "venta")
-      .eq("referencia_id", ventaId)
-      .order("created_at", { ascending: false })
-      .limit(1);
+ const { data: retiroData, error: retiroError } = await supabase
+  .from("retiros")
+  .select("*")
+  .eq("referencia_id", (data[0] as Compra).id)
+  .order("created_at", { ascending: false })
+  .limit(1)
+  .maybeSingle();
 
-    if (!retiroError && retiroData && retiroData.length > 0) {
-      setRetiro(retiroData[0] as Retiro);
-    }
+if (!retiroError && retiroData) {
+  setRetiro(retiroData as Retiro);
+} else {
+  setRetiro(null);
+}
 
     setLoading(false);
   }
@@ -296,9 +298,26 @@ export default function DetalleCompraPage() {
 
       <button
         type="button"
-        onClick={() =>
-          alert("Próximamente habilitaremos la solicitud de despacho desde el portal.")
-        }
+      onClick={async () => {
+  const { error } = await supabase
+    .from("retiros")
+    .insert({
+      tipo: "despacho",
+      referencia_id: compra.id,
+      cliente_email: compra.cliente_email,
+      producto_equipo: compra.producto,
+      estado: "Solicitado",
+    });
+
+  if (error) {
+    alert("Error al solicitar despacho");
+    console.error(error);
+    return;
+  }
+
+  alert("Despacho solicitado correctamente");
+  window.location.reload();
+}}
         className="rounded-xl border border-blue-300 bg-white px-5 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-50"
       >
         Solicitar despacho
