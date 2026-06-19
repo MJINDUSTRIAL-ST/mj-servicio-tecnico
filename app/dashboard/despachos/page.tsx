@@ -223,7 +223,7 @@ if (estado === "Entregado") {
 
         <div className="mb-4">
   <Link
-    href="/dashboard/servicio-tecnico"
+    href="/dashboard/ventas"
     className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
   >
     ← Volver al Dashboard
