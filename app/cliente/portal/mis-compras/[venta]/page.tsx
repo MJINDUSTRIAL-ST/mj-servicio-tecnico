@@ -59,8 +59,11 @@ function formatFecha(fecha?: string | null) {
 }
 
 function estadoVisible(compra: Compra, retiro: Retiro | null) {
-  if (retiro?.tipo === "despacho" && retiro.estado === "Solicitado") {
-    return "Despacho solicitado";
+  if (retiro?.tipo === "despacho") {
+    if (retiro.estado === "Solicitado") return "Despacho solicitado";
+    if (retiro.estado === "Programado") return "Despacho programado";
+    if (retiro.estado === "Despachado") return "Despachado";
+    if (retiro.estado === "Entregado") return "Entregado";
   }
 
   if (retiro?.tipo === "venta" && retiro.estado === "Agendado") {
@@ -69,6 +72,7 @@ function estadoVisible(compra: Compra, retiro: Retiro | null) {
 
   return normalizarEstado(compra.estado);
 }
+
 
 function colorEstado(estado: string) {
   if (estado === "Cotizada") return "bg-yellow-50 text-yellow-800";
@@ -201,9 +205,20 @@ export default function DetalleCompraPage() {
     );
   }
 
-  const estadoActual = normalizarEstado(compra.estado);
-  const estadoMostrado = estadoVisible(compra, retiro);
-  const pasoActual = Math.max(ESTADOS.indexOf(estadoActual), 0);
+  let estadoActual = normalizarEstado(compra.estado);
+
+if (retiro?.tipo === "despacho") {
+  if (retiro.estado === "Despachado") {
+    estadoActual = "Despachado";
+  }
+
+  if (retiro.estado === "Entregado") {
+    estadoActual = "Entregado";
+  }
+}
+
+const estadoMostrado = estadoVisible(compra, retiro);
+const pasoActual = Math.max(ESTADOS.indexOf(estadoActual), 0);
 
   const documentos = [
     { label: "Factura", url: compra.factura_url },
