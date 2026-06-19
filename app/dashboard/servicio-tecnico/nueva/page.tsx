@@ -961,15 +961,15 @@ function InputFoto({
 }) {
   return (
     <label className="block cursor-pointer rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center hover:bg-slate-50">
-      <span className="block text-2xl">📷</span>
+      <span className="block text-2xl">{capture ? "📷" : "🖼️"}</span>
       <span className="mt-2 block font-semibold">{label}</span>
       <span className="mt-1 block text-sm text-slate-500">{descripcion}</span>
 
       <input
         type="file"
-        accept="image/*"
-        capture={capture ? "environment" : undefined}
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
         multiple
+        {...(capture ? { capture: "environment" as const } : {})}
         onChange={(e) => {
           onChange(e.target.files);
           e.currentTarget.value = "";
