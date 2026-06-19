@@ -187,24 +187,23 @@ export default function DetalleServicioClientePage() {
       setLoading(true);
       setError("");
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const email = localStorage
+  .getItem("cliente_email")
+  ?.trim()
+  .toLowerCase();
 
-      const email = session?.user?.email?.trim().toLowerCase();
-
-      if (!email) {
-        setError("No hay sesión activa");
-        setLoading(false);
-        return;
-      }
+if (!email) {
+  setError("No hay sesión activa");
+  setLoading(false);
+  return;
+}
 
       const { data: ordenData, error: ordenError } = await supabase
-        .from("ordenes")
-        .select("*")
-        .eq("id", ordenId)
-        .ilike("cliente_email", email)
-        .single();
+  .from("ordenes")
+  .select("*")
+  .eq("id", ordenId)
+  .eq("cliente_email", email)
+  .single();
 
       if (ordenError || !ordenData) {
         setError("Orden no encontrada o sin permiso de acceso");
