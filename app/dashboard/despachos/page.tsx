@@ -193,7 +193,23 @@ export default function DespachosPage() {
         console.error("Error enviando correo de despacho:", errorCorreo);
       }
     }
-
+if (estado === "Entregado") {
+  try {
+    await fetch("/api/enviar-correo-entregado", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email: item.cliente_email,
+        producto: item.producto_equipo,
+        numero: item.referencia_id,
+      }),
+    });
+  } catch (errorCorreo) {
+    console.error("Error enviando correo de entrega:", errorCorreo);
+  }
+}
     await cargarDespachos();
   }
 
