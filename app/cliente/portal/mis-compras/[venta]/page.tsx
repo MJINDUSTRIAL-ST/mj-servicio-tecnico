@@ -316,18 +316,83 @@ export default function DetalleCompraPage() {
         </div>
 
         {retiro?.tipo === "despacho" ? (
-          <div className="mt-8 rounded-xl border border-blue-200 bg-blue-50 p-5">
-            <p className="font-bold text-slate-900">Despacho solicitado</p>
+  <div className="mt-8 rounded-xl border border-blue-200 bg-blue-50 p-5">
+    <p className="font-bold text-slate-900">
+      Seguimiento de despacho
+    </p>
 
-            <p className="mt-1 text-sm text-slate-600">
-              Hemos recibido tu solicitud de despacho. Nuestro equipo coordinará la entrega y te enviaremos un correo de confirmación con la fecha y horario estimado.
-            </p>
+    <div className="mt-6 flex items-center justify-between">
+      <div className="flex flex-col items-center">
+        <div className="h-4 w-4 rounded-full bg-green-500" />
+        <span className="mt-2 text-xs font-semibold">
+          Solicitado
+        </span>
+      </div>
 
-            <p className="mt-4 text-sm text-slate-600">
-              <strong>Estado:</strong> {retiro.estado || "Solicitado"}
-            </p>
-          </div>
-        ) : retiro ? (
+      <div className="h-1 flex-1 bg-green-500 mx-2" />
+
+      <div className="flex flex-col items-center">
+        <div
+          className={`h-4 w-4 rounded-full ${
+            retiro.estado === "Programado" ||
+            retiro.estado === "Despachado" ||
+            retiro.estado === "Entregado"
+              ? "bg-green-500"
+              : "bg-slate-300"
+          }`}
+        />
+        <span className="mt-2 text-xs font-semibold">
+          Programado
+        </span>
+      </div>
+
+      <div className="h-1 flex-1 bg-slate-300 mx-2" />
+
+      <div className="flex flex-col items-center">
+        <div
+          className={`h-4 w-4 rounded-full ${
+            retiro.estado === "Despachado" ||
+            retiro.estado === "Entregado"
+              ? "bg-green-500"
+              : "bg-slate-300"
+          }`}
+        />
+        <span className="mt-2 text-xs font-semibold">
+          Despachado
+        </span>
+      </div>
+
+      <div className="h-1 flex-1 bg-slate-300 mx-2" />
+
+      <div className="flex flex-col items-center">
+        <div
+          className={`h-4 w-4 rounded-full ${
+            retiro.estado === "Entregado"
+              ? "bg-green-500"
+              : "bg-slate-300"
+          }`}
+        />
+        <span className="mt-2 text-xs font-semibold">
+          Entregado
+        </span>
+      </div>
+    </div>
+
+    {retiro.fecha_retiro ? (
+      <div className="mt-6 text-sm text-slate-600">
+        <p>
+          <strong>Fecha programada:</strong>{" "}
+          {formatFecha(retiro.fecha_retiro)}
+        </p>
+
+        <p>
+          <strong>Hora:</strong>{" "}
+          {retiro.hora_retiro || "-"}
+        </p>
+      </div>
+    ) : null}
+  </div>
+) : retiro ? (
           <div className="mt-8 rounded-xl border border-green-200 bg-green-50 p-5">
             <p className="font-bold text-slate-900">Retiro agendado</p>
 
