@@ -361,8 +361,14 @@ const pasoActual = Math.max(ESTADOS.indexOf(estadoActual), 0);
         </span>
       </div>
 
-      <div className="h-1 flex-1 bg-slate-300 mx-2" />
-
+      <div
+  className={`h-1 flex-1 mx-2 ${
+    retiro.estado === "Despachado" ||
+    retiro.estado === "Entregado"
+      ? "bg-green-500"
+      : "bg-slate-300"
+  }`}
+/>
       <div className="flex flex-col items-center">
         <div
           className={`h-4 w-4 rounded-full ${
@@ -377,7 +383,13 @@ const pasoActual = Math.max(ESTADOS.indexOf(estadoActual), 0);
         </span>
       </div>
 
-      <div className="h-1 flex-1 bg-slate-300 mx-2" />
+      <div
+  className={`h-1 flex-1 mx-2 ${
+    retiro.estado === "Entregado"
+      ? "bg-green-500"
+      : "bg-slate-300"
+  }`}
+/>
 
       <div className="flex flex-col items-center">
         <div
