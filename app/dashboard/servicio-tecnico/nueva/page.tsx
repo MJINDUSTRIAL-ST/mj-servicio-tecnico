@@ -16,6 +16,30 @@ type DocumentoOrden = {
   file: File;
 };
 
+type TipoIngreso = "individual" | "lote";
+
+type EquipoLote = {
+  equipo: string;
+  marca: string;
+  modelo: string;
+  numero_serie: string;
+  accesorios_entregados: string;
+  problema_reportado: string;
+  observaciones_iniciales: string;
+};
+
+function crearEquipoLote(): EquipoLote {
+  return {
+    equipo: "",
+    marca: "",
+    modelo: "",
+    numero_serie: "",
+    accesorios_entregados: "",
+    problema_reportado: "",
+    observaciones_iniciales: "",
+  };
+}
+
 export default function NuevaOrden() {
   const router = useRouter();
 
@@ -24,6 +48,13 @@ export default function NuevaOrden() {
 
   const [codigo, setCodigo] = useState("");
   const [tecnicoIngreso, setTecnicoIngreso] = useState("");
+  const [tipoIngreso, setTipoIngreso] = useState<TipoIngreso>("individual");
+  const [cantidadEquipos, setCantidadEquipos] = useState(2);
+  const [equiposLote, setEquiposLote] = useState<EquipoLote[]>([
+    crearEquipoLote(),
+    crearEquipoLote(),
+  ]);
+
   const [equipo, setEquipo] = useState("");
   const [marca, setMarca] = useState("");
   const [modelo, setModelo] = useState("");
@@ -53,7 +84,9 @@ export default function NuevaOrden() {
       let mayorNumero = 0;
 
       (ordenesData || []).forEach((orden) => {
-        const numero = Number(String(orden.codigo).replace("OT-", ""));
+        const codigoBase = String(orden.codigo || "").split("-").slice(0, 2).join("-");
+        const numero = Number(codigoBase.replace("OT-", ""));
+
         if (!isNaN(numero) && numero > mayorNumero) {
           mayorNumero = numero;
         }
@@ -66,12 +99,45 @@ export default function NuevaOrden() {
     cargarDatos();
   }, []);
 
+  useEffect(() => {
+    setEquiposLote((prev) => {
+      const cantidad = Math.max(2, Number(cantidadEquipos) || 2);
+      const copia = [...prev];
+
+      if (copia.length < cantidad) {
+        while (copia.length < cantidad) {
+          copia.push(crearEquipoLote());
+        }
+      }
+
+      if (copia.length > cantidad) {
+        copia.length = cantidad;
+      }
+
+      return copia;
+    });
+  }, [cantidadEquipos]);
+
+  function actualizarEquipoLote(
+    index: number,
+    campo: keyof EquipoLote,
+    valor: string
+  ) {
+    setEquiposLote((prev) =>
+      prev.map((item, i) =>
+        i === index
+          ? {
+              ...item,
+              [campo]: valor,
+            }
+          : item
+      )
+    );
+  }
+
   function agregarFotos(files: FileList | null) {
     if (!files || files.length === 0) return;
-
-    const nuevasFotos = Array.from(files);
-
-    setFotos((prev) => [...prev, ...nuevasFotos]);
+    setFotos((prev) => [...prev, ...Array.from(files)]);
   }
 
   function eliminarFoto(index: number) {
@@ -108,9 +174,7 @@ export default function NuevaOrden() {
         .from("ordenes-fotos")
         .upload(nombreArchivo, foto);
 
-      if (error) {
-        throw new Error(error.message);
-      }
+      if (error) throw new Error(error.message);
 
       const { data } = supabase.storage
         .from("ordenes-fotos")
@@ -140,9 +204,7 @@ export default function NuevaOrden() {
           contentType: documento.file.type || "application/pdf",
         });
 
-      if (uploadError) {
-        throw new Error(uploadError.message);
-      }
+      if (uploadError) throw new Error(uploadError.message);
 
       const { data } = supabase.storage
         .from("ordenes-documentos")
@@ -160,9 +222,7 @@ export default function NuevaOrden() {
           },
         ]);
 
-      if (insertError) {
-        throw new Error(insertError.message);
-      }
+      if (insertError) throw new Error(insertError.message);
     }
   };
 
@@ -186,8 +246,13 @@ export default function NuevaOrden() {
       return;
     }
 
-    if (!equipo || !problemaReportado) {
-      alert("Completa los campos obligatorios");
+    if (!equipo.trim() || !problemaReportado.trim()) {
+      alert("Completa tipo de equipo y problema reportado");
+      return;
+    }
+
+    if (tipoIngreso === "lote" && cantidadEquipos < 2) {
+      alert("El lote debe tener al menos 2 equipos");
       return;
     }
 
@@ -196,42 +261,126 @@ export default function NuevaOrden() {
     try {
       const fotosUrl = await subirFotos();
 
-      const { data: ordenCreada, error } = await supabase
-        .from("ordenes")
-        .insert([
-          {
-            codigo,
+      if (tipoIngreso === "individual") {
+        const { data: ordenCreada, error } = await supabase
+          .from("ordenes")
+          .insert([
+            {
+              codigo,
+              cliente: clienteSeleccionado.nombre,
+              cliente_email: clienteSeleccionado.email.trim().toLowerCase(),
+              tecnico_ingreso: tecnicoIngreso,
+              equipo,
+              estado: "Ingreso",
+              prioridad,
+              marca,
+              modelo,
+              numero_serie: numeroSerie,
+              accesorios_entregados: accesoriosEntregados,
+              problema_reportado: problemaReportado,
+              observaciones_iniciales: observacionesIniciales,
+              fotos_estado_inicial: fotosUrl,
+              es_lote: false,
+              cantidad_equipos: 1,
+              orden_padre_id: null,
+            },
+          ])
+          .select("id")
+          .single();
+
+        if (error) {
+          alert("Error creando orden: " + error.message);
+          setGuardando(false);
+          return;
+        }
+
+        if (!ordenCreada?.id) {
+          alert("La orden se creó, pero no se pudo obtener el ID.");
+          setGuardando(false);
+          return;
+        }
+
+        await subirDocumentos(ordenCreada.id);
+      }
+
+      if (tipoIngreso === "lote") {
+        const { data: ordenMadre, error: errorMadre } = await supabase
+          .from("ordenes")
+          .insert([
+            {
+              codigo,
+              cliente: clienteSeleccionado.nombre,
+              cliente_email: clienteSeleccionado.email.trim().toLowerCase(),
+              tecnico_ingreso: tecnicoIngreso,
+              equipo: `Lote de ${cantidadEquipos} equipos - ${equipo}`,
+              estado: "Ingreso",
+              prioridad,
+              marca,
+              modelo,
+              numero_serie: "",
+              accesorios_entregados: accesoriosEntregados,
+              problema_reportado: problemaReportado,
+              observaciones_iniciales: observacionesIniciales,
+              fotos_estado_inicial: fotosUrl,
+              es_lote: true,
+              cantidad_equipos: cantidadEquipos,
+              orden_padre_id: null,
+            },
+          ])
+          .select("id")
+          .single();
+
+        if (errorMadre) {
+          alert("Error creando lote: " + errorMadre.message);
+          setGuardando(false);
+          return;
+        }
+
+        if (!ordenMadre?.id) {
+          alert("El lote se creó, pero no se pudo obtener el ID.");
+          setGuardando(false);
+          return;
+        }
+
+        await subirDocumentos(ordenMadre.id);
+
+        const ordenesHijas = equiposLote.map((item, index) => {
+          const numeroHijo = String(index + 1).padStart(2, "0");
+
+          return {
+            codigo: `${codigo}-${numeroHijo}`,
             cliente: clienteSeleccionado.nombre,
-            cliente_email: clienteSeleccionado.email,
+            cliente_email: clienteSeleccionado.email?.trim().toLowerCase(),
             tecnico_ingreso: tecnicoIngreso,
-            equipo,
+            equipo: item.equipo.trim() || equipo,
             estado: "Ingreso",
             prioridad,
-            marca,
-            modelo,
-            numero_serie: numeroSerie,
-            accesorios_entregados: accesoriosEntregados,
-            problema_reportado: problemaReportado,
-            observaciones_iniciales: observacionesIniciales,
-            fotos_estado_inicial: fotosUrl,
-          },
-        ])
-        .select("id")
-        .single();
+            marca: item.marca.trim() || marca,
+            modelo: item.modelo.trim() || modelo,
+            numero_serie: item.numero_serie.trim(),
+            accesorios_entregados:
+              item.accesorios_entregados.trim() || accesoriosEntregados,
+            problema_reportado:
+              item.problema_reportado.trim() || problemaReportado,
+            observaciones_iniciales:
+              item.observaciones_iniciales.trim() || observacionesIniciales,
+            fotos_estado_inicial: "",
+            es_lote: false,
+            cantidad_equipos: 1,
+            orden_padre_id: ordenMadre.id,
+          };
+        });
 
-      if (error) {
-        alert("Error creando orden: " + error.message);
-        setGuardando(false);
-        return;
+        const { error: errorHijas } = await supabase
+          .from("ordenes")
+          .insert(ordenesHijas);
+
+        if (errorHijas) {
+          alert("El lote madre se creó, pero hubo error creando equipos: " + errorHijas.message);
+          setGuardando(false);
+          return;
+        }
       }
-
-      if (!ordenCreada?.id) {
-        alert("La orden se creó, pero no se pudo obtener el ID.");
-        setGuardando(false);
-        return;
-      }
-
-      await subirDocumentos(ordenCreada.id);
 
       router.push("/dashboard/servicio-tecnico");
     } catch (error: any) {
@@ -241,7 +390,7 @@ export default function NuevaOrden() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-8">
+    <div className="mx-auto max-w-5xl px-6 py-8">
       <button
         type="button"
         onClick={() => router.push("/dashboard/servicio-tecnico")}
@@ -255,10 +404,65 @@ export default function NuevaOrden() {
       </h1>
 
       <p className="mt-1 text-sm text-slate-500">
-        Registrar ingreso de equipo
+        Registrar ingreso individual o lote de equipos
       </p>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-8">
+        <section className="rounded-2xl border border-slate-200 bg-white p-6">
+          <h2 className="mb-4 text-lg font-bold">Tipo de ingreso</h2>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setTipoIngreso("individual")}
+              className={`rounded-xl border p-5 text-left ${
+                tipoIngreso === "individual"
+                  ? "border-blue-600 bg-blue-50"
+                  : "border-slate-200 bg-white"
+              }`}
+            >
+              <p className="font-bold text-slate-900">Equipo individual</p>
+              <p className="mt-1 text-sm text-slate-500">
+                Una OT para un solo equipo.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setTipoIngreso("lote")}
+              className={`rounded-xl border p-5 text-left ${
+                tipoIngreso === "lote"
+                  ? "border-blue-600 bg-blue-50"
+                  : "border-slate-200 bg-white"
+              }`}
+            >
+              <p className="font-bold text-slate-900">Lote de equipos</p>
+              <p className="mt-1 text-sm text-slate-500">
+                Una OT madre con varios equipos hijos.
+              </p>
+            </button>
+          </div>
+
+          {tipoIngreso === "lote" ? (
+            <div className="mt-5">
+              <label className="mb-1 block text-sm font-semibold">
+                Cantidad de equipos
+              </label>
+
+              <input
+                type="number"
+                min={2}
+                max={100}
+                value={cantidadEquipos}
+                onChange={(e) =>
+                  setCantidadEquipos(Math.max(2, Number(e.target.value) || 2))
+                }
+                className="w-full rounded-lg border border-slate-300 px-3 py-3 md:w-48"
+              />
+            </div>
+          ) : null}
+        </section>
+
         <section className="rounded-2xl border border-slate-200 bg-white p-6">
           <h2 className="mb-4 text-lg font-bold">Cliente</h2>
 
@@ -311,61 +515,18 @@ export default function NuevaOrden() {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-sm font-semibold">
-                Tipo de Equipo *
-              </label>
-              <input
-                placeholder="Ej: Taladro, soldadora, winche..."
-                value={equipo}
-                onChange={(e) => setEquipo(e.target.value)}
-                required
-                className="w-full rounded-lg border border-slate-300 px-3 py-3"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-semibold">Marca</label>
-              <input
-                placeholder="Marca"
-                value={marca}
-                onChange={(e) => setMarca(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-3"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-semibold">Modelo</label>
-              <input
-                placeholder="Modelo"
-                value={modelo}
-                onChange={(e) => setModelo(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-3"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-semibold">
-                Número de Serie
-              </label>
-              <input
-                placeholder="S/N"
-                value={numeroSerie}
-                onChange={(e) => setNumeroSerie(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-3"
-              />
-            </div>
+            <InputTexto label="Tipo de Equipo *" value={equipo} setValue={setEquipo} placeholder="Ej: Tecle eléctrico, winche..." required />
+            <InputTexto label="Marca" value={marca} setValue={setMarca} placeholder="Marca" />
+            <InputTexto label="Modelo" value={modelo} setValue={setModelo} placeholder="Modelo" />
+            <InputTexto label="Número de Serie" value={numeroSerie} setValue={setNumeroSerie} placeholder="S/N" />
           </div>
 
           <div className="mt-4">
-            <label className="mb-1 block text-sm font-semibold">
-              Accesorios Entregados
-            </label>
-            <input
-              placeholder="Cable, maletín, baterías..."
+            <InputTexto
+              label="Accesorios Entregados"
               value={accesoriosEntregados}
-              onChange={(e) => setAccesoriosEntregados(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-3"
+              setValue={setAccesoriosEntregados}
+              placeholder="Cable, control, maletín..."
             />
           </div>
 
@@ -383,6 +544,99 @@ export default function NuevaOrden() {
           </div>
         </section>
 
+        {tipoIngreso === "lote" ? (
+          <section className="rounded-2xl border border-blue-200 bg-blue-50 p-6">
+            <h2 className="mb-2 text-lg font-bold">Equipos del lote</h2>
+            <p className="mb-5 text-sm text-slate-600">
+              Puedes completar datos específicos por equipo. Si dejas campos vacíos,
+              se usará la información general de arriba.
+            </p>
+
+            <div className="space-y-4">
+              {equiposLote.map((item, index) => (
+                <div
+                  key={index}
+                  className="rounded-2xl border border-slate-200 bg-white p-4"
+                >
+                  <p className="mb-4 font-bold text-slate-900">
+                    Equipo {index + 1} — {codigo}-{String(index + 1).padStart(2, "0")}
+                  </p>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <InputTexto
+                      label="Tipo de equipo"
+                      value={item.equipo}
+                      setValue={(value) => actualizarEquipoLote(index, "equipo", value)}
+                      placeholder={equipo || "Ej: Tecle eléctrico"}
+                    />
+
+                    <InputTexto
+                      label="Marca"
+                      value={item.marca}
+                      setValue={(value) => actualizarEquipoLote(index, "marca", value)}
+                      placeholder={marca || "Marca"}
+                    />
+
+                    <InputTexto
+                      label="Modelo"
+                      value={item.modelo}
+                      setValue={(value) => actualizarEquipoLote(index, "modelo", value)}
+                      placeholder={modelo || "Modelo"}
+                    />
+
+                    <InputTexto
+                      label="Número de serie"
+                      value={item.numero_serie}
+                      setValue={(value) =>
+                        actualizarEquipoLote(index, "numero_serie", value)
+                      }
+                      placeholder="S/N"
+                    />
+
+                    <InputTexto
+                      label="Accesorios"
+                      value={item.accesorios_entregados}
+                      setValue={(value) =>
+                        actualizarEquipoLote(index, "accesorios_entregados", value)
+                      }
+                      placeholder={accesoriosEntregados || "Accesorios"}
+                    />
+
+                    <InputTexto
+                      label="Problema"
+                      value={item.problema_reportado}
+                      setValue={(value) =>
+                        actualizarEquipoLote(index, "problema_reportado", value)
+                      }
+                      placeholder={problemaReportado || "Problema reportado"}
+                    />
+                  </div>
+
+                  <div className="mt-4">
+                    <label className="mb-1 block text-sm font-semibold">
+                      Observaciones
+                    </label>
+                    <textarea
+                      value={item.observaciones_iniciales}
+                      onChange={(e) =>
+                        actualizarEquipoLote(
+                          index,
+                          "observaciones_iniciales",
+                          e.target.value
+                        )
+                      }
+                      placeholder={
+                        observacionesIniciales || "Observaciones específicas"
+                      }
+                      className="min-h-20 w-full rounded-lg border border-slate-300 px-3 py-3"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
         <section className="rounded-2xl border border-slate-200 bg-white p-6">
           <h2 className="mb-4 text-lg font-bold">Problema Reportado</h2>
 
@@ -390,7 +644,7 @@ export default function NuevaOrden() {
             Descripción del problema *
           </label>
           <textarea
-            placeholder="Describa el problema que presenta el equipo..."
+            placeholder="Describa el problema que presenta el equipo o lote..."
             value={problemaReportado}
             onChange={(e) => setProblemaReportado(e.target.value)}
             required
@@ -412,50 +666,12 @@ export default function NuevaOrden() {
           <h2 className="mb-2 text-lg font-bold">Fotos del Estado Inicial</h2>
 
           <p className="mb-4 text-sm text-slate-500">
-            Puedes subir 2 o más fotos del equipo al momento del ingreso.
+            En lotes, estas fotos quedarán asociadas a la OT madre.
           </p>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <label className="block cursor-pointer rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center hover:bg-slate-50">
-              <span className="block text-2xl">📷</span>
-              <span className="mt-2 block font-semibold">Tomar foto ahora</span>
-              <span className="mt-1 block text-sm text-slate-500">
-                Abrirá la cámara del celular
-              </span>
-
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                multiple
-                onChange={(e) => {
-                  agregarFotos(e.target.files);
-                  e.currentTarget.value = "";
-                }}
-                className="hidden"
-              />
-            </label>
-
-            <label className="block cursor-pointer rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center hover:bg-slate-50">
-              <span className="block text-2xl">🖼️</span>
-              <span className="mt-2 block font-semibold">
-                Subir desde galería
-              </span>
-              <span className="mt-1 block text-sm text-slate-500">
-                Selecciona fotos guardadas
-              </span>
-
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={(e) => {
-                  agregarFotos(e.target.files);
-                  e.currentTarget.value = "";
-                }}
-                className="hidden"
-              />
-            </label>
+            <InputFoto label="Tomar foto ahora" descripcion="Abrirá la cámara del celular" capture onChange={agregarFotos} />
+            <InputFoto label="Subir desde galería" descripcion="Selecciona fotos guardadas" onChange={agregarFotos} />
           </div>
 
           {fotos.length > 0 && (
@@ -487,34 +703,14 @@ export default function NuevaOrden() {
           <h2 className="mb-2 text-lg font-bold">PDFs del Ingreso</h2>
 
           <p className="mb-4 text-sm text-slate-500">
-            Puedes adjuntar documentos como orden de compra, cotización,
-            informe recibido u otros respaldos.
+            En lotes, estos documentos quedarán asociados a la OT madre.
           </p>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <InputPDF
-              label="Orden de Compra PDF"
-              tipo="orden-compra"
-              onChange={agregarDocumentos}
-            />
-
-            <InputPDF
-              label="Cotización PDF"
-              tipo="cotizacion"
-              onChange={agregarDocumentos}
-            />
-
-            <InputPDF
-              label="Informe recibido PDF"
-              tipo="informe-recibido"
-              onChange={agregarDocumentos}
-            />
-
-            <InputPDF
-              label="Otros documentos PDF"
-              tipo="otros"
-              onChange={agregarDocumentos}
-            />
+            <InputPDF label="Orden de Compra PDF" tipo="orden-compra" onChange={agregarDocumentos} />
+            <InputPDF label="Cotización PDF" tipo="cotizacion" onChange={agregarDocumentos} />
+            <InputPDF label="Informe recibido PDF" tipo="informe-recibido" onChange={agregarDocumentos} />
+            <InputPDF label="Otros documentos PDF" tipo="otros" onChange={agregarDocumentos} />
           </div>
 
           {documentos.length > 0 && (
@@ -557,11 +753,74 @@ export default function NuevaOrden() {
             disabled={guardando}
             className="rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
           >
-            {guardando ? "Creando..." : "Crear Orden"}
+            {guardando
+              ? "Creando..."
+              : tipoIngreso === "lote"
+              ? "Crear Lote"
+              : "Crear Orden"}
           </button>
         </div>
       </form>
     </div>
+  );
+}
+
+function InputTexto({
+  label,
+  value,
+  setValue,
+  placeholder,
+  required = false,
+}: {
+  label: string;
+  value: string;
+  setValue: (value: string) => void;
+  placeholder: string;
+  required?: boolean;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-sm font-semibold">{label}</label>
+      <input
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        required={required}
+        className="w-full rounded-lg border border-slate-300 px-3 py-3"
+      />
+    </div>
+  );
+}
+
+function InputFoto({
+  label,
+  descripcion,
+  capture = false,
+  onChange,
+}: {
+  label: string;
+  descripcion: string;
+  capture?: boolean;
+  onChange: (files: FileList | null) => void;
+}) {
+  return (
+    <label className="block cursor-pointer rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center hover:bg-slate-50">
+      <span className="block text-2xl">📷</span>
+      <span className="mt-2 block font-semibold">{label}</span>
+      <span className="mt-1 block text-sm text-slate-500">{descripcion}</span>
+
+      <input
+        type="file"
+        accept="image/*"
+        capture={capture ? "environment" : undefined}
+        multiple
+        onChange={(e) => {
+          onChange(e.target.files);
+          e.currentTarget.value = "";
+        }}
+        className="hidden"
+      />
+    </label>
   );
 }
 
@@ -577,9 +836,7 @@ function InputPDF({
   return (
     <label className="block cursor-pointer rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center hover:bg-slate-50">
       <span className="block text-2xl">📄</span>
-
       <span className="mt-2 block font-semibold">{label}</span>
-
       <span className="mt-1 block text-sm text-slate-500">
         Seleccionar archivo PDF
       </span>
