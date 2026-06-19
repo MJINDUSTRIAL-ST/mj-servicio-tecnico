@@ -26,6 +26,7 @@ type EquipoLote = {
   accesorios_entregados: string;
   problema_reportado: string;
   observaciones_iniciales: string;
+  fotos: File[];
 };
 
 function crearEquipoLote(): EquipoLote {
@@ -37,6 +38,7 @@ function crearEquipoLote(): EquipoLote {
     accesorios_entregados: "",
     problema_reportado: "",
     observaciones_iniciales: "",
+    fotos: [],
   };
 }
 
@@ -84,7 +86,10 @@ export default function NuevaOrden() {
       let mayorNumero = 0;
 
       (ordenesData || []).forEach((orden) => {
-        const codigoBase = String(orden.codigo || "").split("-").slice(0, 2).join("-");
+        const codigoBase = String(orden.codigo || "")
+          .split("-")
+          .slice(0, 2)
+          .join("-");
         const numero = Number(codigoBase.replace("OT-", ""));
 
         if (!isNaN(numero) && numero > mayorNumero) {
@@ -120,7 +125,7 @@ export default function NuevaOrden() {
 
   function actualizarEquipoLote(
     index: number,
-    campo: keyof EquipoLote,
+    campo: keyof Omit<EquipoLote, "fotos">,
     valor: string
   ) {
     setEquiposLote((prev) =>
@@ -144,6 +149,34 @@ export default function NuevaOrden() {
     setFotos((prev) => prev.filter((_, i) => i !== index));
   }
 
+  function agregarFotosEquipoLote(index: number, files: FileList | null) {
+    if (!files || files.length === 0) return;
+
+    setEquiposLote((prev) =>
+      prev.map((item, i) =>
+        i === index
+          ? {
+              ...item,
+              fotos: [...item.fotos, ...Array.from(files)],
+            }
+          : item
+      )
+    );
+  }
+
+  function eliminarFotoEquipoLote(indexEquipo: number, indexFoto: number) {
+    setEquiposLote((prev) =>
+      prev.map((item, i) =>
+        i === indexEquipo
+          ? {
+              ...item,
+              fotos: item.fotos.filter((_, fotoIndex) => fotoIndex !== indexFoto),
+            }
+          : item
+      )
+    );
+  }
+
   function agregarDocumentos(tipo: string, files: FileList | null) {
     if (!files || files.length === 0) return;
 
@@ -159,14 +192,14 @@ export default function NuevaOrden() {
     setDocumentos((prev) => prev.filter((_, i) => i !== index));
   }
 
-  const subirFotos = async () => {
-    if (fotos.length === 0) return "";
+  const subirFotosPorCodigo = async (codigoOrden: string, fotosASubir: File[]) => {
+    if (fotosASubir.length === 0) return "";
 
     const urls: string[] = [];
 
-    for (const foto of fotos) {
+    for (const foto of fotosASubir) {
       const extension = foto.name.split(".").pop();
-      const nombreArchivo = `${codigo}/fotos/${Date.now()}-${Math.random()
+      const nombreArchivo = `${codigoOrden}/fotos/${Date.now()}-${Math.random()
         .toString(36)
         .substring(2, 8)}.${extension}`;
 
@@ -184,6 +217,10 @@ export default function NuevaOrden() {
     }
 
     return urls.join(",");
+  };
+
+  const subirFotos = async () => {
+    return subirFotosPorCodigo(codigo, fotos);
   };
 
   const subirDocumentos = async (ordenId: string) => {
@@ -344,13 +381,18 @@ export default function NuevaOrden() {
 
         await subirDocumentos(ordenMadre.id);
 
-        const ordenesHijas = equiposLote.map((item, index) => {
-          const numeroHijo = String(index + 1).padStart(2, "0");
+        const ordenesHijas = [];
 
-          return {
-            codigo: `${codigo}-${numeroHijo}`,
+        for (let index = 0; index < equiposLote.length; index++) {
+          const item = equiposLote[index];
+          const numeroHijo = String(index + 1).padStart(2, "0");
+          const codigoHijo = `${codigo}-${numeroHijo}`;
+          const fotosHijoUrl = await subirFotosPorCodigo(codigoHijo, item.fotos);
+
+          ordenesHijas.push({
+            codigo: codigoHijo,
             cliente: clienteSeleccionado.nombre,
-            cliente_email: clienteSeleccionado.email?.trim().toLowerCase(),
+            cliente_email: clienteSeleccionado.email.trim().toLowerCase(),
             tecnico_ingreso: tecnicoIngreso,
             equipo: item.equipo.trim() || equipo,
             estado: "Ingreso",
@@ -364,19 +406,22 @@ export default function NuevaOrden() {
               item.problema_reportado.trim() || problemaReportado,
             observaciones_iniciales:
               item.observaciones_iniciales.trim() || observacionesIniciales,
-            fotos_estado_inicial: "",
+            fotos_estado_inicial: fotosHijoUrl,
             es_lote: false,
             cantidad_equipos: 1,
             orden_padre_id: ordenMadre.id,
-          };
-        });
+          });
+        }
 
         const { error: errorHijas } = await supabase
           .from("ordenes")
           .insert(ordenesHijas);
 
         if (errorHijas) {
-          alert("El lote madre se creó, pero hubo error creando equipos: " + errorHijas.message);
+          alert(
+            "El lote madre se creó, pero hubo error creando equipos: " +
+              errorHijas.message
+          );
           setGuardando(false);
           return;
         }
@@ -515,10 +560,31 @@ export default function NuevaOrden() {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <InputTexto label="Tipo de Equipo *" value={equipo} setValue={setEquipo} placeholder="Ej: Tecle eléctrico, winche..." required />
-            <InputTexto label="Marca" value={marca} setValue={setMarca} placeholder="Marca" />
-            <InputTexto label="Modelo" value={modelo} setValue={setModelo} placeholder="Modelo" />
-            <InputTexto label="Número de Serie" value={numeroSerie} setValue={setNumeroSerie} placeholder="S/N" />
+            <InputTexto
+              label="Tipo de Equipo *"
+              value={equipo}
+              setValue={setEquipo}
+              placeholder="Ej: Tecle eléctrico, winche..."
+              required
+            />
+            <InputTexto
+              label="Marca"
+              value={marca}
+              setValue={setMarca}
+              placeholder="Marca"
+            />
+            <InputTexto
+              label="Modelo"
+              value={modelo}
+              setValue={setModelo}
+              placeholder="Modelo"
+            />
+            <InputTexto
+              label="Número de Serie"
+              value={numeroSerie}
+              setValue={setNumeroSerie}
+              placeholder="S/N"
+            />
           </div>
 
           <div className="mt-4">
@@ -548,8 +614,7 @@ export default function NuevaOrden() {
           <section className="rounded-2xl border border-blue-200 bg-blue-50 p-6">
             <h2 className="mb-2 text-lg font-bold">Equipos del lote</h2>
             <p className="mb-5 text-sm text-slate-600">
-              Puedes completar datos específicos por equipo. Si dejas campos vacíos,
-              se usará la información general de arriba.
+              Cada equipo puede tener datos y fotos propias.
             </p>
 
             <div className="space-y-4">
@@ -559,28 +624,35 @@ export default function NuevaOrden() {
                   className="rounded-2xl border border-slate-200 bg-white p-4"
                 >
                   <p className="mb-4 font-bold text-slate-900">
-                    Equipo {index + 1} — {codigo}-{String(index + 1).padStart(2, "0")}
+                    Equipo {index + 1} — {codigo}-
+                    {String(index + 1).padStart(2, "0")}
                   </p>
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <InputTexto
                       label="Tipo de equipo"
                       value={item.equipo}
-                      setValue={(value) => actualizarEquipoLote(index, "equipo", value)}
+                      setValue={(value) =>
+                        actualizarEquipoLote(index, "equipo", value)
+                      }
                       placeholder={equipo || "Ej: Tecle eléctrico"}
                     />
 
                     <InputTexto
                       label="Marca"
                       value={item.marca}
-                      setValue={(value) => actualizarEquipoLote(index, "marca", value)}
+                      setValue={(value) =>
+                        actualizarEquipoLote(index, "marca", value)
+                      }
                       placeholder={marca || "Marca"}
                     />
 
                     <InputTexto
                       label="Modelo"
                       value={item.modelo}
-                      setValue={(value) => actualizarEquipoLote(index, "modelo", value)}
+                      setValue={(value) =>
+                        actualizarEquipoLote(index, "modelo", value)
+                      }
                       placeholder={modelo || "Modelo"}
                     />
 
@@ -597,7 +669,11 @@ export default function NuevaOrden() {
                       label="Accesorios"
                       value={item.accesorios_entregados}
                       setValue={(value) =>
-                        actualizarEquipoLote(index, "accesorios_entregados", value)
+                        actualizarEquipoLote(
+                          index,
+                          "accesorios_entregados",
+                          value
+                        )
                       }
                       placeholder={accesoriosEntregados || "Accesorios"}
                     />
@@ -631,6 +707,60 @@ export default function NuevaOrden() {
                       className="min-h-20 w-full rounded-lg border border-slate-300 px-3 py-3"
                     />
                   </div>
+
+                  <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="mb-3 font-semibold text-slate-900">
+                      Fotos propias del equipo {index + 1}
+                    </p>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <InputFoto
+                        label="Tomar foto"
+                        descripcion="Foto directa del equipo"
+                        capture
+                        onChange={(files) => agregarFotosEquipoLote(index, files)}
+                      />
+
+                      <InputFoto
+                        label="Subir desde galería"
+                        descripcion="Seleccionar fotos del equipo"
+                        onChange={(files) => agregarFotosEquipoLote(index, files)}
+                      />
+                    </div>
+
+                    {item.fotos.length > 0 ? (
+                      <div className="mt-4 space-y-2 text-sm text-slate-600">
+                        <p className="font-semibold">
+                          Fotos seleccionadas para este equipo:
+                        </p>
+
+                        {item.fotos.map((foto, fotoIndex) => (
+                          <div
+                            key={`${foto.name}-${foto.lastModified}-${fotoIndex}`}
+                            className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                          >
+                            <span>
+                              {fotoIndex + 1}. {foto.name}
+                            </span>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                eliminarFotoEquipoLote(index, fotoIndex)
+                              }
+                              className="text-sm font-semibold text-red-600 hover:text-red-700"
+                            >
+                              Eliminar
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-sm text-slate-500">
+                        Aún no hay fotos para este equipo.
+                      </p>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -663,20 +793,30 @@ export default function NuevaOrden() {
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-6">
-          <h2 className="mb-2 text-lg font-bold">Fotos del Estado Inicial</h2>
+          <h2 className="mb-2 text-lg font-bold">Fotos generales del ingreso</h2>
 
           <p className="mb-4 text-sm text-slate-500">
-            En lotes, estas fotos quedarán asociadas a la OT madre.
+            En lotes, estas fotos quedan asociadas a la OT madre. Ej: pallet,
+            guía, recepción general.
           </p>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <InputFoto label="Tomar foto ahora" descripcion="Abrirá la cámara del celular" capture onChange={agregarFotos} />
-            <InputFoto label="Subir desde galería" descripcion="Selecciona fotos guardadas" onChange={agregarFotos} />
+            <InputFoto
+              label="Tomar foto ahora"
+              descripcion="Abrirá la cámara del celular"
+              capture
+              onChange={agregarFotos}
+            />
+            <InputFoto
+              label="Subir desde galería"
+              descripcion="Selecciona fotos guardadas"
+              onChange={agregarFotos}
+            />
           </div>
 
           {fotos.length > 0 && (
             <div className="mt-4 space-y-2 text-sm text-slate-600">
-              <p className="font-semibold">Fotos seleccionadas:</p>
+              <p className="font-semibold">Fotos generales seleccionadas:</p>
               {fotos.map((foto, index) => (
                 <div
                   key={`${foto.name}-${foto.lastModified}-${index}`}
@@ -707,10 +847,26 @@ export default function NuevaOrden() {
           </p>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <InputPDF label="Orden de Compra PDF" tipo="orden-compra" onChange={agregarDocumentos} />
-            <InputPDF label="Cotización PDF" tipo="cotizacion" onChange={agregarDocumentos} />
-            <InputPDF label="Informe recibido PDF" tipo="informe-recibido" onChange={agregarDocumentos} />
-            <InputPDF label="Otros documentos PDF" tipo="otros" onChange={agregarDocumentos} />
+            <InputPDF
+              label="Orden de Compra PDF"
+              tipo="orden-compra"
+              onChange={agregarDocumentos}
+            />
+            <InputPDF
+              label="Cotización PDF"
+              tipo="cotizacion"
+              onChange={agregarDocumentos}
+            />
+            <InputPDF
+              label="Informe recibido PDF"
+              tipo="informe-recibido"
+              onChange={agregarDocumentos}
+            />
+            <InputPDF
+              label="Otros documentos PDF"
+              tipo="otros"
+              onChange={agregarDocumentos}
+            />
           </div>
 
           {documentos.length > 0 && (
