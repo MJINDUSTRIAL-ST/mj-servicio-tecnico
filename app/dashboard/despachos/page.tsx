@@ -42,6 +42,7 @@ function badgeEstado(estado?: string | null) {
   return "bg-slate-100 text-slate-700";
 }
 
+import Link from "next/link";
 export default function DespachosPage() {
   const [despachos, setDespachos] = useState<Despacho[]>([]);
   const [loading, setLoading] = useState(true);
@@ -219,6 +220,15 @@ if (estado === "Entregado") {
 
   return (
     <main className="p-8">
+
+        <div className="mb-4">
+  <Link
+    href="/dashboard"
+    className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+  >
+    ← Volver al Dashboard
+  </Link>
+</div>
       <h1 className="text-3xl font-bold">Despachos Solicitados</h1>
       <p className="mt-2 text-slate-500">Ventas con solicitud de despacho.</p>
 
