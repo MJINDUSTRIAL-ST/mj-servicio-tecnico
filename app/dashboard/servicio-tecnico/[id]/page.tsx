@@ -1838,15 +1838,14 @@ export default function DetalleOrdenPage() {
                 return (
                   <div
                     key={reporte.id}
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      borderRadius: 16,
-                      padding: 18,
-                      marginBottom: 16,
-                      backgroundColor: "#ffffff",
-                      breakInside: "avoid",
-                      pageBreakInside: "avoid",
-                    }}
+                   style={{
+  border: "1px solid #e2e8f0",
+  borderRadius: 12,
+  padding: 7,
+  backgroundColor: "#f8fafc",
+  breakInside: "avoid",
+  pageBreakInside: "avoid",
+}}
                   >
                     <div
                       style={{
