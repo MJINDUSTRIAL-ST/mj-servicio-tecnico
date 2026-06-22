@@ -1309,7 +1309,7 @@ export default function DetalleOrdenPage() {
                               style={{
                                 width: 150,
                                 height: 150,
-                                objectFit: "cover",
+                                objectFit: "contain",
                                 borderRadius: 12,
                                 border: "1px solid #cbd5e1",
                                 cursor: "pointer",
@@ -2067,18 +2067,19 @@ export default function DetalleOrdenPage() {
                             >
                               <div
                                 style={{
-                                  height: 120,
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                }}
+  minHeight: 180,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  overflow: "visible",
+}}
                               >
                                 <img
                                   src={foto.foto_url}
                                   alt="foto reporte"
                                   style={{
                                     maxWidth: "100%",
-                                    maxHeight: 110,
+                                    maxHeight: 170,
                                     objectFit: "contain",
                                     display: "block",
                                     borderRadius: 8,
@@ -2098,6 +2099,26 @@ export default function DetalleOrdenPage() {
                                   {foto.comentario}
                                 </div>
                               ) : null}
+
+                              <a
+  href={foto.foto_url}
+  target="_blank"
+  rel="noopener noreferrer"
+  data-pdf-url={foto.foto_url}
+  style={{
+    display: "inline-block",
+    marginTop: 6,
+    fontSize: 11,
+    padding: "4px 8px",
+    backgroundColor: "#2563eb",
+    color: "white",
+    borderRadius: 6,
+    textDecoration: "none",
+    fontWeight: 700,
+  }}
+>
+  Ver / Descargar foto
+</a>
                             </div>
                           ))}
                         </div>
