@@ -1837,8 +1837,9 @@ export default function DetalleOrdenPage() {
 
                 return (
                   <div
-                    key={reporte.id}
-                   style={{
+  key={reporte.id}
+  data-pdf-avoid="true"
+  style={{
   border: "1px solid #e2e8f0",
   borderRadius: 12,
   padding: 7,
@@ -2055,9 +2056,10 @@ export default function DetalleOrdenPage() {
                           }}
                         >
                           {fotos.map((foto) => (
-                            <div
-                              key={foto.id}
-                              style={{
+  <div
+    key={foto.id}
+    data-pdf-avoid="true"
+    style={{
                                 border: "1px solid #e2e8f0",
                                 borderRadius: 12,
                                 padding: 7,
