@@ -109,10 +109,8 @@ export default function NuevaOrden() {
       const cantidad = Math.max(2, Number(cantidadEquipos) || 2);
       const copia = [...prev];
 
-      if (copia.length < cantidad) {
-        while (copia.length < cantidad) {
-          copia.push(crearEquipoLote());
-        }
+      while (copia.length < cantidad) {
+        copia.push(crearEquipoLote());
       }
 
       if (copia.length > cantidad) {
@@ -140,16 +138,16 @@ export default function NuevaOrden() {
     );
   }
 
-  function agregarFotos(files: FileList | null) {
+  function agregarFotos(files: File[]) {
     if (!files || files.length === 0) return;
-    setFotos((prev) => [...prev, ...Array.from(files)]);
+    setFotos((prev) => [...prev, ...files]);
   }
 
   function eliminarFoto(index: number) {
     setFotos((prev) => prev.filter((_, i) => i !== index));
   }
 
-  function agregarFotosEquipoLote(index: number, files: FileList | null) {
+  function agregarFotosEquipoLote(index: number, files: File[]) {
     if (!files || files.length === 0) return;
 
     setEquiposLote((prev) =>
@@ -157,7 +155,7 @@ export default function NuevaOrden() {
         i === index
           ? {
               ...item,
-              fotos: [...item.fotos, ...Array.from(files)],
+              fotos: [...item.fotos, ...files],
             }
           : item
       )
@@ -170,7 +168,9 @@ export default function NuevaOrden() {
         i === indexEquipo
           ? {
               ...item,
-              fotos: item.fotos.filter((_, fotoIndex) => fotoIndex !== indexFoto),
+              fotos: item.fotos.filter(
+                (_, fotoIndex) => fotoIndex !== indexFoto
+              ),
             }
           : item
       )
@@ -192,7 +192,7 @@ export default function NuevaOrden() {
     setDocumentos((prev) => prev.filter((_, i) => i !== index));
   }
 
-  const subirFotosPorCodigo = async (codigoOrden: string, fotosASubir: File[]) => {
+  async function subirFotosPorCodigo(codigoOrden: string, fotosASubir: File[]) {
     if (fotosASubir.length === 0) return "";
 
     const urls: string[] = [];
@@ -217,13 +217,13 @@ export default function NuevaOrden() {
     }
 
     return urls.join(",");
-  };
+  }
 
-  const subirFotos = async () => {
+  async function subirFotosGenerales() {
     return subirFotosPorCodigo(codigo, fotos);
-  };
+  }
 
-  const subirDocumentos = async (ordenId: string) => {
+  async function subirDocumentos(ordenId: string) {
     if (documentos.length === 0) return;
 
     for (const documento of documentos) {
@@ -231,7 +231,9 @@ export default function NuevaOrden() {
         .replace(/\s+/g, "-")
         .replace(/[^a-zA-Z0-9._-]/g, "");
 
-      const storagePath = `${codigo}/documentos/${documento.tipo}-${Date.now()}-${Math.random()
+      const storagePath = `${codigo}/documentos/${
+        documento.tipo
+      }-${Date.now()}-${Math.random()
         .toString(36)
         .substring(2, 8)}-${nombreLimpio}`;
 
@@ -261,7 +263,7 @@ export default function NuevaOrden() {
 
       if (insertError) throw new Error(insertError.message);
     }
-  };
+  }
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -296,7 +298,7 @@ export default function NuevaOrden() {
     setGuardando(true);
 
     try {
-      const fotosUrl = await subirFotos();
+      const fotosUrl = await subirFotosGenerales();
 
       if (tipoIngreso === "individual") {
         const { data: ordenCreada, error } = await supabase
@@ -387,7 +389,10 @@ export default function NuevaOrden() {
           const item = equiposLote[index];
           const numeroHijo = String(index + 1).padStart(2, "0");
           const codigoHijo = `${codigo}-${numeroHijo}`;
-          const fotosHijoUrl = await subirFotosPorCodigo(codigoHijo, item.fotos);
+          const fotosHijoUrl = await subirFotosPorCodigo(
+            codigoHijo,
+            item.fotos
+          );
 
           ordenesHijas.push({
             codigo: codigoHijo,
@@ -597,7 +602,9 @@ export default function NuevaOrden() {
           </div>
 
           <div className="mt-4">
-            <label className="mb-1 block text-sm font-semibold">Prioridad</label>
+            <label className="mb-1 block text-sm font-semibold">
+              Prioridad
+            </label>
             <select
               value={prioridad}
               onChange={(e) => setPrioridad(e.target.value)}
@@ -682,7 +689,11 @@ export default function NuevaOrden() {
                       label="Problema"
                       value={item.problema_reportado}
                       setValue={(value) =>
-                        actualizarEquipoLote(index, "problema_reportado", value)
+                        actualizarEquipoLote(
+                          index,
+                          "problema_reportado",
+                          value
+                        )
                       }
                       placeholder={problemaReportado || "Problema reportado"}
                     />
@@ -718,13 +729,17 @@ export default function NuevaOrden() {
                         label="Tomar foto"
                         descripcion="Foto directa del equipo"
                         capture
-                        onChange={(files) => agregarFotosEquipoLote(index, files)}
+                        onChange={(files) =>
+                          agregarFotosEquipoLote(index, files)
+                        }
                       />
 
                       <InputFoto
                         label="Subir desde galería"
                         descripcion="Seleccionar fotos del equipo"
-                        onChange={(files) => agregarFotosEquipoLote(index, files)}
+                        onChange={(files) =>
+                          agregarFotosEquipoLote(index, files)
+                        }
                       />
                     </div>
 
@@ -793,7 +808,9 @@ export default function NuevaOrden() {
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-6">
-          <h2 className="mb-2 text-lg font-bold">Fotos generales del ingreso</h2>
+          <h2 className="mb-2 text-lg font-bold">
+            Fotos generales del ingreso
+          </h2>
 
           <p className="mb-4 text-sm text-slate-500">
             En lotes, estas fotos quedan asociadas a la OT madre. Ej: pallet,
@@ -948,7 +965,7 @@ function InputTexto({
   );
 }
 
-function InputFoto({
+ function InputFoto({
   label,
   descripcion,
   capture = false,
@@ -957,26 +974,26 @@ function InputFoto({
   label: string;
   descripcion: string;
   capture?: boolean;
-  onChange: (files: FileList | null) => void;
+  onChange: (files: File[]) => void;
 }) {
   return (
-    <label className="block cursor-pointer rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center hover:bg-slate-50">
-      <span className="block text-2xl">{capture ? "📷" : "🖼️"}</span>
-      <span className="mt-2 block font-semibold">{label}</span>
-      <span className="mt-1 block text-sm text-slate-500">{descripcion}</span>
+    <div className="rounded-xl border border-dashed border-slate-300 bg-white p-6">
+      <p className="font-semibold">{label}</p>
+      <p className="mb-3 text-sm text-slate-500">{descripcion}</p>
 
       <input
         type="file"
-        accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-        multiple
-        {...(capture ? { capture: "environment" as const } : {})}
+        accept="image/*"
+        multiple={!capture}
+        capture={capture ? "environment" : undefined}
         onChange={(e) => {
-          onChange(e.target.files);
-          e.currentTarget.value = "";
+          const archivos = Array.from(e.target.files || []);
+          alert(`Fotos seleccionadas: ${archivos.length}`);
+          onChange(archivos);
         }}
-        className="hidden"
+        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3"
       />
-    </label>
+    </div>
   );
 }
 
