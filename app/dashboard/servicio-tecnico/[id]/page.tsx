@@ -471,7 +471,7 @@ export default function DetalleOrdenPage() {
       const elementRect = element.getBoundingClientRect();
 
       const canvas = await html2canvas(element, {
-        scale: 1,
+        scale: 2,
         useCORS: true,
         allowTaint: true,
         backgroundColor: "#ffffff",
@@ -505,10 +505,10 @@ export default function DetalleOrdenPage() {
      const pxPerMm = canvas.width / usableWidthMm;
 const pageCanvasHeightPx = Math.floor(usableHeightMm * pxPerMm);
 
-const bloques = Array.from(
-  element.querySelectorAll("[data-pdf-avoid='true']")
-).map((el) => {
-  const rect = (el as HTMLElement).getBoundingClientRect();
+const bloquesEvitar = Array.from(
+  element.querySelectorAll<HTMLElement>("[data-pdf-avoid='true']")
+).map((bloque) => {
+  const rect = bloque.getBoundingClientRect();
 
   return {
     top: (rect.top - elementRect.top) * scale,
@@ -525,18 +525,25 @@ while (renderedHeight < canvas.height) {
     canvas.height
   );
 
-  const bloqueCortado = bloques.find(
-    (b) =>
-      b.top < corte &&
-      b.bottom > corte &&
-      b.top > renderedHeight
-  );
+  const bloqueCortado = bloquesEvitar.find((bloque) => {
+    const cortaBloque = bloque.top < corte && bloque.bottom > corte;
+    const puedeMoverse = bloque.top > renderedHeight + 80;
+    return cortaBloque && puedeMoverse;
+  });
 
   if (bloqueCortado) {
     corte = bloqueCortado.top;
   }
 
-  const sliceHeight = corte - renderedHeight;
+  let sliceHeight = corte - renderedHeight;
+
+  if (sliceHeight < 100) {
+    sliceHeight = Math.min(
+      pageCanvasHeightPx,
+      canvas.height - renderedHeight
+    );
+    corte = renderedHeight + sliceHeight;
+  }
 
   const pageCanvas = document.createElement("canvas");
   pageCanvas.width = canvas.width;
@@ -574,11 +581,30 @@ while (renderedHeight < canvas.height) {
     sliceHeightMm
   );
 
+  linksPDF.forEach((link) => {
+    if (!link.url) return;
+
+    const linkTop = link.top;
+    const linkBottom = link.top + link.height;
+    const pageTop = renderedHeight;
+    const pageBottom = renderedHeight + sliceHeight;
+
+    const visible = linkBottom > pageTop && linkTop < pageBottom;
+    if (!visible) return;
+
+    const xMm = marginMm + link.left / pxPerMm;
+    const yMm = marginMm + (link.top - renderedHeight) / pxPerMm;
+    const wMm = link.width / pxPerMm;
+    const hMm = link.height / pxPerMm;
+
+    pdf.link(xMm, yMm, wMm, hMm, { url: link.url });
+  });
+
   renderedHeight = corte;
-  pageNumber++;
+  pageNumber += 1;
 }
 
-pdf.save(`Reporte-${orden.codigo || orden.id}.pdf`); 
+pdf.save(`Reporte-${orden.codigo || orden.id}.pdf`);
     } catch (e: any) {
       alert(e.message || "No se pudo generar el PDF");
     } finally {
