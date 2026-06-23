@@ -502,78 +502,83 @@ export default function DetalleOrdenPage() {
       const usableWidthMm = pageWidthMm - marginMm * 2;
       const usableHeightMm = pageHeightMm - marginMm * 2;
 
-      const pxPerMm = canvas.width / usableWidthMm;
-      const pageCanvasHeightPx = Math.floor(usableHeightMm * pxPerMm);
+     const pxPerMm = canvas.width / usableWidthMm;
+const pageCanvasHeightPx = Math.floor(usableHeightMm * pxPerMm);
 
-      let renderedHeight = 0;
-      let pageNumber = 0;
+const bloques = Array.from(
+  element.querySelectorAll("[data-pdf-avoid='true']")
+).map((el) => {
+  const rect = (el as HTMLElement).getBoundingClientRect();
 
-      while (renderedHeight < canvas.height) {
-        const sliceHeight = Math.min(
-          pageCanvasHeightPx,
-          canvas.height - renderedHeight
-        );
+  return {
+    top: (rect.top - elementRect.top) * scale,
+    bottom: (rect.bottom - elementRect.top) * scale,
+  };
+});
 
-        const pageCanvas = document.createElement("canvas");
-        pageCanvas.width = canvas.width;
-        pageCanvas.height = sliceHeight;
+let renderedHeight = 0;
+let pageNumber = 0;
 
-        const ctx = pageCanvas.getContext("2d");
-        if (!ctx) break;
+while (renderedHeight < canvas.height) {
+  let corte = Math.min(
+    renderedHeight + pageCanvasHeightPx,
+    canvas.height
+  );
 
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+  const bloqueCortado = bloques.find(
+    (b) =>
+      b.top < corte &&
+      b.bottom > corte &&
+      b.top > renderedHeight
+  );
 
-        ctx.drawImage(
-          canvas,
-          0,
-          renderedHeight,
-          canvas.width,
-          sliceHeight,
-          0,
-          0,
-          canvas.width,
-          sliceHeight
-        );
+  if (bloqueCortado) {
+    corte = bloqueCortado.top;
+  }
 
-        const pageImgData = pageCanvas.toDataURL("image/jpeg", 1);
-        const sliceHeightMm = sliceHeight / pxPerMm;
+  const sliceHeight = corte - renderedHeight;
 
-        if (pageNumber > 0) pdf.addPage();
+  const pageCanvas = document.createElement("canvas");
+  pageCanvas.width = canvas.width;
+  pageCanvas.height = sliceHeight;
 
-        pdf.addImage(
-          pageImgData,
-          "JPEG",
-          marginMm,
-          marginMm,
-          usableWidthMm,
-          sliceHeightMm
-        );
+  const ctx = pageCanvas.getContext("2d");
+  if (!ctx) break;
 
-        linksPDF.forEach((link) => {
-          if (!link.url) return;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
 
-          const linkTop = link.top;
-          const linkBottom = link.top + link.height;
-          const pageTop = renderedHeight;
-          const pageBottom = renderedHeight + sliceHeight;
+  ctx.drawImage(
+    canvas,
+    0,
+    renderedHeight,
+    canvas.width,
+    sliceHeight,
+    0,
+    0,
+    canvas.width,
+    sliceHeight
+  );
 
-          const visible = linkBottom > pageTop && linkTop < pageBottom;
-          if (!visible) return;
+  const pageImgData = pageCanvas.toDataURL("image/jpeg", 1);
+  const sliceHeightMm = sliceHeight / pxPerMm;
 
-          const xMm = marginMm + link.left / pxPerMm;
-          const yMm = marginMm + (link.top - renderedHeight) / pxPerMm;
-          const wMm = link.width / pxPerMm;
-          const hMm = link.height / pxPerMm;
+  if (pageNumber > 0) pdf.addPage();
 
-          pdf.link(xMm, yMm, wMm, hMm, { url: link.url });
-        });
+  pdf.addImage(
+    pageImgData,
+    "JPEG",
+    marginMm,
+    marginMm,
+    usableWidthMm,
+    sliceHeightMm
+  );
 
-        renderedHeight += sliceHeight;
-        pageNumber += 1;
-      }
+  renderedHeight = corte;
+  pageNumber++;
+}
 
-      pdf.save(`Reporte-${orden.codigo || orden.id}.pdf`);
+pdf.save(`Reporte-${orden.codigo || orden.id}.pdf`); 
     } catch (e: any) {
       alert(e.message || "No se pudo generar el PDF");
     } finally {
