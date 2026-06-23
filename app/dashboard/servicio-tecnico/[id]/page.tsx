@@ -471,7 +471,7 @@ export default function DetalleOrdenPage() {
       const elementRect = element.getBoundingClientRect();
 
       const canvas = await html2canvas(element, {
-        scale: 2,
+        scale: 1,
         useCORS: true,
         allowTaint: true,
         backgroundColor: "#ffffff",
@@ -536,7 +536,7 @@ export default function DetalleOrdenPage() {
           sliceHeight
         );
 
-        const pageImgData = pageCanvas.toDataURL("image/jpeg", 0.95);
+        const pageImgData = pageCanvas.toDataURL("image/jpeg", 1);
         const sliceHeightMm = sliceHeight / pxPerMm;
 
         if (pageNumber > 0) pdf.addPage();
