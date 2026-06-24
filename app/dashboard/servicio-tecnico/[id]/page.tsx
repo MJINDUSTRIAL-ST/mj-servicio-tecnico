@@ -527,7 +527,7 @@ while (renderedHeight < canvas.height) {
 
   const bloqueCortado = bloquesEvitar.find((bloque) => {
     const cortaBloque = bloque.top < corte && bloque.bottom > corte;
-    const puedeMoverse = bloque.top > renderedHeight + 80;
+    const puedeMoverse = bloque.top > renderedHeight + 450;
     return cortaBloque && puedeMoverse;
   });
 
@@ -968,11 +968,7 @@ pdf.save(`Reporte-${orden.codigo || orden.id}.pdf`);
               <div style={{ display: "grid", gap: 10 }}>
                 <Campo label="Cliente" value={orden.cliente} />
                 <Campo label="Email" value={orden.cliente_email} />
-                <Campo label="Problema" value={orden.problema_reportado} />
-                <Campo
-                  label="Observaciones"
-                  value={orden.observaciones_iniciales}
-                />
+                
               </div>
             </div>
           </section>
