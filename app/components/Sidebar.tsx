@@ -54,7 +54,7 @@ export default function Sidebar() {
             justifyContent: "center",
           }}
         >
-          <Link href="/dashboard/servicio-tecnico" style={{ textDecoration: "none", display: "block" }}>
+          <Link href="/dashboard" style={{ textDecoration: "none", display: "block" }}>
             <img
               src="/logo-mj.png"
               alt="MJ Industrial"
@@ -69,64 +69,28 @@ export default function Sidebar() {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <Link
-            href="/dashboard/servicio-tecnico"
-            style={getItemStyle("dashboard")}
-            onMouseEnter={() => setHovered("dashboard")}
-            onMouseLeave={() => setHovered(null)}
-            onFocus={(e) => e.target.blur()}
-          >
-            Dashboard
+          <Link href="/dashboard" style={getItemStyle("dashboard")} onMouseEnter={() => setHovered("dashboard")} onMouseLeave={() => setHovered(null)} onFocus={(e) => e.target.blur()}>
+            📊 Dashboard
           </Link>
 
-          <Link
-            href="/dashboard/clientes"
-            style={getItemStyle("clientes")}
-            onMouseEnter={() => setHovered("clientes")}
-            onMouseLeave={() => setHovered(null)}
-            onFocus={(e) => e.target.blur()}
-          >
-            Clientes
+          <Link href="/dashboard/clientes" style={getItemStyle("clientes")} onMouseEnter={() => setHovered("clientes")} onMouseLeave={() => setHovered(null)} onFocus={(e) => e.target.blur()}>
+            👥 Clientes
           </Link>
 
-          <Link
-            href="/dashboard/servicio-tecnico"
-            style={getItemStyle("servicio")}
-            onMouseEnter={() => setHovered("servicio")}
-            onMouseLeave={() => setHovered(null)}
-            onFocus={(e) => e.target.blur()}
-          >
-            Servicio Técnico
+          <Link href="/dashboard/servicio-tecnico" style={getItemStyle("servicio")} onMouseEnter={() => setHovered("servicio")} onMouseLeave={() => setHovered(null)} onFocus={(e) => e.target.blur()}>
+            🔧 Servicio Técnico
           </Link>
 
-          <Link
-            href="/dashboard/ventas"
-            style={getItemStyle("ventas")}
-            onMouseEnter={() => setHovered("ventas")}
-            onMouseLeave={() => setHovered(null)}
-            onFocus={(e) => e.target.blur()}
-          >
-            Ventas
+          <Link href="/dashboard/ventas" style={getItemStyle("ventas")} onMouseEnter={() => setHovered("ventas")} onMouseLeave={() => setHovered(null)} onFocus={(e) => e.target.blur()}>
+            💰 Ventas
           </Link>
 
-          <Link
-            href="/dashboard/retiros"
-            style={getItemStyle("retiros")}
-            onMouseEnter={() => setHovered("retiros")}
-            onMouseLeave={() => setHovered(null)}
-            onFocus={(e) => e.target.blur()}
-          >
-            Retiros Agendados
+          <Link href="/dashboard/logistica" style={getItemStyle("logistica")} onMouseEnter={() => setHovered("logistica")} onMouseLeave={() => setHovered(null)} onFocus={(e) => e.target.blur()}>
+            🚚 Logística
           </Link>
 
-          <Link
-            href="/dashboard/despachos"
-            style={getItemStyle("despachos")}
-            onMouseEnter={() => setHovered("despachos")}
-            onMouseLeave={() => setHovered(null)}
-            onFocus={(e) => e.target.blur()}
-          >
-            Despachos Solicitados
+          <Link href="/dashboard/administracion" style={getItemStyle("admin")} onMouseEnter={() => setHovered("admin")} onMouseLeave={() => setHovered(null)} onFocus={(e) => e.target.blur()}>
+            ⚙ Administración
           </Link>
         </div>
       </div>

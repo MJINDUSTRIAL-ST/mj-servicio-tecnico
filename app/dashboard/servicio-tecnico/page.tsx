@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -11,42 +10,70 @@ type Orden = {
   codigo: string;
   cliente: string;
   equipo: string;
+  cantidad_equipos?: number | null;
   estado: string;
   prioridad: string;
   created_at: string;
 };
 
-const estadosFiltro = [
-  "Todas",
+const columnasKanban = [
   "Ingreso",
-  "Revisión",
-  "Cotización",
-  "Mantenimiento",
-  "Reparación",
+  "Diagnóstico técnico",
+  "Revisión jefe técnico",
+  "Diagnóstico aprobado",
+  "Cotización interna",
+  "Enviado a Comercial",
+  "Trabajo en proceso",
+  "Control de calidad",
   "Listo",
   "Entregado",
 ];
 
-function colorEstado(estado: string) {
-  const e = (estado || "").toLowerCase();
+function normalizarEstado(estado?: string | null) {
+  if (!estado) return "Ingreso";
 
-  if (e.includes("ingreso")) return { fondo: "#dbeafe", texto: "#1d4ed8" };
-  if (e.includes("revisión") || e.includes("revision")) {
-    return { fondo: "#ede9fe", texto: "#6d28d9" };
-  }
-  if (e.includes("cotización") || e.includes("cotizacion")) {
-    return { fondo: "#fef3c7", texto: "#b45309" };
-  }
-  if (e.includes("mantenimiento")) {
-    return { fondo: "#dcfce7", texto: "#15803d" };
-  }
-  if (e.includes("reparación") || e.includes("reparacion")) {
-    return { fondo: "#fee2e2", texto: "#b91c1c" };
-  }
-  if (e.includes("listo")) return { fondo: "#dcfce7", texto: "#166534" };
-  if (e.includes("entregado")) return { fondo: "#e5e7eb", texto: "#374151" };
+  const e = estado.toLowerCase();
 
-  return { fondo: "#e5e7eb", texto: "#374151" };
+  if (e.includes("diagnóstico") || e.includes("diagnostico")) {
+    return "Diagnóstico técnico";
+  }
+
+  if (e.includes("jefe")) {
+    return "Revisión jefe técnico";
+  }
+
+  if (e.includes("aprobado")) {
+    return "Diagnóstico aprobado";
+  }
+
+  if (e.includes("cotización interna") || e.includes("cotizacion interna")) {
+    return "Cotización interna";
+  }
+
+  if (e.includes("comercial")) {
+    return "Enviado a Comercial";
+  }
+
+  if (
+    e.includes("trabajo") ||
+    e.includes("mantenimiento") ||
+    e.includes("reparación") ||
+    e.includes("reparacion")
+  ) {
+    return "Trabajo en proceso";
+  }
+
+  if (e.includes("calidad")) {
+    return "Control de calidad";
+  }
+
+  if (e.includes("listo")) return "Listo";
+  if (e.includes("entregado")) return "Entregado";
+  if (e.includes("ingreso")) return "Ingreso";
+  if (e.includes("revisión") || e.includes("revision")) return "Diagnóstico técnico";
+  if (e.includes("cotización") || e.includes("cotizacion")) return "Cotización interna";
+
+  return "Ingreso";
 }
 
 function colorPrioridad(prioridad: string) {
@@ -69,14 +96,28 @@ function formatearFecha(fecha: string) {
   }
 }
 
+function diasDesde(fecha: string) {
+  if (!fecha) return "-";
+
+  const inicio = new Date(fecha).getTime();
+  const hoy = new Date().getTime();
+  const dias = Math.floor((hoy - inicio) / (1000 * 60 * 60 * 24));
+
+  if (dias <= 0) return "Hoy";
+  if (dias === 1) return "1 día";
+  return `${dias} días`;
+}
+
+function esOrdenHija(codigo?: string | null) {
+  if (!codigo) return false;
+  return /-\d{2}$/.test(codigo);
+}
+
 export default function ServicioTecnico() {
   const router = useRouter();
 
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filtroEstado, setFiltroEstado] = useState("Todas");
-
-
 
   useEffect(() => {
     const checkAuthAndFetch = async () => {
@@ -109,29 +150,38 @@ export default function ServicioTecnico() {
     checkAuthAndFetch();
   }, [router]);
 
-  const ordenesFiltradas = useMemo(() => {
-    if (filtroEstado === "Todas") return ordenes;
+  const ordenesMadre = useMemo(() => {
+  return ordenes.filter((orden) => !esOrdenHija(orden.codigo));
+}, [ordenes]);
 
-    return ordenes.filter((orden) =>
-      String(orden.estado || "").toLowerCase().includes(filtroEstado.toLowerCase())
+const ordenesPorColumna = useMemo(() => {
+  return columnasKanban.map((columna) => {
+    const items = ordenesMadre.filter(
+      (orden) => normalizarEstado(orden.estado) === columna
     );
-  }, [ordenes, filtroEstado]);
 
-  const totalActivas = ordenes.filter(
-    (o) => !String(o.estado || "").toLowerCase().includes("entregado")
-  ).length;
+    return {
+      estado: columna,
+      ordenes: items,
+    };
+  });
+}, [ordenesMadre]);
 
-  const totalListas = ordenes.filter((o) =>
-    String(o.estado || "").toLowerCase().includes("listo")
-  ).length;
+  const totalActivas = ordenesMadre.filter(
+  (o) => normalizarEstado(o.estado) !== "Entregado"
+).length;
 
-  const totalUrgentes = ordenes.filter((o) =>
-    String(o.prioridad || "").toLowerCase().includes("alta")
-  ).length;
+const totalListas = ordenesMadre.filter(
+  (o) => normalizarEstado(o.estado) === "Listo"
+).length;
 
-  const totalClientes = new Set(
-    ordenes.map((o) => (o.cliente || "").trim()).filter(Boolean)
-  ).size;
+const totalUrgentes = ordenesMadre.filter((o) =>
+  String(o.prioridad || "").toLowerCase().includes("alta")
+).length;
+
+const totalClientes = new Set(
+  ordenesMadre.map((o) => (o.cliente || "").trim()).filter(Boolean)
+).size;
 
   return (
     <div
@@ -141,11 +191,11 @@ export default function ServicioTecnico() {
         fontFamily: "Arial, sans-serif",
       }}
     >
-<Sidebar />
+      <Sidebar />
 
       <main
         style={{
-          marginLeft: 250,
+          marginLeft: 260,
           minHeight: "100vh",
           padding: 28,
           boxSizing: "border-box",
@@ -162,15 +212,10 @@ export default function ServicioTecnico() {
           }}
         >
           <div>
-            <h1
-              style={{
-                margin: 0,
-                fontSize: 32,
-                color: "#111827",
-              }}
-            >
-              Dashboard
+            <h1 style={{ margin: 0, fontSize: 32, color: "#111827" }}>
+              Servicio Técnico
             </h1>
+
             <p
               style={{
                 marginTop: 6,
@@ -179,7 +224,7 @@ export default function ServicioTecnico() {
                 fontSize: 14,
               }}
             >
-              Resumen de servicio tecnico.
+              Tablero de órdenes de servicio.
             </p>
           </div>
 
@@ -197,7 +242,7 @@ export default function ServicioTecnico() {
                 boxShadow: "0 10px 20px rgba(37,99,235,0.18)",
               }}
             >
-              + Ingresar nueva orden
+              + Ingresar nueva OT
             </button>
           </a>
         </div>
@@ -210,288 +255,214 @@ export default function ServicioTecnico() {
             marginBottom: 24,
           }}
         >
-          <div
-            style={{
-              backgroundColor: "white",
-              borderRadius: 18,
-              padding: 18,
-              border: "1px solid #e5e7eb",
-            }}
-          >
-            <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 8 }}>
-              Órdenes activas
-            </div>
-            <div style={{ fontSize: 30, fontWeight: 700, color: "#111827" }}>
-              {totalActivas}
-            </div>
-          </div>
-
-          <div
-            style={{
-              backgroundColor: "white",
-              borderRadius: 18,
-              padding: 18,
-              border: "1px solid #e5e7eb",
-            }}
-          >
-            <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 8 }}>
-              Clientes
-            </div>
-            <div style={{ fontSize: 30, fontWeight: 700, color: "#111827" }}>
-              {totalClientes}
-            </div>
-          </div>
-
-          <div
-            style={{
-              backgroundColor: "white",
-              borderRadius: 18,
-              padding: 18,
-              border: "1px solid #e5e7eb",
-            }}
-          >
-            <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 8 }}>
-              Listas entrega
-            </div>
-            <div style={{ fontSize: 30, fontWeight: 700, color: "#111827" }}>
-              {totalListas}
-            </div>
-          </div>
-
-          <div
-            style={{
-              backgroundColor: "white",
-              borderRadius: 18,
-              padding: 18,
-              border: "1px solid #e5e7eb",
-            }}
-          >
-            <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 8 }}>
-              Urgentes
-            </div>
-            <div style={{ fontSize: 30, fontWeight: 700, color: "#111827" }}>
-              {totalUrgentes}
-            </div>
-          </div>
+          <CardResumen titulo="Órdenes activas" valor={totalActivas} />
+          <CardResumen titulo="Clientes" valor={totalClientes} />
+          <CardResumen titulo="Listas entrega" valor={totalListas} />
+          <CardResumen titulo="Urgentes" valor={totalUrgentes} />
         </div>
 
-        <div
-          style={{
-            backgroundColor: "white",
-            borderRadius: 20,
-            border: "1px solid #e5e7eb",
-            padding: 20,
-          }}
-        >
+        {loading ? (
+          <div style={{ color: "#6b7280" }}>Cargando órdenes...</div>
+        ) : (
           <div
             style={{
               display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
               gap: 16,
-              marginBottom: 18,
-              flexWrap: "wrap",
+              overflowX: "auto",
+              paddingBottom: 16,
             }}
           >
-            <h2
-              style={{
-                margin: 0,
-                fontSize: 22,
-                color: "#111827",
-              }}
-            >
-              Órdenes recientes
-            </h2>
-
-            <a
-              href="/dashboard/servicio-tecnico"
-              style={{
-                textDecoration: "none",
-                color: "#2563eb",
-                fontSize: 14,
-                fontWeight: 600,
-              }}
-            >
-              Ver todas
-            </a>
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              gap: 8,
-              flexWrap: "wrap",
-              marginBottom: 18,
-            }}
-          >
-            {estadosFiltro.map((estado) => {
-              const activo = filtroEstado === estado;
-
-              return (
-                <button
-                  key={estado}
-                  onClick={() => setFiltroEstado(estado)}
+            {ordenesPorColumna.map((columna) => (
+              <section
+                key={columna.estado}
+                style={{
+                  minWidth: 285,
+                  maxWidth: 285,
+                  backgroundColor: "#ffffff",
+                  borderRadius: 18,
+                  border: "1px solid #e5e7eb",
+                  padding: 14,
+                  boxSizing: "border-box",
+                }}
+              >
+                <div
                   style={{
-                    border: activo ? "none" : "1px solid #d1d5db",
-                    backgroundColor: activo ? "#2563eb" : "#f9fafb",
-                    color: activo ? "white" : "#374151",
-                    borderRadius: 999,
-                    padding: "8px 12px",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: "pointer",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 14,
                   }}
                 >
-                  {estado}
-                </button>
-              );
-            })}
-          </div>
-
-          {loading ? (
-            <div
-              style={{
-                padding: "20px 6px",
-                color: "#6b7280",
-              }}
-            >
-              Cargando órdenes...
-            </div>
-          ) : ordenesFiltradas.length === 0 ? (
-            <div
-              style={{
-                padding: "20px 6px",
-                color: "#6b7280",
-              }}
-            >
-              No hay órdenes para este filtro.
-            </div>
-          ) : (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-              }}
-            >
-              {ordenesFiltradas.map((orden) => {
-                const estadoStyle = colorEstado(orden.estado);
-                const prioridadStyle = colorPrioridad(orden.prioridad);
-
-                return (
-                  <div
-                    key={orden.id}
-                    onClick={() => {
-                      window.location.href = `/dashboard/servicio-tecnico/${orden.id}`;
-                    }}
+                  <h2
                     style={{
-                      border: "1px solid #eef2f7",
-                      backgroundColor: "#fbfdff",
-                      borderRadius: 16,
-                      padding: 16,
-                      cursor: "pointer",
+                      margin: 0,
+                      fontSize: 15,
+                      color: "#111827",
                     }}
                   >
+                    {columna.estado}
+                  </h2>
+
+                  <span
+                    style={{
+                      backgroundColor: "#f3f4f6",
+                      color: "#374151",
+                      borderRadius: 999,
+                      padding: "4px 9px",
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {columna.ordenes.length}
+                  </span>
+                </div>
+
+                <div style={{ display: "grid", gap: 10 }}>
+                  {columna.ordenes.length === 0 ? (
                     <div
                       style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "flex-start",
-                        gap: 16,
-                        flexWrap: "wrap",
+                        color: "#9ca3af",
+                        fontSize: 13,
+                        padding: "18px 8px",
+                        textAlign: "center",
                       }}
                     >
-                      <div>
-                        <div
-                          style={{
-                            fontWeight: 700,
-                            fontSize: 15,
-                            color: "#111827",
-                            marginBottom: 6,
-                          }}
-                        >
-                          {orden.codigo || "Sin código"}
-                        </div>
-
-                        <div
-                          style={{
-                            color: "#374151",
-                            fontSize: 14,
-                            marginBottom: 4,
-                          }}
-                        >
-                          {orden.cliente || "-"}
-                        </div>
-
-                        <div
-                          style={{
-                            color: "#6b7280",
-                            fontSize: 14,
-                          }}
-                        >
-                          {orden.equipo || "-"}
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          textAlign: "right",
-                          minWidth: 120,
-                        }}
-                      >
-                        <div
-                          style={{
-                            color: "#9ca3af",
-                            fontSize: 12,
-                            marginBottom: 8,
-                          }}
-                        >
-                          {formatearFecha(orden.created_at)}
-                        </div>
-
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: 8,
-                            justifyContent: "flex-end",
-                            flexWrap: "wrap",
-                          }}
-                        >
-                          <span
-                            style={{
-                              backgroundColor: estadoStyle.fondo,
-                              color: estadoStyle.texto,
-                              borderRadius: 999,
-                              padding: "6px 10px",
-                              fontSize: 12,
-                              fontWeight: 700,
-                            }}
-                          >
-                            {orden.estado}
-                          </span>
-
-                          <span
-                            style={{
-                              backgroundColor: prioridadStyle.fondo,
-                              color: prioridadStyle.texto,
-                              borderRadius: 999,
-                              padding: "6px 10px",
-                              fontSize: 12,
-                              fontWeight: 700,
-                            }}
-                          >
-                            {orden.prioridad}
-                          </span>
-                        </div>
-                      </div>
+                      Sin órdenes
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                  ) : (
+                    columna.ordenes.map((orden) => {
+                      const prioridadStyle = colorPrioridad(orden.prioridad);
+
+                      return (
+                        <article
+                          key={orden.id}
+                          onClick={() =>
+                            router.push(`/dashboard/servicio-tecnico/${orden.id}`)
+                          }
+                          style={{
+                            backgroundColor: "#f9fafb",
+                            border: "1px solid #eef2f7",
+                            borderRadius: 14,
+                            padding: 14,
+                            cursor: "pointer",
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontWeight: 800,
+                              fontSize: 15,
+                              color: "#111827",
+                              marginBottom: 8,
+                            }}
+                          >
+                            {orden.codigo || "Sin código"}
+                          </div>
+
+                          <div
+                            style={{
+                              color: "#374151",
+                              fontSize: 13,
+                              marginBottom: 4,
+                              fontWeight: 600,
+                            }}
+                          >
+                            {orden.cliente || "-"}
+                          </div>
+
+                          <div
+                            style={{
+                              color: "#6b7280",
+                              fontSize: 13,
+                              marginBottom: 12,
+                            }}
+                          >
+                            {orden.equipo || "-"}
+                            {orden.cantidad_equipos ? (
+  <div
+    style={{
+      color: "#2563eb",
+      fontSize: 12,
+      fontWeight: 800,
+      marginTop: 6,
+    }}
+  >
+    {orden.cantidad_equipos} equipo(s)
+  </div>
+) : null}
+                          </div>
+
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              gap: 8,
+                            }}
+                          >
+                            <span
+                              style={{
+                                backgroundColor: prioridadStyle.fondo,
+                                color: prioridadStyle.texto,
+                                borderRadius: 999,
+                                padding: "5px 9px",
+                                fontSize: 11,
+                                fontWeight: 800,
+                              }}
+                            >
+                              {orden.prioridad || "Media"}
+                            </span>
+
+                            <span
+                              style={{
+                                color: "#9ca3af",
+                                fontSize: 11,
+                                fontWeight: 700,
+                              }}
+                            >
+                              {diasDesde(orden.created_at)}
+                            </span>
+                          </div>
+
+                          <div
+                            style={{
+                              marginTop: 10,
+                              color: "#9ca3af",
+                              fontSize: 11,
+                            }}
+                          >
+                            Ingreso: {formatearFecha(orden.created_at)}
+                          </div>
+                        </article>
+                      );
+                    })
+                  )}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
       </main>
+    </div>
+  );
+}
+
+function CardResumen({ titulo, valor }: { titulo: string; valor: number }) {
+  return (
+    <div
+      style={{
+        backgroundColor: "white",
+        borderRadius: 18,
+        padding: 18,
+        border: "1px solid #e5e7eb",
+      }}
+    >
+      <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 8 }}>
+        {titulo}
+      </div>
+
+      <div style={{ fontSize: 30, fontWeight: 700, color: "#111827" }}>
+        {valor}
+      </div>
     </div>
   );
 }

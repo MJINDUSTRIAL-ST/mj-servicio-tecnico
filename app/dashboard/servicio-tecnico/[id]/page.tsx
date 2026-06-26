@@ -1773,18 +1773,9 @@ pdf.save(`Reporte-${orden.codigo || orden.id}.pdf`);
                     color: "#0f172a",
                   }}
                 >
-                  📷 Fotos del estado inicial
-                </h2>
+                  📷 Fotos del estado inicial ({fotosIngreso.length})
+                  </h2>
 
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: "#64748b",
-                    fontWeight: 700,
-                  }}
-                >
-                  {fotosIngreso.length} foto(s)
-                </span>
               </div>
 
               {fotosIngreso.length === 0 ? (
@@ -1816,12 +1807,14 @@ pdf.save(`Reporte-${orden.codigo || orden.id}.pdf`);
                       <img
                         src={fotoUrl}
                         alt={`Foto ingreso ${index + 1}`}
+                        onClick={() => setFotoModal(fotoUrl)}
                         style={{
                           maxWidth: "100%",
                           maxHeight: 130,
                           objectFit: "contain",
                           display: "block",
                           borderRadius: 8,
+                          cursor: "pointer",
                         }}
                       />
                     </div>
