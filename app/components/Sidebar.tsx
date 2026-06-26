@@ -40,7 +40,24 @@ export default function Sidebar() {
 
       {open && <div className="sidebar-backdrop" onClick={() => setOpen(false)} />}
 
-      <aside className={`sidebar ${open ? "open" : ""}`}>
+      <aside
+  style={{
+    position: "fixed",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 180,
+    background: "#0f172a",
+    color: "#fff",
+    borderRight: "1px solid rgba(255,255,255,.05)",
+    padding: "18px 14px",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "space-between",
+    transition: ".25s",
+    zIndex: 100,
+  }}
+>
         <div>
           <div className="logo-wrap">
             <Link href="/dashboard">
@@ -81,7 +98,7 @@ export default function Sidebar() {
           left: 0;
           top: 0;
           bottom: 0;
-          width: 220px;
+          width: 180px;
           background: #050505;
           border-right: 1px solid rgba(255,255,255,0.08);
           padding: 20px 14px;
@@ -99,7 +116,7 @@ export default function Sidebar() {
         }
 
         .logo {
-          width: 150px;
+          width: 120px;
           height: auto;
           display: block;
         }

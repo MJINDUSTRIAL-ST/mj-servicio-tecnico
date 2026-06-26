@@ -210,7 +210,7 @@ export default function ServicioTecnicoPage() {
         }
 
         .main {
-          margin-left: 220px;
+          margin-left: 180px;
           min-height: 100vh;
           padding: 28px;
           box-sizing: border-box;
@@ -266,7 +266,7 @@ export default function ServicioTecnicoPage() {
 
         .kanban {
           display: grid;
-          grid-template-columns: repeat(7, minmax(210px, 1fr));
+          grid-template-columns: repeat(7, minmax(180px, 1fr));
           gap: 14px;
           align-items: flex-start;
           overflow-x: auto;
@@ -344,8 +344,8 @@ function SummaryCard({ title, value }: { title: string; value: number }) {
         .summaryCard {
           background: white;
           border: 1px solid #e5e7eb;
-          border-radius: 18px;
-          padding: 16px;
+          border-radius: 12px;
+          padding: 10px;
         }
 
         .summaryTitle {
@@ -410,7 +410,7 @@ function OrderCard({ orden, onClick }: { orden: Orden; onClick: () => void }) {
 
         .codigo {
           color: #111827;
-          font-size: 15px;
+          font-size: 14px;
           font-weight: 900;
           margin-bottom: 7px;
         }
@@ -433,7 +433,7 @@ function OrderCard({ orden, onClick }: { orden: Orden; onClick: () => void }) {
         }
 
         .footer {
-          margin-top: 12px;
+          margin-top: 6px;
           display: flex;
           align-items: center;
           justify-content: space-between;
