@@ -10,93 +10,64 @@ type Orden = {
   codigo: string;
   cliente: string;
   equipo: string;
-  cantidad_equipos?: number | null;
   estado: string;
-  prioridad: string;
+  prioridad: string | null;
   created_at: string;
+  cantidad_equipos?: number | null;
 };
 
-const columnasKanban = [
+const COLUMNAS = [
   "Ingreso",
-  "Diagnóstico técnico",
-  "Revisión jefe técnico",
-  "Diagnóstico aprobado",
-  "Cotización interna",
-  "Enviado a Comercial",
-  "Trabajo en proceso",
-  "Control de calidad",
+  "Diagnóstico",
+  "Revisión",
+  "Cotización",
+  "Trabajo",
   "Listo",
   "Entregado",
 ];
+
+function esOrdenHija(codigo?: string | null) {
+  if (!codigo) return false;
+  return /-\d{2}$/.test(codigo);
+}
 
 function normalizarEstado(estado?: string | null) {
   if (!estado) return "Ingreso";
 
   const e = estado.toLowerCase();
 
-  if (e.includes("diagnóstico") || e.includes("diagnostico")) {
-    return "Diagnóstico técnico";
-  }
-
-  if (e.includes("jefe")) {
-    return "Revisión jefe técnico";
-  }
-
-  if (e.includes("aprobado")) {
-    return "Diagnóstico aprobado";
-  }
-
-  if (e.includes("cotización interna") || e.includes("cotizacion interna")) {
-    return "Cotización interna";
-  }
-
-  if (e.includes("comercial")) {
-    return "Enviado a Comercial";
-  }
-
+  if (e.includes("entregado")) return "Entregado";
+  if (e.includes("listo")) return "Listo";
   if (
     e.includes("trabajo") ||
     e.includes("mantenimiento") ||
     e.includes("reparación") ||
     e.includes("reparacion")
   ) {
-    return "Trabajo en proceso";
+    return "Trabajo";
   }
-
-  if (e.includes("calidad")) {
-    return "Control de calidad";
+  if (
+    e.includes("cotización") ||
+    e.includes("cotizacion") ||
+    e.includes("comercial")
+  ) {
+    return "Cotización";
   }
-
-  if (e.includes("listo")) return "Listo";
-  if (e.includes("entregado")) return "Entregado";
+  if (e.includes("jefe") || e.includes("aprobado")) return "Revisión";
+  if (
+    e.includes("diagnóstico") ||
+    e.includes("diagnostico") ||
+    e.includes("revisión") ||
+    e.includes("revision")
+  ) {
+    return "Diagnóstico";
+  }
   if (e.includes("ingreso")) return "Ingreso";
-  if (e.includes("revisión") || e.includes("revision")) return "Diagnóstico técnico";
-  if (e.includes("cotización") || e.includes("cotizacion")) return "Cotización interna";
 
   return "Ingreso";
 }
 
-function colorPrioridad(prioridad: string) {
-  const p = (prioridad || "").toLowerCase();
-
-  if (p.includes("alta")) return { fondo: "#fee2e2", texto: "#b91c1c" };
-  if (p.includes("media")) return { fondo: "#dbeafe", texto: "#1d4ed8" };
-  if (p.includes("baja")) return { fondo: "#dcfce7", texto: "#166534" };
-
-  return { fondo: "#e5e7eb", texto: "#374151" };
-}
-
-function formatearFecha(fecha: string) {
-  if (!fecha) return "-";
-
-  try {
-    return new Date(fecha).toLocaleDateString("es-CL");
-  } catch {
-    return fecha;
-  }
-}
-
-function diasDesde(fecha: string) {
+function diasDesde(fecha?: string | null) {
   if (!fecha) return "-";
 
   const inicio = new Date(fecha).getTime();
@@ -108,29 +79,25 @@ function diasDesde(fecha: string) {
   return `${dias} días`;
 }
 
-function esOrdenHija(codigo?: string | null) {
-  if (!codigo) return false;
-  return /-\d{2}$/.test(codigo);
+function colorPrioridad(prioridad?: string | null) {
+  const p = String(prioridad || "").toLowerCase();
+
+  if (p.includes("alta")) return { bg: "#fee2e2", color: "#b91c1c" };
+  if (p.includes("baja")) return { bg: "#dcfce7", color: "#166534" };
+
+  return { bg: "#dbeafe", color: "#1d4ed8" };
 }
 
-export default function ServicioTecnico() {
+export default function ServicioTecnicoPage() {
   const router = useRouter();
-
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const checkAuthAndFetch = async () => {
+    async function cargarOrdenes() {
       const { data: sessionData } = await supabase.auth.getSession();
 
       if (!sessionData.session) {
-        router.push("/personal");
-        return;
-      }
-
-      const email = sessionData.session.user.email;
-
-      if (email !== "personal@mjindustrial.cl") {
         router.push("/personal");
         return;
       }
@@ -140,329 +107,352 @@ export default function ServicioTecnico() {
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (!error) {
-        setOrdenes(data || []);
-      }
-
+      if (!error) setOrdenes((data || []) as Orden[]);
       setLoading(false);
-    };
+    }
 
-    checkAuthAndFetch();
+    cargarOrdenes();
   }, [router]);
 
   const ordenesMadre = useMemo(() => {
-  return ordenes.filter((orden) => !esOrdenHija(orden.codigo));
-}, [ordenes]);
+    return ordenes.filter((orden) => !esOrdenHija(orden.codigo));
+  }, [ordenes]);
 
-const ordenesPorColumna = useMemo(() => {
-  return columnasKanban.map((columna) => {
-    const items = ordenesMadre.filter(
-      (orden) => normalizarEstado(orden.estado) === columna
-    );
-
-    return {
-      estado: columna,
-      ordenes: items,
-    };
-  });
-}, [ordenesMadre]);
+  const columnas = useMemo(() => {
+    return COLUMNAS.map((columna) => ({
+      nombre: columna,
+      ordenes: ordenesMadre.filter(
+        (orden) => normalizarEstado(orden.estado) === columna
+      ),
+    }));
+  }, [ordenesMadre]);
 
   const totalActivas = ordenesMadre.filter(
-  (o) => normalizarEstado(o.estado) !== "Entregado"
-).length;
+    (orden) => normalizarEstado(orden.estado) !== "Entregado"
+  ).length;
 
-const totalListas = ordenesMadre.filter(
-  (o) => normalizarEstado(o.estado) === "Listo"
-).length;
+  const totalDiagnostico = ordenesMadre.filter(
+    (orden) => normalizarEstado(orden.estado) === "Diagnóstico"
+  ).length;
 
-const totalUrgentes = ordenesMadre.filter((o) =>
-  String(o.prioridad || "").toLowerCase().includes("alta")
-).length;
+  const totalTrabajo = ordenesMadre.filter(
+    (orden) => normalizarEstado(orden.estado) === "Trabajo"
+  ).length;
 
-const totalClientes = new Set(
-  ordenesMadre.map((o) => (o.cliente || "").trim()).filter(Boolean)
-).size;
+  const totalListas = ordenesMadre.filter(
+    (orden) => normalizarEstado(orden.estado) === "Listo"
+  ).length;
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        backgroundColor: "#f3f4f6",
-        fontFamily: "Arial, sans-serif",
-      }}
-    >
+    <div className="page">
       <Sidebar />
 
-      <main
-        style={{
-          marginLeft: 260,
-          minHeight: "100vh",
-          padding: 28,
-          boxSizing: "border-box",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: 20,
-            marginBottom: 24,
-            flexWrap: "wrap",
-          }}
-        >
+      <main className="main">
+        <header className="header">
           <div>
-            <h1 style={{ margin: 0, fontSize: 32, color: "#111827" }}>
-              Servicio Técnico
-            </h1>
-
-            <p
-              style={{
-                marginTop: 6,
-                marginBottom: 0,
-                color: "#6b7280",
-                fontSize: 14,
-              }}
-            >
-              Tablero de órdenes de servicio.
-            </p>
+            <h1>Servicio Técnico</h1>
+            <p>Tablero general de órdenes de servicio.</p>
           </div>
 
-          <a href="/dashboard/servicio-tecnico/nueva">
-            <button
-              style={{
-                backgroundColor: "#2563eb",
-                color: "white",
-                border: "none",
-                borderRadius: 12,
-                padding: "12px 18px",
-                fontWeight: 700,
-                cursor: "pointer",
-                fontSize: 14,
-                boxShadow: "0 10px 20px rgba(37,99,235,0.18)",
-              }}
-            >
-              + Ingresar nueva OT
-            </button>
-          </a>
-        </div>
+          <button
+            type="button"
+            onClick={() => router.push("/dashboard/servicio-tecnico/nueva")}
+            className="primaryButton"
+          >
+            + Nueva OT
+          </button>
+        </header>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-            gap: 16,
-            marginBottom: 24,
-          }}
-        >
-          <CardResumen titulo="Órdenes activas" valor={totalActivas} />
-          <CardResumen titulo="Clientes" valor={totalClientes} />
-          <CardResumen titulo="Listas entrega" valor={totalListas} />
-          <CardResumen titulo="Urgentes" valor={totalUrgentes} />
-        </div>
+        <section className="summaryGrid">
+          <SummaryCard title="OT activas" value={totalActivas} />
+          <SummaryCard title="En diagnóstico" value={totalDiagnostico} />
+          <SummaryCard title="En trabajo" value={totalTrabajo} />
+          <SummaryCard title="Listas" value={totalListas} />
+        </section>
 
         {loading ? (
-          <div style={{ color: "#6b7280" }}>Cargando órdenes...</div>
+          <div className="loading">Cargando órdenes...</div>
         ) : (
-          <div
-            style={{
-              display: "flex",
-              gap: 16,
-              overflowX: "auto",
-              paddingBottom: 16,
-            }}
-          >
-            {ordenesPorColumna.map((columna) => (
-              <section
-                key={columna.estado}
-                style={{
-                  minWidth: 285,
-                  maxWidth: 285,
-                  backgroundColor: "#ffffff",
-                  borderRadius: 18,
-                  border: "1px solid #e5e7eb",
-                  padding: 14,
-                  boxSizing: "border-box",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: 14,
-                  }}
-                >
-                  <h2
-                    style={{
-                      margin: 0,
-                      fontSize: 15,
-                      color: "#111827",
-                    }}
-                  >
-                    {columna.estado}
-                  </h2>
-
-                  <span
-                    style={{
-                      backgroundColor: "#f3f4f6",
-                      color: "#374151",
-                      borderRadius: 999,
-                      padding: "4px 9px",
-                      fontSize: 12,
-                      fontWeight: 700,
-                    }}
-                  >
-                    {columna.ordenes.length}
-                  </span>
+          <section className="kanban">
+            {columnas.map((columna) => (
+              <div key={columna.nombre} className="column">
+                <div className="columnHeader">
+                  <h2>{columna.nombre}</h2>
+                  <span>{columna.ordenes.length}</span>
                 </div>
 
-                <div style={{ display: "grid", gap: 10 }}>
+                <div className="cards">
                   {columna.ordenes.length === 0 ? (
-                    <div
-                      style={{
-                        color: "#9ca3af",
-                        fontSize: 13,
-                        padding: "18px 8px",
-                        textAlign: "center",
-                      }}
-                    >
-                      Sin órdenes
-                    </div>
+                    <div className="empty">Sin OT</div>
                   ) : (
-                    columna.ordenes.map((orden) => {
-                      const prioridadStyle = colorPrioridad(orden.prioridad);
-
-                      return (
-                        <article
-                          key={orden.id}
-                          onClick={() =>
-                            router.push(`/dashboard/servicio-tecnico/${orden.id}`)
-                          }
-                          style={{
-                            backgroundColor: "#f9fafb",
-                            border: "1px solid #eef2f7",
-                            borderRadius: 14,
-                            padding: 14,
-                            cursor: "pointer",
-                          }}
-                        >
-                          <div
-                            style={{
-                              fontWeight: 800,
-                              fontSize: 15,
-                              color: "#111827",
-                              marginBottom: 8,
-                            }}
-                          >
-                            {orden.codigo || "Sin código"}
-                          </div>
-
-                          <div
-                            style={{
-                              color: "#374151",
-                              fontSize: 13,
-                              marginBottom: 4,
-                              fontWeight: 600,
-                            }}
-                          >
-                            {orden.cliente || "-"}
-                          </div>
-
-                          <div
-                            style={{
-                              color: "#6b7280",
-                              fontSize: 13,
-                              marginBottom: 12,
-                            }}
-                          >
-                            {orden.equipo || "-"}
-                            {orden.cantidad_equipos ? (
-  <div
-    style={{
-      color: "#2563eb",
-      fontSize: 12,
-      fontWeight: 800,
-      marginTop: 6,
-    }}
-  >
-    {orden.cantidad_equipos} equipo(s)
-  </div>
-) : null}
-                          </div>
-
-                          <div
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                              gap: 8,
-                            }}
-                          >
-                            <span
-                              style={{
-                                backgroundColor: prioridadStyle.fondo,
-                                color: prioridadStyle.texto,
-                                borderRadius: 999,
-                                padding: "5px 9px",
-                                fontSize: 11,
-                                fontWeight: 800,
-                              }}
-                            >
-                              {orden.prioridad || "Media"}
-                            </span>
-
-                            <span
-                              style={{
-                                color: "#9ca3af",
-                                fontSize: 11,
-                                fontWeight: 700,
-                              }}
-                            >
-                              {diasDesde(orden.created_at)}
-                            </span>
-                          </div>
-
-                          <div
-                            style={{
-                              marginTop: 10,
-                              color: "#9ca3af",
-                              fontSize: 11,
-                            }}
-                          >
-                            Ingreso: {formatearFecha(orden.created_at)}
-                          </div>
-                        </article>
-                      );
-                    })
+                    columna.ordenes.map((orden) => (
+                      <OrderCard
+                        key={orden.id}
+                        orden={orden}
+                        onClick={() =>
+                          router.push(`/dashboard/servicio-tecnico/${orden.id}`)
+                        }
+                      />
+                    ))
                   )}
                 </div>
-              </section>
+              </div>
             ))}
-          </div>
+          </section>
         )}
       </main>
+
+      <style jsx>{`
+        .page {
+          min-height: 100vh;
+          background: #f3f4f6;
+          font-family: Arial, sans-serif;
+        }
+
+        .main {
+          margin-left: 220px;
+          min-height: 100vh;
+          padding: 28px;
+          box-sizing: border-box;
+        }
+
+        .header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 20px;
+          margin-bottom: 22px;
+          flex-wrap: wrap;
+        }
+
+        h1 {
+          margin: 0;
+          font-size: 30px;
+          color: #111827;
+        }
+
+        p {
+          margin: 6px 0 0;
+          color: #6b7280;
+          font-size: 14px;
+        }
+
+        .primaryButton {
+          background: #2563eb;
+          color: white;
+          border: none;
+          border-radius: 12px;
+          padding: 12px 18px;
+          font-weight: 800;
+          cursor: pointer;
+          font-size: 14px;
+          box-shadow: 0 10px 20px rgba(37, 99, 235, 0.16);
+        }
+
+        .summaryGrid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 14px;
+          margin-bottom: 22px;
+        }
+
+        .loading {
+          color: #6b7280;
+          background: white;
+          border: 1px solid #e5e7eb;
+          border-radius: 16px;
+          padding: 20px;
+        }
+
+        .kanban {
+          display: grid;
+          grid-template-columns: repeat(7, minmax(210px, 1fr));
+          gap: 14px;
+          align-items: flex-start;
+          overflow-x: auto;
+          padding-bottom: 14px;
+        }
+
+        .column {
+          background: white;
+          border: 1px solid #e5e7eb;
+          border-radius: 18px;
+          padding: 12px;
+          min-height: 280px;
+        }
+
+        .columnHeader {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 12px;
+        }
+
+        .columnHeader h2 {
+          margin: 0;
+          color: #111827;
+          font-size: 14px;
+        }
+
+        .columnHeader span {
+          background: #f3f4f6;
+          color: #374151;
+          border-radius: 999px;
+          padding: 4px 9px;
+          font-size: 12px;
+          font-weight: 800;
+        }
+
+        .cards {
+          display: grid;
+          gap: 10px;
+        }
+
+        .empty {
+          color: #9ca3af;
+          text-align: center;
+          font-size: 13px;
+          padding: 18px 6px;
+        }
+
+        @media (max-width: 900px) {
+          .main {
+            margin-left: 0;
+            padding: 72px 16px 20px;
+          }
+
+          .summaryGrid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .kanban {
+            grid-template-columns: repeat(7, 220px);
+          }
+        }
+      `}</style>
     </div>
   );
 }
 
-function CardResumen({ titulo, valor }: { titulo: string; valor: number }) {
+function SummaryCard({ title, value }: { title: string; value: number }) {
   return (
-    <div
-      style={{
-        backgroundColor: "white",
-        borderRadius: 18,
-        padding: 18,
-        border: "1px solid #e5e7eb",
-      }}
-    >
-      <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 8 }}>
-        {titulo}
+    <div className="summaryCard">
+      <div className="summaryTitle">{title}</div>
+      <div className="summaryValue">{value}</div>
+
+      <style jsx>{`
+        .summaryCard {
+          background: white;
+          border: 1px solid #e5e7eb;
+          border-radius: 18px;
+          padding: 16px;
+        }
+
+        .summaryTitle {
+          color: #6b7280;
+          font-size: 13px;
+          margin-bottom: 8px;
+        }
+
+        .summaryValue {
+          color: #111827;
+          font-size: 28px;
+          font-weight: 800;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function OrderCard({ orden, onClick }: { orden: Orden; onClick: () => void }) {
+  const prioridad = colorPrioridad(orden.prioridad);
+  const esLote = Number(orden.cantidad_equipos || 1) > 1;
+
+  return (
+    <article className="card" onClick={onClick}>
+      <div className="codigo">{orden.codigo || "Sin código"}</div>
+      <div className="cliente">{orden.cliente || "-"}</div>
+
+      <div className="equipo">
+        {esLote
+          ? `Lote de ${orden.cantidad_equipos} equipos`
+          : orden.equipo || "-"}
       </div>
 
-      <div style={{ fontSize: 30, fontWeight: 700, color: "#111827" }}>
-        {valor}
+      <div className="footer">
+        <span
+          style={{
+            backgroundColor: prioridad.bg,
+            color: prioridad.color,
+          }}
+          className="badge"
+        >
+          {orden.prioridad || "Media"}
+        </span>
+
+        <span className="dias">{diasDesde(orden.created_at)}</span>
       </div>
-    </div>
+
+      <style jsx>{`
+        .card {
+          background: #f9fafb;
+          border: 1px solid #eef2f7;
+          border-radius: 14px;
+          padding: 13px;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .card:hover {
+          background: #f3f4f6;
+          transform: translateY(-1px);
+        }
+
+        .codigo {
+          color: #111827;
+          font-size: 15px;
+          font-weight: 900;
+          margin-bottom: 7px;
+        }
+
+        .cliente {
+          color: #374151;
+          font-size: 13px;
+          font-weight: 700;
+          margin-bottom: 4px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .equipo {
+          color: #6b7280;
+          font-size: 13px;
+          line-height: 1.35;
+          min-height: 34px;
+        }
+
+        .footer {
+          margin-top: 12px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+        }
+
+        .badge {
+          border-radius: 999px;
+          padding: 5px 9px;
+          font-size: 11px;
+          font-weight: 900;
+        }
+
+        .dias {
+          color: #9ca3af;
+          font-size: 11px;
+          font-weight: 800;
+        }
+      `}</style>
+    </article>
   );
 }
