@@ -18,6 +18,7 @@ import ChecklistIngreso from "./components/ChecklistIngreso";
 import DiagnosticoTecnico from "./components/DiagnosticoTecnico";
 import RevisionJefe from "./components/RevisionJefe";
 import CotizacionInterna from "./components/CotizacionInterna";
+import TrabajoOT from "./components/TrabajoOT";
 
 type Orden = {
   id: string;
@@ -198,11 +199,12 @@ export default function DetalleOrdenPage() {
   const [eliminandoFotoId, setEliminandoFotoId] = useState<string | null>(null);
   const [generandoPdf, setGenerandoPdf] = useState(false);
   const [tab, setTab] = useState<
-  "detalle" |
-  "diagnostico" |
-  "revision" |
-  "cotizacion" |
-  "reportes"
+  | "detalle"
+  | "diagnostico"
+  | "revision"
+  | "cotizacion"
+  | "trabajo"
+  | "reportes"
 >("detalle");
 
   const fotosIngreso = useMemo(() => {

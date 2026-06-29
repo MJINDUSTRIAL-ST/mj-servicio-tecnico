@@ -5,6 +5,7 @@ type Tab =
   | "diagnostico"
   | "revision"
   | "cotizacion"
+  | "trabajo"
   | "reportes";
 
 type Props = {
@@ -12,11 +13,12 @@ type Props = {
   onChange: (tab: Tab) => void;
 };
 
-const tabs = [
+const tabs: { id: Tab; nombre: string }[] = [
   { id: "detalle", nombre: "Detalle" },
   { id: "diagnostico", nombre: "Diagnóstico" },
   { id: "revision", nombre: "Revisión" },
   { id: "cotizacion", nombre: "Cotización Interna" },
+  { id: "trabajo", nombre: "Trabajo" },
   { id: "reportes", nombre: "Reportes" },
 ];
 
@@ -27,7 +29,8 @@ export default function TabsOT({ tab, onChange }: Props) {
         {tabs.map((t) => (
           <button
             key={t.id}
-            onClick={() => onChange(t.id as Tab)}
+            type="button"
+            onClick={() => onChange(t.id)}
             className={tab === t.id ? "activo" : ""}
           >
             {t.nombre}
@@ -51,16 +54,11 @@ export default function TabsOT({ tab, onChange }: Props) {
           cursor: pointer;
           font-weight: 700;
           white-space: nowrap;
-          transition: .2s;
         }
 
-        button:hover{
-          background:#cbd5e1;
-        }
-
-        .activo{
-          background:#2563eb;
-          color:white;
+        .activo {
+          background: #2563eb;
+          color: white;
         }
       `}</style>
     </>
