@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
+import TabsOT from "./components/TabsOT";
 import HeaderOT from "./components/HeaderOT";
 import TimelineOT from "./components/TimelineOT";
 import DetalleEquipo from "./components/DetalleEquipo";
@@ -13,6 +14,10 @@ import DocumentosIngreso from "./components/DocumentosIngreso";
 import Reportes from "./components/Reportes";
 import ModalFoto from "./components/ModalFoto";
 import ProblemaOT from "./components/ProblemaOT";
+import ChecklistIngreso from "./components/ChecklistIngreso";
+import DiagnosticoTecnico from "./components/DiagnosticoTecnico";
+import RevisionJefe from "./components/RevisionJefe";
+import CotizacionInterna from "./components/CotizacionInterna";
 
 type Orden = {
   id: string;
@@ -192,6 +197,13 @@ export default function DetalleOrdenPage() {
   const [fotoModal, setFotoModal] = useState<string | null>(null);
   const [eliminandoFotoId, setEliminandoFotoId] = useState<string | null>(null);
   const [generandoPdf, setGenerandoPdf] = useState(false);
+  const [tab, setTab] = useState<
+  "detalle" |
+  "diagnostico" |
+  "revision" |
+  "cotizacion" |
+  "reportes"
+>("detalle");
 
   const fotosIngreso = useMemo(() => {
     return normalizarFotosIngreso(orden?.fotos_estado_inicial);
@@ -406,109 +418,133 @@ export default function DetalleOrdenPage() {
     );
   }
 
-  const estadoBadge = badgeEstado(estadoActual);
+const estadoBadge = badgeEstado(estadoActual);
 
-  return (
-    <>
-      <main className="page">
-        <div className="container">
-          <HeaderOT
-            codigo={orden.codigo}
-            estado={estadoActual}
-            prioridad={orden.prioridad}
-            fecha={orden.created_at}
-            estadoBadge={estadoBadge}
-            generandoPdf={generandoPdf}
-            onGenerarPDF={generarPDF}
-          />
+return (
+  <>
+    <main className="page">
+      <div className="container">
+        <HeaderOT
+          codigo={orden.codigo}
+          estado={estadoActual}
+          prioridad={orden.prioridad}
+          fecha={orden.created_at}
+          estadoBadge={estadoBadge}
+          generandoPdf={generandoPdf}
+          onGenerarPDF={generarPDF}
+        />
 
-          <TimelineOT etapas={ETAPAS} etapaActualIndex={etapaActualIndex} />
+        <TimelineOT etapas={ETAPAS} etapaActualIndex={etapaActualIndex} />
 
-          <section className="twoColumns">
-  <DetalleCliente
-    ordenId={orden.id}
-    cliente={orden.cliente}
-    email={orden.cliente_email}
-    supabase={supabase}
-    onActualizar={(datos: any) => {
-      setOrden((prev: any) => {
-        if (!prev) return prev;
-        return { ...prev, ...datos };
-      });
-    }}
-  />
+        <TabsOT tab={tab} onChange={setTab} />
 
-  <DetalleEquipo
-    orden={orden as any}
-    supabase={supabase}
-    onActualizar={(actualizada: any) => {
-      setOrden((prev) => {
-        if (!prev) return prev;
-        return { ...prev, ...actualizada };
-      });
-    }}
-  />
-</section>
+        {tab === "detalle" && (
+          <>
+            <section className="twoColumns">
+              <DetalleCliente
+                ordenId={orden.id}
+                cliente={orden.cliente}
+                email={orden.cliente_email}
+                supabase={supabase}
+                onActualizar={(datos: any) => {
+                  setOrden((prev: any) => {
+                    if (!prev) return prev;
+                    return { ...prev, ...datos };
+                  });
+                }}
+              />
 
-<ProblemaOT
-  ordenId={orden.id}
-  problema={orden.problema_reportado}
-  observaciones={orden.observaciones_iniciales}
-  supabase={supabase}
-  onActualizar={(datos: any) => {
-    setOrden((prev: any) => {
-      if (!prev) return prev;
-      return { ...prev, ...datos };
-    });
-  }}
-/>
+              <DetalleEquipo
+                orden={orden as any}
+                supabase={supabase}
+                onActualizar={(actualizada: any) => {
+                  setOrden((prev) => {
+                    if (!prev) return prev;
+                    return { ...prev, ...actualizada };
+                  });
+                }}
+              />
+            </section>
 
-<FotosIngreso fotos={fotosIngreso} onOpen={setFotoModal} />
+            <ProblemaOT
+              ordenId={orden.id}
+              problema={orden.problema_reportado}
+              observaciones={orden.observaciones_iniciales}
+              supabase={supabase}
+              onActualizar={(datos: any) => {
+                setOrden((prev: any) => {
+                  if (!prev) return prev;
+                  return { ...prev, ...datos };
+                });
+              }}
+            />
 
-          <DocumentosIngreso documentos={documentosIngreso} />
+            <ChecklistIngreso ordenId={orden.id} />
+          </>
+        )}
 
-          <Reportes
-            ordenId={orden.id}
-            reportes={reportesOrdenados}
-            eliminandoFotoId={eliminandoFotoId}
-            onOpenFoto={setFotoModal}
-            onEliminarFoto={confirmarEliminarFoto}
-          />
-        </div>
-      </main>
+        {tab === "diagnostico" && (
+          <DiagnosticoTecnico ordenId={orden.id} />
+        )}
 
-      <ModalFoto foto={fotoModal} cerrar={() => setFotoModal(null)} />
+        {tab === "revision" && (
+          <RevisionJefe ordenId={orden.id} />
+        )}
 
-      <style jsx>{`
+        {tab === "cotizacion" && (
+          <CotizacionInterna />
+        )}
+
+        {tab === "reportes" && (
+          <>
+            <FotosIngreso fotos={fotosIngreso} onOpen={setFotoModal} />
+
+            <DocumentosIngreso documentos={documentosIngreso} />
+
+            <Reportes
+              ordenId={orden.id}
+              reportes={reportesOrdenados}
+              eliminandoFotoId={eliminandoFotoId}
+              onOpenFoto={setFotoModal}
+              onEliminarFoto={confirmarEliminarFoto}
+            />
+          </>
+        )}
+      </div>
+    </main>
+
+    <ModalFoto foto={fotoModal} cerrar={() => setFotoModal(null)} />
+
+    <style jsx>{`
+      .page {
+        min-height: 100vh;
+        background: #f8fafc;
+        padding: 28px 32px 60px;
+        font-family: Arial, sans-serif;
+      }
+
+      .container {
+        max-width: 1100px;
+        margin: 0 auto;
+      }
+
+      .twoColumns {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+        margin-bottom: 18px;
+      }
+
+      @media (max-width: 900px) {
         .page {
-          min-height: 100vh;
-          background: #f8fafc;
-          padding: 28px 32px 60px;
-          font-family: Arial, sans-serif;
-        }
-
-        .container {
-          max-width: 1100px;
-          margin: 0 auto;
+          padding: 22px 14px 50px;
         }
 
         .twoColumns {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 18px;
-          margin-bottom: 18px;
+          grid-template-columns: 1fr;
         }
-
-        @media (max-width: 900px) {
-          .page {
-            padding: 22px 14px 50px;
-          }
-
-          .twoColumns {
-            grid-template-columns: 1fr;
-          }
-        }
-      `}</style>
-    </>
-  );
+      }
+    `}</style>
+  </>
+);
 }
