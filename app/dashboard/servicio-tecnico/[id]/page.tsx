@@ -12,6 +12,7 @@ import FotosIngreso from "./components/FotosIngreso";
 import DocumentosIngreso from "./components/DocumentosIngreso";
 import Reportes from "./components/Reportes";
 import ModalFoto from "./components/ModalFoto";
+import ProblemaOT from "./components/ProblemaOT";
 
 type Orden = {
   id: string;
@@ -424,22 +425,19 @@ export default function DetalleOrdenPage() {
           <TimelineOT etapas={ETAPAS} etapaActualIndex={etapaActualIndex} />
 
           <section className="twoColumns">
-
   <DetalleCliente
-  ordenId={orden.id}
-  cliente={orden.cliente}
-  email={orden.cliente_email}
-  supabase={supabase}
-  onActualizar={(datos: any) => {
-    setOrden((prev: any) => {
-      if (!prev) return prev;
-      return { ...prev, ...datos };
-    });
-  }}
-/>
-</section>
+    ordenId={orden.id}
+    cliente={orden.cliente}
+    email={orden.cliente_email}
+    supabase={supabase}
+    onActualizar={(datos: any) => {
+      setOrden((prev: any) => {
+        if (!prev) return prev;
+        return { ...prev, ...datos };
+      });
+    }}
+  />
 
-<div>
   <DetalleEquipo
     orden={orden as any}
     supabase={supabase}
@@ -450,9 +448,22 @@ export default function DetalleOrdenPage() {
       });
     }}
   />
-</div>
+</section>
 
-          <FotosIngreso fotos={fotosIngreso} onOpen={setFotoModal} />
+<ProblemaOT
+  ordenId={orden.id}
+  problema={orden.problema_reportado}
+  observaciones={orden.observaciones_iniciales}
+  supabase={supabase}
+  onActualizar={(datos: any) => {
+    setOrden((prev: any) => {
+      if (!prev) return prev;
+      return { ...prev, ...datos };
+    });
+  }}
+/>
+
+<FotosIngreso fotos={fotosIngreso} onOpen={setFotoModal} />
 
           <DocumentosIngreso documentos={documentosIngreso} />
 
