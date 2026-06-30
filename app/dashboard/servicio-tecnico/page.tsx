@@ -18,6 +18,7 @@ type Orden = {
 
 const COLUMNAS = [
   "Ingreso",
+  "Checklist",
   "Diagnóstico",
   "Revisión",
   "Cotización",
@@ -38,6 +39,7 @@ function normalizarEstado(estado?: string | null) {
 
   if (e.includes("entregado")) return "Entregado";
   if (e.includes("listo")) return "Listo";
+
   if (
     e.includes("trabajo") ||
     e.includes("mantenimiento") ||
@@ -46,6 +48,7 @@ function normalizarEstado(estado?: string | null) {
   ) {
     return "Trabajo";
   }
+
   if (
     e.includes("cotización") ||
     e.includes("cotizacion") ||
@@ -53,15 +56,21 @@ function normalizarEstado(estado?: string | null) {
   ) {
     return "Cotización";
   }
+
   if (e.includes("jefe") || e.includes("aprobado")) return "Revisión";
+
+  if (e.includes("diagnóstico") || e.includes("diagnostico")) {
+    return "Diagnóstico";
+  }
+
   if (
-    e.includes("diagnóstico") ||
-    e.includes("diagnostico") ||
+    e.includes("checklist") ||
     e.includes("revisión") ||
     e.includes("revision")
   ) {
-    return "Diagnóstico";
+    return "Checklist";
   }
+
   if (e.includes("ingreso")) return "Ingreso";
 
   return "Ingreso";
@@ -131,16 +140,16 @@ export default function ServicioTecnicoPage() {
     (orden) => normalizarEstado(orden.estado) !== "Entregado"
   ).length;
 
+  const totalChecklist = ordenesMadre.filter(
+    (orden) => normalizarEstado(orden.estado) === "Checklist"
+  ).length;
+
   const totalDiagnostico = ordenesMadre.filter(
     (orden) => normalizarEstado(orden.estado) === "Diagnóstico"
   ).length;
 
   const totalTrabajo = ordenesMadre.filter(
     (orden) => normalizarEstado(orden.estado) === "Trabajo"
-  ).length;
-
-  const totalListas = ordenesMadre.filter(
-    (orden) => normalizarEstado(orden.estado) === "Listo"
   ).length;
 
   return (
@@ -165,9 +174,9 @@ export default function ServicioTecnicoPage() {
 
         <section className="summaryGrid">
           <SummaryCard title="OT activas" value={totalActivas} />
+          <SummaryCard title="En checklist" value={totalChecklist} />
           <SummaryCard title="En diagnóstico" value={totalDiagnostico} />
           <SummaryCard title="En trabajo" value={totalTrabajo} />
-          <SummaryCard title="Listas" value={totalListas} />
         </section>
 
         {loading ? (
@@ -266,7 +275,7 @@ export default function ServicioTecnicoPage() {
 
         .kanban {
           display: grid;
-          grid-template-columns: repeat(7, minmax(180px, 1fr));
+          grid-template-columns: repeat(8, minmax(180px, 1fr));
           gap: 14px;
           align-items: flex-start;
           overflow-x: auto;
@@ -326,7 +335,7 @@ export default function ServicioTecnicoPage() {
           }
 
           .kanban {
-            grid-template-columns: repeat(7, 220px);
+            grid-template-columns: repeat(8, 220px);
           }
         }
       `}</style>
@@ -378,6 +387,8 @@ function OrderCard({ orden, onClick }: { orden: Orden; onClick: () => void }) {
           ? `Lote de ${orden.cantidad_equipos} equipos`
           : orden.equipo || "-"}
       </div>
+
+      {esLote && <div className="loteBadge">OT madre / lote</div>}
 
       <div className="footer">
         <span
@@ -432,8 +443,19 @@ function OrderCard({ orden, onClick }: { orden: Orden; onClick: () => void }) {
           min-height: 34px;
         }
 
+        .loteBadge {
+          display: inline-block;
+          margin-top: 8px;
+          background: #fef3c7;
+          color: #92400e;
+          border-radius: 999px;
+          padding: 5px 8px;
+          font-size: 11px;
+          font-weight: 900;
+        }
+
         .footer {
-          margin-top: 6px;
+          margin-top: 8px;
           display: flex;
           align-items: center;
           justify-content: space-between;

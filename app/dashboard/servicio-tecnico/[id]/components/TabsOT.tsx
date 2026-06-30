@@ -2,6 +2,7 @@
 
 type Tab =
   | "detalle"
+  | "checklist"
   | "diagnostico"
   | "revision"
   | "cotizacion"
@@ -15,6 +16,7 @@ type Props = {
 
 const tabs: { id: Tab; nombre: string }[] = [
   { id: "detalle", nombre: "Detalle" },
+  { id: "checklist", nombre: "Checklist" },
   { id: "diagnostico", nombre: "Diagnóstico" },
   { id: "revision", nombre: "Revisión" },
   { id: "cotizacion", nombre: "Cotización Interna" },

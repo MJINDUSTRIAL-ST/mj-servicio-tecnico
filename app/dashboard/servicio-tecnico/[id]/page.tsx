@@ -15,6 +15,7 @@ import Reportes from "./components/Reportes";
 import ModalFoto from "./components/ModalFoto";
 import ProblemaOT from "./components/ProblemaOT";
 import ChecklistIngreso from "./components/ChecklistIngreso";
+import ChecklistInteligente from "./components/ChecklistInteligente";
 import DiagnosticoTecnico from "./components/DiagnosticoTecnico";
 import RevisionJefe from "./components/RevisionJefe";
 import CotizacionInterna from "./components/CotizacionInterna";
@@ -85,6 +86,7 @@ type Reporte = {
 
 const ETAPAS = [
   "Ingreso",
+  "Checklist",
   "Diagnóstico",
   "Revisión",
   "Cotización",
@@ -122,13 +124,16 @@ function normalizarEstado(estado?: string | null) {
     return "Revisión";
   }
 
-  if (
-    e.includes("diagnóstico") ||
-    e.includes("diagnostico") ||
-    e.includes("revisión") ||
-    e.includes("revision")
-  ) {
+  if (e.includes("diagnóstico") || e.includes("diagnostico")) {
     return "Diagnóstico";
+  }
+
+  if (e.includes("checklist")) {
+    return "Checklist";
+  }
+
+  if (e.includes("revisión") || e.includes("revision")) {
+    return "Checklist";
   }
 
   return "Ingreso";
@@ -155,6 +160,10 @@ function badgeEstado(estado: string) {
 
   if (estadoNormal === "Diagnóstico") {
     return { bg: "#ede9fe", color: "#6d28d9" };
+  }
+
+  if (estadoNormal === "Checklist") {
+    return { bg: "#e0f2fe", color: "#0369a1" };
   }
 
   return { bg: "#dbeafe", color: "#2563eb" };
@@ -199,13 +208,14 @@ export default function DetalleOrdenPage() {
   const [eliminandoFotoId, setEliminandoFotoId] = useState<string | null>(null);
   const [generandoPdf, setGenerandoPdf] = useState(false);
   const [tab, setTab] = useState<
-  | "detalle"
-  | "diagnostico"
-  | "revision"
-  | "cotizacion"
-  | "trabajo"
-  | "reportes"
->("detalle");
+    | "detalle"
+    | "checklist"
+    | "diagnostico"
+    | "revision"
+    | "cotizacion"
+    | "trabajo"
+    | "reportes"
+  >("detalle");
 
   const fotosIngreso = useMemo(() => {
     return normalizarFotosIngreso(orden?.fotos_estado_inicial);
@@ -220,8 +230,8 @@ export default function DetalleOrdenPage() {
   }, [reportes]);
 
   const estadoActual = useMemo(() => {
-  return normalizarEstado(orden?.estado);
-}, [orden?.estado]);
+    return normalizarEstado(orden?.estado);
+  }, [orden?.estado]);
 
   const etapaActualIndex = useMemo(() => {
     const index = ETAPAS.indexOf(estadoActual);
@@ -400,6 +410,24 @@ export default function DetalleOrdenPage() {
     }
   }
 
+  async function avanzarADiagnostico() {
+    if (!orden) return;
+
+    setTab("diagnostico");
+
+    const { error: errorEstado } = await supabase
+      .from("ordenes")
+      .update({ estado: "Diagnóstico" })
+      .eq("id", orden.id);
+
+    if (!errorEstado) {
+      setOrden((prev) => {
+        if (!prev) return prev;
+        return { ...prev, estado: "Diagnóstico" };
+      });
+    }
+  }
+
   if (loading) {
     return (
       <main style={{ padding: 32, fontFamily: "Arial, sans-serif" }}>
@@ -416,33 +444,58 @@ export default function DetalleOrdenPage() {
     );
   }
 
-const estadoBadge = badgeEstado(estadoActual);
+  const estadoBadge = badgeEstado(estadoActual);
 
-return (
-  <>
-    <main className="page">
-      <div className="container">
-        <HeaderOT
-          codigo={orden.codigo}
-          estado={estadoActual}
-          prioridad={orden.prioridad}
-          fecha={orden.created_at}
-          estadoBadge={estadoBadge}
-          generandoPdf={generandoPdf}
-          onGenerarPDF={generarPDF}
-        />
+  return (
+    <>
+      <main className="page">
+        <div className="container">
+          <HeaderOT
+            codigo={orden.codigo}
+            estado={estadoActual}
+            prioridad={orden.prioridad}
+            fecha={orden.created_at}
+            estadoBadge={estadoBadge}
+            generandoPdf={generandoPdf}
+            onGenerarPDF={generarPDF}
+          />
 
-        <TimelineOT etapas={ETAPAS} etapaActualIndex={etapaActualIndex} />
+          <TimelineOT etapas={ETAPAS} etapaActualIndex={etapaActualIndex} />
 
-        <TabsOT tab={tab} onChange={setTab} />
+          <TabsOT tab={tab} onChange={setTab} />
 
-        {tab === "detalle" && (
-          <>
-            <section className="twoColumns">
-              <DetalleCliente
+          {tab === "detalle" && (
+            <>
+              <section className="twoColumns">
+                <DetalleCliente
+                  ordenId={orden.id}
+                  cliente={orden.cliente}
+                  email={orden.cliente_email}
+                  supabase={supabase}
+                  onActualizar={(datos: any) => {
+                    setOrden((prev: any) => {
+                      if (!prev) return prev;
+                      return { ...prev, ...datos };
+                    });
+                  }}
+                />
+
+                <DetalleEquipo
+                  orden={orden as any}
+                  supabase={supabase}
+                  onActualizar={(actualizada: any) => {
+                    setOrden((prev) => {
+                      if (!prev) return prev;
+                      return { ...prev, ...actualizada };
+                    });
+                  }}
+                />
+              </section>
+
+              <ProblemaOT
                 ordenId={orden.id}
-                cliente={orden.cliente}
-                email={orden.cliente_email}
+                problema={orden.problema_reportado}
+                observaciones={orden.observaciones_iniciales}
                 supabase={supabase}
                 onActualizar={(datos: any) => {
                   setOrden((prev: any) => {
@@ -452,113 +505,96 @@ return (
                 }}
               />
 
-              <DetalleEquipo
-                orden={orden as any}
-                supabase={supabase}
-                onActualizar={(actualizada: any) => {
-                  setOrden((prev) => {
-                    if (!prev) return prev;
-                    return { ...prev, ...actualizada };
-                  });
-                }}
-              />
-            </section>
+              <ChecklistIngreso ordenId={orden.id} />
+            </>
+          )}
 
-            <ProblemaOT
+          {tab === "checklist" && (
+            <ChecklistInteligente
+              equipoId={orden.id}
+              tipoEquipoInicial={orden.equipo}
+              onGenerarDiagnostico={avanzarADiagnostico}
+            />
+          )}
+
+          {tab === "diagnostico" && (
+            <DiagnosticoTecnico
               ordenId={orden.id}
-              problema={orden.problema_reportado}
-              observaciones={orden.observaciones_iniciales}
-              supabase={supabase}
-              onActualizar={(datos: any) => {
-                setOrden((prev: any) => {
+              onEstadoActualizado={(estado) => {
+                setOrden((prev) => {
                   if (!prev) return prev;
-                  return { ...prev, ...datos };
+                  return { ...prev, estado };
                 });
               }}
             />
+          )}
 
-            <ChecklistIngreso ordenId={orden.id} />
-          </>
-        )}
-
-        {tab === "diagnostico" && (
-  <DiagnosticoTecnico
-    ordenId={orden.id}
-    onEstadoActualizado={(estado) => {
-      setOrden((prev) => {
-        if (!prev) return prev;
-        return { ...prev, estado };
-      });
-    }}
-  />
-)}
-
-        {tab === "revision" && (
-          <RevisionJefe
-  ordenId={orden.id}
-  onEstadoActualizado={(estado) => {
-    setOrden((prev) => {
-      if (!prev) return prev;
-      return { ...prev, estado };
-    });
-  }}
-/>
-        )}
-
-        {tab === "cotizacion" && (
-          <CotizacionInterna />
-        )}
-
-        {tab === "reportes" && (
-          <>
-            <FotosIngreso fotos={fotosIngreso} onOpen={setFotoModal} />
-
-            <DocumentosIngreso documentos={documentosIngreso} />
-
-            <Reportes
+          {tab === "revision" && (
+            <RevisionJefe
               ordenId={orden.id}
-              reportes={reportesOrdenados}
-              eliminandoFotoId={eliminandoFotoId}
-              onOpenFoto={setFotoModal}
-              onEliminarFoto={confirmarEliminarFoto}
+              onEstadoActualizado={(estado) => {
+                setOrden((prev) => {
+                  if (!prev) return prev;
+                  return { ...prev, estado };
+                });
+              }}
             />
-          </>
-        )}
-      </div>
-    </main>
+          )}
 
-    <ModalFoto foto={fotoModal} cerrar={() => setFotoModal(null)} />
+          {tab === "cotizacion" && <CotizacionInterna />}
 
-    <style jsx>{`
-      .page {
-        min-height: 100vh;
-        background: #f8fafc;
-        padding: 28px 32px 60px;
-        font-family: Arial, sans-serif;
-      }
+          {tab === "trabajo" && <TrabajoOT />}
 
-      .container {
-        max-width: 1100px;
-        margin: 0 auto;
-      }
+          {tab === "reportes" && (
+            <>
+              <FotosIngreso fotos={fotosIngreso} onOpen={setFotoModal} />
 
-      .twoColumns {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 18px;
-        margin-bottom: 18px;
-      }
+              <DocumentosIngreso documentos={documentosIngreso} />
 
-      @media (max-width: 900px) {
+              <Reportes
+                ordenId={orden.id}
+                reportes={reportesOrdenados}
+                eliminandoFotoId={eliminandoFotoId}
+                onOpenFoto={setFotoModal}
+                onEliminarFoto={confirmarEliminarFoto}
+              />
+            </>
+          )}
+        </div>
+      </main>
+
+      <ModalFoto foto={fotoModal} cerrar={() => setFotoModal(null)} />
+
+      <style jsx>{`
         .page {
-          padding: 22px 14px 50px;
+          min-height: 100vh;
+          background: #f8fafc;
+          padding: 28px 32px 60px;
+          font-family: Arial, sans-serif;
+        }
+
+        .container {
+          max-width: 1100px;
+          margin: 0 auto;
         }
 
         .twoColumns {
-          grid-template-columns: 1fr;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 18px;
+          margin-bottom: 18px;
         }
-      }
-    `}</style>
-  </>
-);
+
+        @media (max-width: 900px) {
+          .page {
+            padding: 22px 14px 50px;
+          }
+
+          .twoColumns {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
+    </>
+  );
 }
