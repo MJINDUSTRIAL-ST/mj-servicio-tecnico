@@ -486,11 +486,27 @@ return (
         )}
 
         {tab === "diagnostico" && (
-          <DiagnosticoTecnico ordenId={orden.id} />
-        )}
+  <DiagnosticoTecnico
+    ordenId={orden.id}
+    onEstadoActualizado={(estado) => {
+      setOrden((prev) => {
+        if (!prev) return prev;
+        return { ...prev, estado };
+      });
+    }}
+  />
+)}
 
         {tab === "revision" && (
-          <RevisionJefe ordenId={orden.id} />
+          <RevisionJefe
+  ordenId={orden.id}
+  onEstadoActualizado={(estado) => {
+    setOrden((prev) => {
+      if (!prev) return prev;
+      return { ...prev, estado };
+    });
+  }}
+/>
         )}
 
         {tab === "cotizacion" && (

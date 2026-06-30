@@ -5,16 +5,19 @@ import { supabase } from "../../../../lib/supabase";
 
 type Props = {
   ordenId: string;
+  onEstadoActualizado?: (estado: string) => void;
 };
 
-export default function DiagnosticoTecnico({ ordenId }: Props) {
+export default function DiagnosticoTecnico({
+  ordenId,
+  onEstadoActualizado,
+}: Props) {
   const [idDiagnostico, setIdDiagnostico] = useState<string | null>(null);
-
   const [diagnostico, setDiagnostico] = useState("");
   const [procedimiento, setProcedimiento] = useState("");
   const [repuestos, setRepuestos] = useState("");
-
   const [guardando, setGuardando] = useState(false);
+  const [guardadoOk, setGuardadoOk] = useState(false);
 
   useEffect(() => {
     cargarDiagnostico();
@@ -37,6 +40,7 @@ export default function DiagnosticoTecnico({ ordenId }: Props) {
 
   async function guardar() {
     setGuardando(true);
+    setGuardadoOk(false);
 
     try {
       if (idDiagnostico) {
@@ -46,7 +50,7 @@ export default function DiagnosticoTecnico({ ordenId }: Props) {
             hallazgos: diagnostico,
             procedimiento,
             repuestos,
-            updated_at: new Date(),
+            updated_at: new Date().toISOString(),
           })
           .eq("id", idDiagnostico);
 
@@ -64,38 +68,60 @@ export default function DiagnosticoTecnico({ ordenId }: Props) {
           .single();
 
         if (error) throw error;
-
         setIdDiagnostico(data.id);
       }
 
-      await supabase
+      const { error: errorOrden } = await supabase
         .from("ordenes")
-        .update({
-          estado: "Revisión",
-        })
+        .update({ estado: "Diagnóstico" })
         .eq("id", ordenId);
 
-      alert("Diagnóstico guardado correctamente.");
-    } catch (e: any) {
-      alert(e.message);
-    }
+      if (errorOrden) throw errorOrden;
 
-    setGuardando(false);
+      onEstadoActualizado?.("Diagnóstico");
+
+      setGuardadoOk(true);
+
+      setTimeout(() => {
+        setGuardadoOk(false);
+      }, 2500);
+    } catch (e: any) {
+      alert(e.message || "No se pudo guardar el diagnóstico");
+    } finally {
+      setGuardando(false);
+    }
   }
+
+  const textoBoton = guardando
+    ? "Guardando..."
+    : guardadoOk
+    ? "✓ Diagnóstico guardado"
+    : idDiagnostico
+    ? "Modificar diagnóstico"
+    : "Guardar diagnóstico";
 
   return (
     <section className="card">
       <div className="header">
-        <h2>Diagnóstico Técnico</h2>
+        <div>
+          <h2>Diagnóstico Técnico</h2>
+          {idDiagnostico && <p className="estado">Diagnóstico ya guardado</p>}
+        </div>
 
-        <button onClick={guardar} disabled={guardando}>
-          {guardando ? "Guardando..." : "Guardar diagnóstico"}
-        </button>
+        <button
+  onClick={guardar}
+  disabled={guardando}
+>
+  {guardando
+    ? "Guardando..."
+    : idDiagnostico
+      ? "Modificar diagnóstico"
+      : "Guardar diagnóstico"}
+</button>
       </div>
 
       <div className="campo">
         <label>Hallazgos del diagnóstico</label>
-
         <textarea
           value={diagnostico}
           onChange={(e) => setDiagnostico(e.target.value)}
@@ -105,7 +131,6 @@ export default function DiagnosticoTecnico({ ordenId }: Props) {
 
       <div className="campo">
         <label>Procedimiento recomendado</label>
-
         <textarea
           value={procedimiento}
           onChange={(e) => setProcedimiento(e.target.value)}
@@ -115,7 +140,6 @@ export default function DiagnosticoTecnico({ ordenId }: Props) {
 
       <div className="campo">
         <label>Repuestos solicitados</label>
-
         <textarea
           value={repuestos}
           onChange={(e) => setRepuestos(e.target.value)}
@@ -136,6 +160,7 @@ export default function DiagnosticoTecnico({ ordenId }: Props) {
           display: flex;
           justify-content: space-between;
           align-items: center;
+          gap: 16px;
           margin-bottom: 20px;
         }
 
@@ -145,6 +170,13 @@ export default function DiagnosticoTecnico({ ordenId }: Props) {
           color: #0f172a;
         }
 
+        .estado {
+          margin: 6px 0 0;
+          font-size: 13px;
+          color: #16a34a;
+          font-weight: 800;
+        }
+
         button {
           background: #2563eb;
           color: white;
@@ -152,11 +184,16 @@ export default function DiagnosticoTecnico({ ordenId }: Props) {
           border-radius: 10px;
           padding: 10px 16px;
           cursor: pointer;
-          font-weight: 700;
+          font-weight: 800;
+          min-width: 190px;
+        }
+
+        button.guardado {
+          background: #16a34a;
         }
 
         button:disabled {
-          opacity: .6;
+          opacity: 0.7;
           cursor: not-allowed;
         }
 
@@ -168,7 +205,7 @@ export default function DiagnosticoTecnico({ ordenId }: Props) {
         }
 
         label {
-          font-weight: 700;
+          font-weight: 800;
           color: #334155;
         }
 
