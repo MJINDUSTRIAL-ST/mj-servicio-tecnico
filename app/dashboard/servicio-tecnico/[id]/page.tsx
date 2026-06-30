@@ -16,6 +16,7 @@ import ModalFoto from "./components/ModalFoto";
 import ProblemaOT from "./components/ProblemaOT";
 import ChecklistIngreso from "./components/ChecklistIngreso";
 import ChecklistInteligente from "./components/ChecklistInteligente";
+import ChecklistLote from "./components/ChecklistLote";
 import DiagnosticoTecnico from "./components/DiagnosticoTecnico";
 import RevisionJefe from "./components/RevisionJefe";
 import CotizacionInterna from "./components/CotizacionInterna";
@@ -534,7 +535,7 @@ export default function DetalleOrdenPage() {
 
           {tab === "checklist" &&
             (esOtMadreLote ? (
-              <AvisoLote equipos={equiposLote} />
+              <ChecklistLote equipos={equiposLote} />
             ) : (
               <ChecklistInteligente
                 equipoId={orden.id}
