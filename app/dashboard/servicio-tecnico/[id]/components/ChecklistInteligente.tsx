@@ -9,6 +9,10 @@ import {
   TipoEquipoChecklist,
   getChecklistByTipo,
 } from "../lib/checklists";
+import {
+  DiagnosticoGeneradoMJ,
+  generarDiagnosticoMJ,
+} from "../lib/diagnosticoEngine";
 
 type RespuestaChecklist = {
   estado: EstadoChecklist | "";
@@ -30,6 +34,7 @@ type ChecklistInteligenteProps = {
       item: ChecklistItem;
       respuesta: RespuestaChecklist;
     }>;
+    diagnostico: DiagnosticoGeneradoMJ;
   }) => void;
 };
 
@@ -93,7 +98,8 @@ export default function ChecklistInteligente({
   );
 
   const [seccionesAbiertas, setSeccionesAbiertas] = useState<Record<string, boolean>>({});
-  const [diagnosticoGenerado, setDiagnosticoGenerado] = useState(false);
+  const [diagnosticoGenerado, setDiagnosticoGenerado] =
+    useState<DiagnosticoGeneradoMJ | null>(null);
 
   const totalItems =
     checklist?.sections.reduce((total, section) => total + section.items.length, 0) ?? 0;
@@ -119,6 +125,8 @@ export default function ChecklistInteligente({
     totalItems > 0 ? Math.round((itemsRespondidos / totalItems) * 100) : 0;
 
   function cambiarEstado(itemId: string, estado: EstadoChecklist) {
+    setDiagnosticoGenerado(null);
+
     setRespuestas((prev) => ({
       ...prev,
       [itemId]: {
@@ -130,6 +138,8 @@ export default function ChecklistInteligente({
   }
 
   function cambiarObservacion(itemId: string, observacion: string) {
+    setDiagnosticoGenerado(null);
+
     setRespuestas((prev) => ({
       ...prev,
       [itemId]: {
@@ -141,6 +151,8 @@ export default function ChecklistInteligente({
 
   function agregarFotos(itemId: string, files: FileList | null) {
     if (!files) return;
+
+    setDiagnosticoGenerado(null);
 
     const nuevasFotos = Array.from(files);
 
@@ -154,6 +166,8 @@ export default function ChecklistInteligente({
   }
 
   function eliminarFoto(itemId: string, index: number) {
+    setDiagnosticoGenerado(null);
+
     setRespuestas((prev) => ({
       ...prev,
       [itemId]: {
@@ -175,7 +189,13 @@ export default function ChecklistInteligente({
   function generarDiagnostico() {
     if (!checklist || !tipoEquipo) return;
 
-    setDiagnosticoGenerado(true);
+    const diagnostico = generarDiagnosticoMJ({
+      tipoEquipo,
+      checklist,
+      respuestas,
+    });
+
+    setDiagnosticoGenerado(diagnostico);
 
     onGenerarDiagnostico?.({
       equipoId,
@@ -183,6 +203,7 @@ export default function ChecklistInteligente({
       checklist,
       respuestas,
       itemsMalos,
+      diagnostico,
     });
   }
 
@@ -399,7 +420,7 @@ export default function ChecklistInteligente({
         <div>
           <p className="font-bold text-slate-900">Generar diagnóstico</p>
           <p className="mt-1 text-sm text-slate-500">
-            La IA utilizará las respuestas del checklist para generar el diagnóstico técnico.
+            El sistema generará un diagnóstico técnico base usando el motor MJ.
           </p>
         </div>
 
@@ -414,8 +435,9 @@ export default function ChecklistInteligente({
       </div>
 
       {diagnosticoGenerado && (
-        <div className="mt-4 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-700">
-          Checklist preparado para generar diagnóstico. En la siguiente etapa conectaremos este botón con IA y Supabase.
+        <div className="mt-4 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+          <p className="font-bold">Diagnóstico generado por Motor MJ</p>
+          <p className="mt-2">{diagnosticoGenerado.resumen}</p>
         </div>
       )}
     </div>

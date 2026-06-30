@@ -20,6 +20,7 @@ import DiagnosticoTecnico from "./components/DiagnosticoTecnico";
 import RevisionJefe from "./components/RevisionJefe";
 import CotizacionInterna from "./components/CotizacionInterna";
 import TrabajoOT from "./components/TrabajoOT";
+import EquiposLote from "./components/EquiposLote";
 
 type Orden = {
   id: string;
@@ -37,6 +38,19 @@ type Orden = {
   problema_reportado?: string | null;
   observaciones_iniciales?: string | null;
   fotos_estado_inicial?: string | string[] | null;
+  cantidad_equipos?: number | null;
+  orden_padre_id?: string | null;
+};
+
+type EquipoLote = {
+  id: string;
+  codigo: string | null;
+  equipo: string | null;
+  marca?: string | null;
+  modelo?: string | null;
+  numero_serie?: string | null;
+  estado: string | null;
+  problema_reportado?: string | null;
 };
 
 type OrdenDocumento = {
@@ -120,21 +134,10 @@ function normalizarEstado(estado?: string | null) {
     return "Cotización";
   }
 
-  if (e.includes("jefe") || e.includes("aprobado")) {
-    return "Revisión";
-  }
-
-  if (e.includes("diagnóstico") || e.includes("diagnostico")) {
-    return "Diagnóstico";
-  }
-
-  if (e.includes("checklist")) {
-    return "Checklist";
-  }
-
-  if (e.includes("revisión") || e.includes("revision")) {
-    return "Checklist";
-  }
+  if (e.includes("jefe") || e.includes("aprobado")) return "Revisión";
+  if (e.includes("diagnóstico") || e.includes("diagnostico")) return "Diagnóstico";
+  if (e.includes("checklist")) return "Checklist";
+  if (e.includes("revisión") || e.includes("revision")) return "Checklist";
 
   return "Ingreso";
 }
@@ -142,29 +145,12 @@ function normalizarEstado(estado?: string | null) {
 function badgeEstado(estado: string) {
   const estadoNormal = normalizarEstado(estado);
 
-  if (estadoNormal === "Cotización") {
-    return { bg: "#fef3c7", color: "#b45309" };
-  }
-
-  if (estadoNormal === "Listo" || estadoNormal === "Entregado") {
-    return { bg: "#dcfce7", color: "#15803d" };
-  }
-
-  if (estadoNormal === "Trabajo") {
-    return { bg: "#dcfce7", color: "#15803d" };
-  }
-
-  if (estadoNormal === "Revisión") {
-    return { bg: "#fef3c7", color: "#b45309" };
-  }
-
-  if (estadoNormal === "Diagnóstico") {
-    return { bg: "#ede9fe", color: "#6d28d9" };
-  }
-
-  if (estadoNormal === "Checklist") {
-    return { bg: "#e0f2fe", color: "#0369a1" };
-  }
+  if (estadoNormal === "Cotización") return { bg: "#fef3c7", color: "#b45309" };
+  if (estadoNormal === "Listo" || estadoNormal === "Entregado") return { bg: "#dcfce7", color: "#15803d" };
+  if (estadoNormal === "Trabajo") return { bg: "#dcfce7", color: "#15803d" };
+  if (estadoNormal === "Revisión") return { bg: "#fef3c7", color: "#b45309" };
+  if (estadoNormal === "Diagnóstico") return { bg: "#ede9fe", color: "#6d28d9" };
+  if (estadoNormal === "Checklist") return { bg: "#e0f2fe", color: "#0369a1" };
 
   return { bg: "#dbeafe", color: "#2563eb" };
 }
@@ -172,25 +158,53 @@ function badgeEstado(estado: string) {
 function normalizarFotosIngreso(fotos?: string | string[] | null) {
   if (!fotos) return [];
 
-  if (Array.isArray(fotos)) {
-    return fotos.filter(Boolean);
-  }
+  if (Array.isArray(fotos)) return fotos.filter(Boolean);
 
   if (typeof fotos === "string") {
     try {
       const parsed = JSON.parse(fotos);
-      if (Array.isArray(parsed)) {
-        return parsed.filter(Boolean);
-      }
+      if (Array.isArray(parsed)) return parsed.filter(Boolean);
     } catch {}
 
-    return fotos
-      .split(",")
-      .map((foto) => foto.trim())
-      .filter(Boolean);
+    return fotos.split(",").map((foto) => foto.trim()).filter(Boolean);
   }
 
   return [];
+}
+
+function AvisoLote({ equipos }: { equipos: EquipoLote[] }) {
+  return (
+    <div className="avisoLote">
+      <h2>Esta es una OT madre de lote</h2>
+      <p>
+        Para evitar mezclar información, el checklist, diagnóstico, revisión,
+        cotización y trabajo se realizan dentro de cada equipo del lote.
+      </p>
+      <EquiposLote equipos={equipos} />
+
+      <style jsx>{`
+        .avisoLote {
+          background: white;
+          border: 1px solid #e5e7eb;
+          border-radius: 18px;
+          padding: 18px;
+        }
+
+        h2 {
+          margin: 0 0 8px;
+          color: #111827;
+          font-size: 20px;
+        }
+
+        p {
+          margin: 0 0 16px;
+          color: #6b7280;
+          font-size: 14px;
+          line-height: 1.5;
+        }
+      `}</style>
+    </div>
+  );
 }
 
 export default function DetalleOrdenPage() {
@@ -198,9 +212,8 @@ export default function DetalleOrdenPage() {
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
 
   const [orden, setOrden] = useState<Orden | null>(null);
-  const [documentosIngreso, setDocumentosIngreso] = useState<OrdenDocumento[]>(
-    []
-  );
+  const [equiposLote, setEquiposLote] = useState<EquipoLote[]>([]);
+  const [documentosIngreso, setDocumentosIngreso] = useState<OrdenDocumento[]>([]);
   const [reportes, setReportes] = useState<Reporte[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -238,6 +251,10 @@ export default function DetalleOrdenPage() {
     return index >= 0 ? index : 0;
   }, [estadoActual]);
 
+  const esOtMadreLote = useMemo(() => {
+    return Number(orden?.cantidad_equipos || 1) > 1 || equiposLote.length > 0;
+  }, [orden?.cantidad_equipos, equiposLote.length]);
+
   useEffect(() => {
     cargarDatos();
   }, [id]);
@@ -269,6 +286,18 @@ export default function DetalleOrdenPage() {
 
     if (errorOrden || !ordenData) {
       setError(errorOrden?.message || "No se encontró la orden");
+      setLoading(false);
+      return;
+    }
+
+    const { data: equiposData, error: errorEquipos } = await supabase
+      .from("ordenes")
+      .select("id,codigo,equipo,marca,modelo,numero_serie,estado,problema_reportado")
+      .eq("orden_padre_id", id)
+      .order("codigo", { ascending: true });
+
+    if (errorEquipos) {
+      setError(errorEquipos.message);
       setLoading(false);
       return;
     }
@@ -320,25 +349,22 @@ export default function DetalleOrdenPage() {
       return;
     }
 
-    const reportesNormalizados = ((reportesData || []) as Reporte[]).map(
-      (reporte) => ({
-        ...reporte,
-        reporte_fotos: [...(reporte.reporte_fotos || [])].sort((a, b) => {
-          const ordenA = a.orden ?? 0;
-          const ordenB = b.orden ?? 0;
-          return ordenA - ordenB;
-        }),
-        reporte_documentos: [...(reporte.reporte_documentos || [])].sort(
-          (a, b) => {
-            const fechaA = new Date(a.created_at || "").getTime();
-            const fechaB = new Date(b.created_at || "").getTime();
-            return fechaA - fechaB;
-          }
-        ),
-      })
-    );
+    const reportesNormalizados = ((reportesData || []) as Reporte[]).map((reporte) => ({
+      ...reporte,
+      reporte_fotos: [...(reporte.reporte_fotos || [])].sort((a, b) => {
+        const ordenA = a.orden ?? 0;
+        const ordenB = b.orden ?? 0;
+        return ordenA - ordenB;
+      }),
+      reporte_documentos: [...(reporte.reporte_documentos || [])].sort((a, b) => {
+        const fechaA = new Date(a.created_at || "").getTime();
+        const fechaB = new Date(b.created_at || "").getTime();
+        return fechaA - fechaB;
+      }),
+    }));
 
     setOrden(ordenData as Orden);
+    setEquiposLote((equiposData || []) as EquipoLote[]);
     setDocumentosIngreso((documentosData || []) as OrdenDocumento[]);
     setReportes(reportesNormalizados);
     setLoading(false);
@@ -355,9 +381,7 @@ export default function DetalleOrdenPage() {
           .from("reportes")
           .remove([foto.storage_path]);
 
-        if (errorStorage) {
-          throw new Error(errorStorage.message);
-        }
+        if (errorStorage) throw new Error(errorStorage.message);
       }
 
       const { error: errorDb } = await supabase
@@ -365,23 +389,16 @@ export default function DetalleOrdenPage() {
         .delete()
         .eq("id", foto.id);
 
-      if (errorDb) {
-        throw new Error(errorDb.message);
-      }
+      if (errorDb) throw new Error(errorDb.message);
 
       setReportes((prev) =>
         prev.map((reporte) => {
-          const contieneFoto = reporte.reporte_fotos?.some(
-            (f) => f.id === foto.id
-          );
-
+          const contieneFoto = reporte.reporte_fotos?.some((f) => f.id === foto.id);
           if (!contieneFoto) return reporte;
 
           return {
             ...reporte,
-            reporte_fotos: (reporte.reporte_fotos || []).filter(
-              (f) => f.id !== foto.id
-            ),
+            reporte_fotos: (reporte.reporte_fotos || []).filter((f) => f.id !== foto.id),
           };
         })
       );
@@ -492,58 +509,75 @@ export default function DetalleOrdenPage() {
                 />
               </section>
 
-              <ProblemaOT
-                ordenId={orden.id}
-                problema={orden.problema_reportado}
-                observaciones={orden.observaciones_iniciales}
-                supabase={supabase}
-                onActualizar={(datos: any) => {
-                  setOrden((prev: any) => {
-                    if (!prev) return prev;
-                    return { ...prev, ...datos };
-                  });
-                }}
-              />
+              {esOtMadreLote && <EquiposLote equipos={equiposLote} />}
 
-              <ChecklistIngreso ordenId={orden.id} />
+              {!esOtMadreLote && (
+                <>
+                  <ProblemaOT
+                    ordenId={orden.id}
+                    problema={orden.problema_reportado}
+                    observaciones={orden.observaciones_iniciales}
+                    supabase={supabase}
+                    onActualizar={(datos: any) => {
+                      setOrden((prev: any) => {
+                        if (!prev) return prev;
+                        return { ...prev, ...datos };
+                      });
+                    }}
+                  />
+
+                  <ChecklistIngreso ordenId={orden.id} />
+                </>
+              )}
             </>
           )}
 
-          {tab === "checklist" && (
-            <ChecklistInteligente
-              equipoId={orden.id}
-              tipoEquipoInicial={orden.equipo}
-              onGenerarDiagnostico={avanzarADiagnostico}
-            />
-          )}
+          {tab === "checklist" &&
+            (esOtMadreLote ? (
+              <AvisoLote equipos={equiposLote} />
+            ) : (
+              <ChecklistInteligente
+                equipoId={orden.id}
+                tipoEquipoInicial={orden.equipo}
+                onGenerarDiagnostico={avanzarADiagnostico}
+              />
+            ))}
 
-          {tab === "diagnostico" && (
-            <DiagnosticoTecnico
-              ordenId={orden.id}
-              onEstadoActualizado={(estado) => {
-                setOrden((prev) => {
-                  if (!prev) return prev;
-                  return { ...prev, estado };
-                });
-              }}
-            />
-          )}
+          {tab === "diagnostico" &&
+            (esOtMadreLote ? (
+              <AvisoLote equipos={equiposLote} />
+            ) : (
+              <DiagnosticoTecnico
+                ordenId={orden.id}
+                onEstadoActualizado={(estado) => {
+                  setOrden((prev) => {
+                    if (!prev) return prev;
+                    return { ...prev, estado };
+                  });
+                }}
+              />
+            ))}
 
-          {tab === "revision" && (
-            <RevisionJefe
-              ordenId={orden.id}
-              onEstadoActualizado={(estado) => {
-                setOrden((prev) => {
-                  if (!prev) return prev;
-                  return { ...prev, estado };
-                });
-              }}
-            />
-          )}
+          {tab === "revision" &&
+            (esOtMadreLote ? (
+              <AvisoLote equipos={equiposLote} />
+            ) : (
+              <RevisionJefe
+                ordenId={orden.id}
+                onEstadoActualizado={(estado) => {
+                  setOrden((prev) => {
+                    if (!prev) return prev;
+                    return { ...prev, estado };
+                  });
+                }}
+              />
+            ))}
 
-          {tab === "cotizacion" && <CotizacionInterna />}
+          {tab === "cotizacion" &&
+            (esOtMadreLote ? <AvisoLote equipos={equiposLote} /> : <CotizacionInterna />)}
 
-          {tab === "trabajo" && <TrabajoOT />}
+          {tab === "trabajo" &&
+            (esOtMadreLote ? <AvisoLote equipos={equiposLote} /> : <TrabajoOT />)}
 
           {tab === "reportes" && (
             <>
