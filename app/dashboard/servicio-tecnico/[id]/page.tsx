@@ -220,12 +220,8 @@ export default function DetalleOrdenPage() {
   }, [reportes]);
 
   const estadoActual = useMemo(() => {
-    if (reportesOrdenados.length > 0) {
-      return normalizarEstado(reportesOrdenados[reportesOrdenados.length - 1].etapa);
-    }
-
-    return normalizarEstado(orden?.estado);
-  }, [reportesOrdenados, orden?.estado]);
+  return normalizarEstado(orden?.estado);
+}, [orden?.estado]);
 
   const etapaActualIndex = useMemo(() => {
     const index = ETAPAS.indexOf(estadoActual);

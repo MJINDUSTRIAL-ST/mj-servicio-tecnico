@@ -78,7 +78,14 @@ export default function DiagnosticoTecnico({
 
       if (errorOrden) throw errorOrden;
 
-      onEstadoActualizado?.("Diagnóstico");
+      await supabase
+  .from("ordenes")
+  .update({
+    estado: "revision",
+  })
+  .eq("id", ordenId);
+
+onEstadoActualizado?.("revision");
 
       setGuardadoOk(true);
 

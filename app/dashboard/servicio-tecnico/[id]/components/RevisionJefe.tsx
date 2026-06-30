@@ -82,7 +82,7 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
         setIdRevision(data.id);
       }
 
-      const nuevoEstado = estado === "Aprobado" ? "Revisión" : "Diagnóstico";
+      const nuevoEstado = estado === "Aprobado" ? "Cotización" : "Diagnóstico";
 
       const { error: errorOrden } = await supabase
         .from("ordenes")
@@ -91,8 +91,14 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
 
       if (errorOrden) throw errorOrden;
 
-      onEstadoActualizado?.(nuevoEstado);
+     await supabase
+  .from("ordenes")
+  .update({
+    estado: "cotizacion",
+  })
+  .eq("id", ordenId);
 
+onEstadoActualizado?.("cotizacion");
       setGuardadoOk(true);
       setTimeout(() => setGuardadoOk(false), 2500);
     } catch (e: any) {
