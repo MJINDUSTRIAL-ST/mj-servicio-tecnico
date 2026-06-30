@@ -351,14 +351,14 @@ export default function NuevaOrden() {
               cliente: clienteSeleccionado.nombre,
               cliente_email: clienteSeleccionado.email.trim().toLowerCase(),
               tecnico_ingreso: tecnicoIngreso,
-              equipo: `Lote de ${cantidadEquipos} equipos - ${equipo}`,
+              equipo: `Lote de ${cantidadEquipos} equipos`,
               estado: "Ingreso",
               prioridad,
-              marca,
-              modelo,
-              numero_serie: "",
-              accesorios_entregados: accesoriosEntregados,
-              problema_reportado: problemaReportado,
+marca: "",
+modelo: "",
+numero_serie: "",
+accesorios_entregados: "",
+problema_reportado: tipoIngreso === "lote" ? "Lote de equipos" : problemaReportado,
               observaciones_iniciales: observacionesIniciales,
               fotos_estado_inicial: fotosUrl,
               es_lote: true,
@@ -551,82 +551,75 @@ export default function NuevaOrden() {
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-6">
-          <h2 className="mb-4 text-lg font-bold">Equipo / Herramienta</h2>
+  <h2 className="mb-4 text-lg font-bold">
+    {tipoIngreso === "lote" ? "Información del lote" : "Equipo / Herramienta"}
+  </h2>
 
-          <div className="mb-4">
-            <label className="mb-1 block text-sm font-semibold">
-              Código de orden
-            </label>
-            <input
-              value={codigo}
-              readOnly
-              className="w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-3 text-slate-500"
-            />
-         <div>
-  <label className="mb-1 block text-sm font-semibold">
-    Tipo de Equipo *
-  </label>
+  <div className="mb-4">
+    <label className="mb-1 block text-sm font-semibold">
+      Código de orden
+    </label>
+    <input
+      value={codigo}
+      readOnly
+      className="w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-3 text-slate-500"
+    />
+  </div>
 
-  <select
-    value={equipo}
-    onChange={(e) => setEquipo(e.target.value)}
-    required
-    className="w-full rounded-lg border border-slate-300 px-3 py-3"
-  >
-    <option value="">Seleccionar tipo de equipo...</option>
-    <option value="Tecle eléctrico">Tecle eléctrico</option>
-    <option value="Tecle manual">Tecle manual</option>
-    <option value="Tecle de palanca">Tecle de palanca</option>
-    <option value="Winche">Winche</option>
-    <option value="Tirfor">Tirfor</option>
-    <option value="Minifor">Minifor</option>
-    <option value="Transpaleta eléctrica">Transpaleta eléctrica</option>
-  </select>
-</div>
-            <InputTexto
-              label="Marca"
-              value={marca}
-              setValue={setMarca}
-              placeholder="Marca"
-            />
-            <InputTexto
-              label="Modelo"
-              value={modelo}
-              setValue={setModelo}
-              placeholder="Modelo"
-            />
-            <InputTexto
-              label="Número de Serie"
-              value={numeroSerie}
-              setValue={setNumeroSerie}
-              placeholder="S/N"
-            />
-          </div>
+  {tipoIngreso === "individual" && (
+    <>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-sm font-semibold">
+            Tipo de Equipo *
+          </label>
 
-          <div className="mt-4">
-            <InputTexto
-              label="Accesorios Entregados"
-              value={accesoriosEntregados}
-              setValue={setAccesoriosEntregados}
-              placeholder="Cable, control, maletín..."
-            />
-          </div>
+          <select
+            value={equipo}
+            onChange={(e) => setEquipo(e.target.value)}
+            required
+            className="w-full rounded-lg border border-slate-300 px-3 py-3"
+          >
+            <option value="">Seleccionar tipo de equipo...</option>
+            <option value="Tecle eléctrico">Tecle eléctrico</option>
+            <option value="Tecle manual">Tecle manual</option>
+            <option value="Tecle de palanca">Tecle de palanca</option>
+            <option value="Winche">Winche</option>
+            <option value="Tirfor">Tirfor</option>
+            <option value="Minifor">Minifor</option>
+            <option value="Transpaleta eléctrica">Transpaleta eléctrica</option>
+          </select>
+        </div>
 
-          <div className="mt-4">
-            <label className="mb-1 block text-sm font-semibold">
-              Prioridad
-            </label>
-            <select
-              value={prioridad}
-              onChange={(e) => setPrioridad(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-3"
-            >
-              <option>Alta</option>
-              <option>Media</option>
-              <option>Baja</option>
-            </select>
-          </div>
-        </section>
+        <InputTexto label="Marca" value={marca} setValue={setMarca} placeholder="Marca" />
+        <InputTexto label="Modelo" value={modelo} setValue={setModelo} placeholder="Modelo" />
+        <InputTexto label="Número de Serie" value={numeroSerie} setValue={setNumeroSerie} placeholder="S/N" />
+      </div>
+
+      <div className="mt-4">
+        <InputTexto
+          label="Accesorios Entregados"
+          value={accesoriosEntregados}
+          setValue={setAccesoriosEntregados}
+          placeholder="Cable, control, maletín..."
+        />
+      </div>
+    </>
+  )}
+
+  <div className="mt-4">
+    <label className="mb-1 block text-sm font-semibold">Prioridad</label>
+    <select
+      value={prioridad}
+      onChange={(e) => setPrioridad(e.target.value)}
+      className="w-full rounded-lg border border-slate-300 px-3 py-3"
+    >
+      <option>Alta</option>
+      <option>Media</option>
+      <option>Baja</option>
+    </select>
+  </div>
+</section>
 
         {tipoIngreso === "lote" ? (
           <section className="rounded-2xl border border-blue-200 bg-blue-50 p-6">
