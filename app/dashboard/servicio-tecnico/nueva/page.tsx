@@ -562,16 +562,27 @@ export default function NuevaOrden() {
               readOnly
               className="w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-3 text-slate-500"
             />
-          </div>
+         <div>
+  <label className="mb-1 block text-sm font-semibold">
+    Tipo de Equipo *
+  </label>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <InputTexto
-              label="Tipo de Equipo *"
-              value={equipo}
-              setValue={setEquipo}
-              placeholder="Ej: Tecle eléctrico, winche..."
-              required
-            />
+  <select
+    value={equipo}
+    onChange={(e) => setEquipo(e.target.value)}
+    required
+    className="w-full rounded-lg border border-slate-300 px-3 py-3"
+  >
+    <option value="">Seleccionar tipo de equipo...</option>
+    <option value="Tecle eléctrico">Tecle eléctrico</option>
+    <option value="Tecle manual">Tecle manual</option>
+    <option value="Tecle de palanca">Tecle de palanca</option>
+    <option value="Winche">Winche</option>
+    <option value="Tirfor">Tirfor</option>
+    <option value="Minifor">Minifor</option>
+    <option value="Transpaleta eléctrica">Transpaleta eléctrica</option>
+  </select>
+</div>
             <InputTexto
               label="Marca"
               value={marca}
@@ -636,14 +647,28 @@ export default function NuevaOrden() {
                   </p>
 
                   <div className="grid gap-4 md:grid-cols-2">
-                    <InputTexto
-                      label="Tipo de equipo"
-                      value={item.equipo}
-                      setValue={(value) =>
-                        actualizarEquipoLote(index, "equipo", value)
-                      }
-                      placeholder={equipo || "Ej: Tecle eléctrico"}
-                    />
+                   <div>
+  <label className="mb-1 block text-sm font-semibold">
+    Tipo de equipo
+  </label>
+
+  <select
+    value={item.equipo}
+    onChange={(e) =>
+      actualizarEquipoLote(index, "equipo", e.target.value)
+    }
+    className="w-full rounded-lg border border-slate-300 px-3 py-3"
+  >
+    <option value="">Seleccionar tipo de equipo...</option>
+    <option value="Tecle eléctrico">Tecle eléctrico</option>
+    <option value="Tecle manual">Tecle manual</option>
+    <option value="Tecle de palanca">Tecle de palanca</option>
+    <option value="Winche">Winche</option>
+    <option value="Tirfor">Tirfor</option>
+    <option value="Minifor">Minifor</option>
+    <option value="Transpaleta eléctrica">Transpaleta eléctrica</option>
+  </select>
+</div>
 
                     <InputTexto
                       label="Marca"
