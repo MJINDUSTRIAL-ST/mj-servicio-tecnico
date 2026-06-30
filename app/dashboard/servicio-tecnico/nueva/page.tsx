@@ -285,10 +285,15 @@ export default function NuevaOrden() {
       return;
     }
 
-    if (!equipo.trim() || !problemaReportado.trim()) {
-      alert("Completa tipo de equipo y problema reportado");
-      return;
-    }
+   if (tipoIngreso === "individual" && (!equipo.trim() || !problemaReportado.trim())) {
+  alert("Completa tipo de equipo y problema reportado");
+  return;
+}
+
+if (tipoIngreso === "lote" && !observacionesIniciales.trim()) {
+  alert("Ingresa una observación general del lote");
+  return;
+}
 
     if (tipoIngreso === "lote" && cantidadEquipos < 2) {
       alert("El lote debe tener al menos 2 equipos");
@@ -619,6 +624,21 @@ problema_reportado: tipoIngreso === "lote" ? "Lote de equipos" : problemaReporta
       <option>Baja</option>
     </select>
   </div>
+  {tipoIngreso === "lote" && (
+  <div className="mt-4">
+    <label className="mb-1 block text-sm font-semibold">
+      Observación general del lote *
+    </label>
+
+    <textarea
+      placeholder="Ej: Llegan 5 equipos para diagnóstico, guía N°..., cliente solicita revisión general..."
+      value={observacionesIniciales}
+      onChange={(e) => setObservacionesIniciales(e.target.value)}
+      required
+      className="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-3"
+    />
+  </div>
+)}
 </section>
 
         {tipoIngreso === "lote" ? (
