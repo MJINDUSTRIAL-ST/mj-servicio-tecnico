@@ -86,6 +86,7 @@ export default function DiagnosticoTecnico({
   .eq("id", ordenId);
 
 onEstadoActualizado?.("revision");
+window.location.reload();
 
       setGuardadoOk(true);
 

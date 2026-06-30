@@ -99,6 +99,7 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
   .eq("id", ordenId);
 
 onEstadoActualizado?.("cotizacion");
+window.location.reload();
       setGuardadoOk(true);
       setTimeout(() => setGuardadoOk(false), 2500);
     } catch (e: any) {
