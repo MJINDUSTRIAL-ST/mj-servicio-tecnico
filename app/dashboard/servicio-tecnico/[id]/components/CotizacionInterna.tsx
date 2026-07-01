@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../../lib/supabase";
+import { obtenerEquipoTrabajo } from "../lib/equipoTrabajoStore";
 
 type Props = {
   ordenId?: string;
@@ -16,10 +17,19 @@ type Equipo = {
   numero_serie?: string | null;
 };
 
+type TipoItem =
+  | "repuesto"
+  | "trabajo"
+  | "reparacion"
+  | "ajuste"
+  | "mantencion"
+  | "mano_obra"
+  | "otro";
+
 type ItemCotizacion = {
   id: string;
   equipoId: string;
-  tipo: "repuesto" | "trabajo" | "mano_obra" | "servicio" | "otro";
+  tipo: TipoItem;
   descripcion: string;
   cantidad: number;
   unitario: number;
@@ -53,7 +63,6 @@ function parsearLineas(texto?: string | null) {
 
 function parsearCantidadDescripcion(linea: string) {
   const limpia = linea.trim();
-
   const match = limpia.match(/^(\d+(?:[.,]\d+)?)\s*x\s*(.+)$/i);
 
   if (match) {
@@ -69,7 +78,65 @@ function parsearCantidadDescripcion(linea: string) {
   };
 }
 
-function crearItemsDesdeRevision(equipoId: string, revision?: RevisionData | null) {
+function normalizarTipo(accion: string): TipoItem {
+  if (accion === "repuesto") return "repuesto";
+  if (accion === "reparacion") return "reparacion";
+  if (accion === "ajuste") return "ajuste";
+  if (accion === "mantencion") return "mantencion";
+  if (accion === "mantenimiento") return "mantencion";
+  if (accion === "trabajo") return "trabajo";
+  return "otro";
+}
+
+function crearItemsDesdeChecklist(equipoId: string) {
+  const trabajo = obtenerEquipoTrabajo(equipoId);
+  const checklist = trabajo.checklist;
+
+  if (!checklist?.itemsMalos?.length) return [];
+
+  const items: ItemCotizacion[] = [];
+
+  checklist.itemsMalos.forEach((registro: any) => {
+    const item = registro.item || {};
+    const respuesta = registro.respuesta || {};
+
+    const nombreItem =
+      item.nombre ||
+      item.titulo ||
+      item.label ||
+      item.name ||
+      item.id ||
+      "Ítem observado";
+
+    const acciones = respuesta.acciones || [];
+
+    acciones.forEach((accion: string) => {
+      const tipo = normalizarTipo(accion);
+
+      items.push({
+        id: crearId(),
+        equipoId,
+        tipo,
+        descripcion:
+          tipo === "repuesto"
+            ? respuesta.repuesto_nombre || nombreItem
+            : nombreItem,
+        cantidad:
+          tipo === "repuesto"
+            ? Number(respuesta.repuesto_cantidad || 1)
+            : 1,
+        unitario: 0,
+      });
+    });
+  });
+
+  return items;
+}
+
+function crearItemsDesdeRevision(
+  equipoId: string,
+  revision?: RevisionData | null
+) {
   const items: ItemCotizacion[] = [];
 
   const repuestos = parsearLineas(revision?.repuestos_aprobados);
@@ -148,7 +215,7 @@ export default function CotizacionInterna({ ordenId }: Props) {
 
   async function cargarDatos() {
     if (!ordenId) {
-      const equipoGeneral = {
+      const equipoGeneral: Equipo = {
         id: "general",
         codigo: "General",
         equipo: "Cotización general",
@@ -194,11 +261,19 @@ export default function CotizacionInterna({ ordenId }: Props) {
       for (const equipo of equiposBase) {
         const { data: revision } = await supabase
           .from("revisiones_jefe")
-          .select("orden_id,horas_hombre,procedimiento_aprobado,repuestos_aprobados")
+          .select(
+            "orden_id,horas_hombre,procedimiento_aprobado,repuestos_aprobados"
+          )
           .eq("orden_id", equipo.id)
           .maybeSingle();
 
-        nuevosItems.push(...crearItemsDesdeRevision(equipo.id, revision));
+        const itemsChecklist = crearItemsDesdeChecklist(equipo.id);
+
+        if (itemsChecklist.length > 0) {
+          nuevosItems.push(...itemsChecklist);
+        } else {
+          nuevosItems.push(...crearItemsDesdeRevision(equipo.id, revision));
+        }
       }
 
       setEquipos(equiposBase);
@@ -210,7 +285,7 @@ export default function CotizacionInterna({ ordenId }: Props) {
     }
   }
 
-  function agregarItem(equipoId: string, tipo: ItemCotizacion["tipo"] = "otro") {
+  function agregarItem(equipoId: string, tipo: TipoItem = "otro") {
     setItems((prev) => [
       ...prev,
       {
@@ -312,7 +387,7 @@ export default function CotizacionInterna({ ordenId }: Props) {
         <div>
           <h2>Cotización Interna</h2>
           <p>
-            Los ítems se cargan desde la revisión técnica. Puedes editar
+            Los ítems se cargan desde el checklist del equipo. Puedes editar
             cantidades, valores y agregar ítems manuales.
           </p>
         </div>
@@ -335,7 +410,9 @@ export default function CotizacionInterna({ ordenId }: Props) {
 
       <div className="equipos">
         {equipos.map((equipo, index) => {
-          const itemsEquipo = items.filter((item) => item.equipoId === equipo.id);
+          const itemsEquipo = items.filter(
+            (item) => item.equipoId === equipo.id
+          );
           const subtotal = subtotalEquipo(equipo.id);
 
           return (
@@ -386,14 +463,16 @@ export default function CotizacionInterna({ ordenId }: Props) {
                                 actualizarItem(
                                   item.id,
                                   "tipo",
-                                  event.target.value as ItemCotizacion["tipo"]
+                                  event.target.value as TipoItem
                                 )
                               }
                             >
                               <option value="repuesto">Repuesto</option>
                               <option value="trabajo">Trabajo</option>
+                              <option value="reparacion">Reparación</option>
+                              <option value="ajuste">Ajuste</option>
+                              <option value="mantencion">Mantención</option>
                               <option value="mano_obra">Mano de obra</option>
-                              <option value="servicio">Servicio externo</option>
                               <option value="otro">Otro</option>
                             </select>
                           </td>
@@ -474,9 +553,25 @@ export default function CotizacionInterna({ ordenId }: Props) {
                 <button
                   type="button"
                   className="secondary"
-                  onClick={() => agregarItem(equipo.id, "trabajo")}
+                  onClick={() => agregarItem(equipo.id, "reparacion")}
                 >
-                  + Trabajo
+                  + Reparación
+                </button>
+
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => agregarItem(equipo.id, "ajuste")}
+                >
+                  + Ajuste
+                </button>
+
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => agregarItem(equipo.id, "mantencion")}
+                >
+                  + Mantención
                 </button>
 
                 <button
