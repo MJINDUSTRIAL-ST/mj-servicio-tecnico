@@ -88,7 +88,7 @@ export default function DiagnosticoTecnico({
     const { data: hijos } = await supabase
       .from("ordenes")
       .select("id,codigo,equipo,marca,modelo,numero_serie")
-      .eq("orden_madre_id", ordenId)
+      .eq("orden_padre_id", ordenId)
       .order("created_at", { ascending: true });
 
     let equiposBase: EquipoDiagnostico[] = hijos || [];
