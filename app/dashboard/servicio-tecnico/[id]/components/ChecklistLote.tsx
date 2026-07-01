@@ -65,13 +65,15 @@ export default function ChecklistLote({ equipos }: Props) {
         `diagnostico-${equipoId}`,
         JSON.stringify({
           hallazgos:
-            payload.diagnostico.diagnosticoTecnico ||
-            payload.diagnostico.resumen ||
-            "",
-          procedimiento: Array.isArray(payload.diagnostico.procedimientoRecomendado)
-            ? payload.diagnostico.procedimientoRecomendado.join("\n")
-            : payload.diagnostico.procedimientoRecomendado || "",
-          repuestos,
+  payload.diagnostico.resumen ||
+  `Durante la inspección del equipo se detectaron ${payload.itemsMalos?.length || 0} componente(s) en mal estado.`,
+
+procedimiento:
+  repuestos
+    ? `Se recomienda revisar los componentes observados, realizar el reemplazo o reparación correspondiente y efectuar prueba funcional antes de liberar el equipo.\n\nRepuestos solicitados:\n${repuestos}`
+    : "Se recomienda revisar los componentes observados, realizar las reparaciones correspondientes y efectuar prueba funcional antes de liberar el equipo.",
+
+repuestos,
         })
       );
     }
