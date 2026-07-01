@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 import ChecklistInteligente from "./ChecklistInteligente";
+import {
+  guardarEquipoTrabajo,
+  generarDiagnosticoBaseDesdeChecklist,
+} from "../lib/equipoTrabajoStore";
 
 type Equipo = {
   id: string;
@@ -60,6 +64,12 @@ export default function ChecklistLote({ equipos }: Props) {
           return `${cantidad} x ${nombre}`;
         })
         .join("\n");
+        const diagnosticoBase = generarDiagnosticoBaseDesdeChecklist(payload);
+
+guardarEquipoTrabajo(equipoId, {
+  checklist: payload,
+  diagnostico: diagnosticoBase,
+});
 
       localStorage.setItem(
         `diagnostico-${equipoId}`,

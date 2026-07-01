@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../../../../lib/supabase";
+import {
+  guardarEquipoTrabajo,
+  obtenerEquipoTrabajo,
+} from "../lib/equipoTrabajoStore";
 
 type Props = {
   ordenId: string;
@@ -57,18 +61,36 @@ function repuestosDesdeChecklist(equipoId: string) {
       }
     >;
 
-    const repuestos = Object.values(respuestas)
+    return Object.values(respuestas)
       .filter((respuesta) => respuesta.acciones?.includes("repuesto"))
       .map((respuesta) => {
         const nombre = respuesta.repuesto_nombre || "Repuesto sin especificar";
         const cantidad = respuesta.repuesto_cantidad || "1";
         return `${cantidad} x ${nombre}`;
-      });
-
-    return repuestos.join("\n");
+      })
+      .join("\n");
   } catch {
     return "";
   }
+}
+
+function generarHallazgosBase(repuestos: string) {
+  if (!repuestos.trim()) return "";
+
+  return `Durante la inspección del equipo se detectaron componentes en mal estado que requieren intervención técnica. Los elementos observados fueron:
+
+${repuestos}
+
+Se recomienda no liberar el equipo para operación hasta realizar la revisión técnica correspondiente.`;
+}
+
+function generarProcedimientoBase(repuestos: string) {
+  if (!repuestos.trim()) return "";
+
+  return `Se recomienda revisar los componentes observados, realizar el reemplazo o reparación correspondiente y efectuar prueba funcional antes de liberar el equipo.
+
+Repuestos solicitados:
+${repuestos}`;
 }
 
 export default function DiagnosticoTecnico({
@@ -114,11 +136,28 @@ export default function DiagnosticoTecnico({
         .eq("orden_id", equipo.id)
         .maybeSingle();
 
+      const trabajo = obtenerEquipoTrabajo(equipo.id);
+      const diagnosticoTrabajo = trabajo.diagnostico;
+
+      const repuestosDetectados =
+        data?.repuestos ||
+        diagnosticoTrabajo?.repuestos ||
+        repuestosDesdeChecklist(equipo.id);
+
+      const hallazgosBase = generarHallazgosBase(repuestosDetectados);
+      const procedimientoBase = generarProcedimientoBase(repuestosDetectados);
+
       nuevoEstado[equipo.id] = {
         idDiagnostico: data?.id || null,
-        hallazgos: data?.hallazgos || "",
-        procedimiento: data?.procedimiento || "",
-        repuestos: data?.repuestos || repuestosDesdeChecklist(equipo.id),
+        hallazgos:
+          data?.hallazgos ||
+          diagnosticoTrabajo?.hallazgos ||
+          hallazgosBase,
+        procedimiento:
+          data?.procedimiento ||
+          diagnosticoTrabajo?.procedimiento ||
+          procedimientoBase,
+        repuestos: repuestosDetectados,
         guardando: false,
         guardadoOk: false,
       };
@@ -154,6 +193,14 @@ export default function DiagnosticoTecnico({
     }));
 
     try {
+      guardarEquipoTrabajo(equipoId, {
+        diagnostico: {
+          hallazgos: actual.hallazgos,
+          procedimiento: actual.procedimiento,
+          repuestos: actual.repuestos,
+        },
+      });
+
       if (actual.idDiagnostico) {
         const { error } = await supabase
           .from("diagnosticos")
@@ -189,9 +236,25 @@ export default function DiagnosticoTecnico({
         }));
       }
 
-      await supabase.from("ordenes").update({ estado: "revision" }).eq("id", ordenId);
+      await supabase
+        .from("ordenes")
+        .update({ estado: "revision" })
+        .eq("id", equipoId);
 
-      onEstadoActualizado?.("revision");
+      const todosConDiagnostico = equipos.every((equipo) => {
+        if (equipo.id === equipoId) return true;
+        const diagnostico = diagnosticos[equipo.id];
+        return Boolean(diagnostico?.idDiagnostico);
+      });
+
+      if (todosConDiagnostico) {
+        await supabase
+          .from("ordenes")
+          .update({ estado: "revision" })
+          .eq("id", ordenId);
+
+        onEstadoActualizado?.("revision");
+      }
 
       setDiagnosticos((prev) => ({
         ...prev,
