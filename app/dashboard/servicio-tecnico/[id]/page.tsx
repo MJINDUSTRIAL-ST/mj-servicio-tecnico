@@ -568,11 +568,10 @@ export default function DetalleOrdenPage() {
   />
 )}
 
-          {tab === "cotizacion" &&
-            (esOtMadreLote ? <AvisoLote equipos={equiposLote} /> : <CotizacionInterna />)}
+          {tab === "cotizacion" && <CotizacionInterna ordenId={orden.id} />}
 
-          {tab === "trabajo" &&
-            (esOtMadreLote ? <AvisoLote equipos={equiposLote} /> : <TrabajoOT />)}
+{tab === "trabajo" &&
+  (esOtMadreLote ? <AvisoLote equipos={equiposLote} /> : <TrabajoOT />)}
 
           {tab === "reportes" && (
             <>
