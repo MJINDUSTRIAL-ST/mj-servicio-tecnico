@@ -16,6 +16,12 @@ type Props = {
   equipos: Equipo[];
 };
 
+function identificadorEquipo(equipo: Equipo) {
+  if (equipo.numero_serie) return `Serie: ${equipo.numero_serie}`;
+  if (equipo.codigo) return `Código: ${equipo.codigo}`;
+  return `ID: ${equipo.id.slice(0, 8)}`;
+}
+
 export default function ChecklistLote({ equipos }: Props) {
   const [equipoAbierto, setEquipoAbierto] = useState<string | null>(
     equipos[0]?.id ?? null
@@ -34,11 +40,7 @@ export default function ChecklistLote({ equipos }: Props) {
     const indexActual = equipos.findIndex((equipo) => equipo.id === equipoId);
     const siguiente = equipos[indexActual + 1];
 
-    if (siguiente) {
-      setEquipoAbierto(siguiente.id);
-    } else {
-      setEquipoAbierto(null);
-    }
+    setEquipoAbierto(siguiente ? siguiente.id : null);
   }
 
   if (!equipos.length) {
@@ -112,22 +114,21 @@ export default function ChecklistLote({ equipos }: Props) {
               <div>
                 <h3 className="text-lg font-bold text-slate-900">
                   Equipo {index + 1}
-                  {equipo.codigo ? ` · ${equipo.codigo}` : ""}
                 </h3>
 
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="mt-1 text-sm font-semibold text-slate-700">
                   {equipo.equipo || "Sin tipo"}
-                  {equipo.marca ? ` · ${equipo.marca}` : ""}
-                  {equipo.modelo ? ` · ${equipo.modelo}` : ""}
                 </p>
 
                 <p className="mt-1 text-xs font-semibold text-slate-500">
-                  {equipo.numero_serie
-                    ? `Serie: ${equipo.numero_serie}`
-                    : equipo.codigo
-                    ? `Código equipo: ${equipo.codigo}`
-                    : `ID equipo: ${equipo.id.slice(0, 8)}`}
+                  {identificadorEquipo(equipo)}
                 </p>
+
+                {(equipo.marca || equipo.modelo) && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    {[equipo.marca, equipo.modelo].filter(Boolean).join(" · ")}
+                  </p>
+                )}
               </div>
 
               <div className="flex items-center gap-3">

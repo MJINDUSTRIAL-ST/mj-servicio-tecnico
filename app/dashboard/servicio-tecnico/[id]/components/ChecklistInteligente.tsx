@@ -13,6 +13,7 @@ import {
   DiagnosticoGeneradoMJ,
   generarDiagnosticoMJ,
 } from "../lib/diagnosticoEngine";
+import { obtenerRepuestoSugerido } from "../lib/repuestosSugeridos";
 
 type AccionChecklist =
   | "repuesto"
@@ -306,9 +307,10 @@ export default function ChecklistInteligente({
         ...anterior,
         acciones,
         repuesto_nombre:
-          acciones.includes("repuesto")
-            ? anterior.repuesto_nombre || itemLabel || ""
-            : "",
+  acciones.includes("repuesto")
+    ? anterior.repuesto_nombre ||
+      obtenerRepuestoSugerido(itemLabel || "")
+    : "",
         repuesto_cantidad:
           acciones.includes("repuesto")
             ? anterior.repuesto_cantidad || "1"
@@ -402,6 +404,14 @@ export default function ChecklistInteligente({
     });
 
     setDiagnosticoGenerado(diagnostico);
+
+    // Guardar automáticamente antes de cerrar el equipo
+if (equipoId) {
+  localStorage.setItem(
+    `checklist-${equipoId}`,
+    JSON.stringify(serializarRespuestas(respuestas))
+  );
+}
 
     onGenerarDiagnostico?.({
       equipoId,
@@ -743,7 +753,7 @@ export default function ChecklistInteligente({
           disabled={itemsRespondidos === 0}
           className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
         >
-          Generar Diagnóstico
+          Guardar equipo y generar diagnóstico
         </button>
       </div>
 
