@@ -40,6 +40,9 @@ export default function ChecklistLote({ equipos }: Props) {
     });
 
     setEquiposCompletados(completados);
+
+    const primerPendiente = equipos.find((equipo) => !completados[equipo.id]);
+    setEquipoAbierto(primerPendiente ? primerPendiente.id : null);
   }, [equipos]);
 
   function completarEquipo(equipoId: string, payload?: any) {
@@ -61,12 +64,13 @@ export default function ChecklistLote({ equipos }: Props) {
       localStorage.setItem(
         `diagnostico-${equipoId}`,
         JSON.stringify({
-          hallazgos: payload.diagnostico.resumen || "",
-          procedimiento:
-            payload.diagnostico.procedimiento ||
-            payload.diagnostico.recomendacion ||
-            payload.diagnostico.recomendaciones?.join("\n") ||
+          hallazgos:
+            payload.diagnostico.diagnosticoTecnico ||
+            payload.diagnostico.resumen ||
             "",
+          procedimiento: Array.isArray(payload.diagnostico.procedimientoRecomendado)
+            ? payload.diagnostico.procedimientoRecomendado.join("\n")
+            : payload.diagnostico.procedimientoRecomendado || "",
           repuestos,
         })
       );
