@@ -111,7 +111,7 @@ export default function DiagnosticoTecnico({
       .from("ordenes")
       .select("id,codigo,equipo,marca,modelo,numero_serie")
       .eq("orden_padre_id", ordenId)
-      .order("created_at", { ascending: true });
+      .order("codigo", { ascending: true });
 
     let equiposBase: EquipoDiagnostico[] = hijos || [];
 

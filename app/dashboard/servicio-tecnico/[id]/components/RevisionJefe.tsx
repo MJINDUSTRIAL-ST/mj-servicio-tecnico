@@ -62,7 +62,7 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
       .from("ordenes")
       .select("id,codigo,equipo,marca,modelo,numero_serie")
       .eq("orden_padre_id", ordenId)
-      .order("created_at", { ascending: true });
+      .order("codigo", { ascending: true });
 
     let equiposBase: EquipoRevision[] = hijos || [];
 
