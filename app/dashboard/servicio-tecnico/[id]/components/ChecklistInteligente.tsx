@@ -18,9 +18,7 @@ type AccionChecklist =
   | "repuesto"
   | "reparacion"
   | "ajuste"
-  | "lubricacion"
-  | "limpieza"
-  | "certificacion"
+  | "mantencion"
   | "otro";
 
 type RespuestaChecklist = {
@@ -53,12 +51,10 @@ type ChecklistInteligenteProps = {
 };
 
 const ACCIONES: Array<{ value: AccionChecklist; label: string }> = [
-  { value: "repuesto", label: "Reemplazar repuesto" },
+  { value: "repuesto", label: "Repuesto" },
   { value: "reparacion", label: "Reparación" },
   { value: "ajuste", label: "Ajuste" },
-  { value: "lubricacion", label: "Lubricación" },
-  { value: "limpieza", label: "Limpieza / mantención" },
-  { value: "certificacion", label: "Certificación" },
+  { value: "mantencion", label: "Mantención" },
   { value: "otro", label: "Otro" },
 ];
 
@@ -289,33 +285,39 @@ export default function ChecklistInteligente({
     }));
   }
 
-  function cambiarAccion(itemId: string, accion: AccionChecklist) {
-    setDiagnosticoGenerado(null);
+  function cambiarAccion(
+  itemId: string,
+  accion: AccionChecklist,
+  itemLabel?: string
+) {
+  setDiagnosticoGenerado(null);
 
-    setRespuestas((prev) => {
-      const anterior = prev[itemId] ?? crearRespuestaVacia();
-      const existe = anterior.acciones.includes(accion);
+  setRespuestas((prev) => {
+    const anterior = prev[itemId] ?? crearRespuestaVacia();
+    const existe = anterior.acciones.includes(accion);
 
-      const acciones = existe
-        ? anterior.acciones.filter((a) => a !== accion)
-        : [...anterior.acciones, accion];
+    const acciones = existe
+      ? anterior.acciones.filter((a) => a !== accion)
+      : [...anterior.acciones, accion];
 
-      return {
-        ...prev,
-        [itemId]: {
-          ...anterior,
-          acciones,
-          repuesto_nombre: acciones.includes("repuesto")
-            ? anterior.repuesto_nombre
+    return {
+      ...prev,
+      [itemId]: {
+        ...anterior,
+        acciones,
+        repuesto_nombre:
+          acciones.includes("repuesto")
+            ? anterior.repuesto_nombre || itemLabel || ""
             : "",
-          repuesto_cantidad: acciones.includes("repuesto")
+        repuesto_cantidad:
+          acciones.includes("repuesto")
             ? anterior.repuesto_cantidad || "1"
             : "1",
-          accion_otro: acciones.includes("otro") ? anterior.accion_otro : "",
-        },
-      };
-    });
-  }
+        accion_otro: acciones.includes("otro") ? anterior.accion_otro : "",
+      },
+    };
+  });
+}
 
   function cambiarRepuestoNombre(itemId: string, value: string) {
     setDiagnosticoGenerado(null);
@@ -601,7 +603,7 @@ export default function ChecklistInteligente({
                                       key={accion.value}
                                       type="button"
                                       onClick={() =>
-                                        cambiarAccion(item.id, accion.value)
+                                        cambiarAccion(item.id, accion.value, item.label)
                                       }
                                       className={`rounded-xl border px-3 py-2 text-left text-sm font-semibold ${
                                         seleccionada
