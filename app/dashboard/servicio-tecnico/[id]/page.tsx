@@ -556,20 +556,17 @@ export default function DetalleOrdenPage() {
   />
 )}
 
-          {tab === "revision" &&
-            (esOtMadreLote ? (
-              <AvisoLote equipos={equiposLote} />
-            ) : (
-              <RevisionJefe
-                ordenId={orden.id}
-                onEstadoActualizado={(estado) => {
-                  setOrden((prev) => {
-                    if (!prev) return prev;
-                    return { ...prev, estado };
-                  });
-                }}
-              />
-            ))}
+          {tab === "revision" && (
+  <RevisionJefe
+    ordenId={orden.id}
+    onEstadoActualizado={(estado) => {
+      setOrden((prev) => {
+        if (!prev) return prev;
+        return { ...prev, estado };
+      });
+    }}
+  />
+)}
 
           {tab === "cotizacion" &&
             (esOtMadreLote ? <AvisoLote equipos={equiposLote} /> : <CotizacionInterna />)}

@@ -8,67 +8,164 @@ type Props = {
   onEstadoActualizado?: (estado: string) => void;
 };
 
+type EquipoRevision = {
+  id: string;
+  codigo?: string | null;
+  equipo?: string | null;
+  marca?: string | null;
+  modelo?: string | null;
+  numero_serie?: string | null;
+};
+
+type RevisionEquipo = {
+  idRevision: string | null;
+  estado: "Aprobado" | "Rechazado" | "";
+  motivo: string;
+  horas: string;
+  procedimiento: string;
+  repuestos: string;
+  guardando: boolean;
+  guardadoOk: boolean;
+};
+
+function revisionVacia(): RevisionEquipo {
+  return {
+    idRevision: null,
+    estado: "",
+    motivo: "",
+    horas: "",
+    procedimiento: "",
+    repuestos: "",
+    guardando: false,
+    guardadoOk: false,
+  };
+}
+
+function identificadorEquipo(equipo: EquipoRevision) {
+  if (equipo.numero_serie) return `Serie: ${equipo.numero_serie}`;
+  if (equipo.codigo) return `Código: ${equipo.codigo}`;
+  return `ID: ${equipo.id.slice(0, 8)}`;
+}
+
 export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
-  const [idRevision, setIdRevision] = useState<string | null>(null);
-  const [estado, setEstado] = useState<"Aprobado" | "Rechazado" | "">("");
-  const [motivo, setMotivo] = useState("");
-  const [horas, setHoras] = useState("");
-  const [procedimiento, setProcedimiento] = useState("");
-  const [repuestos, setRepuestos] = useState("");
-  const [guardando, setGuardando] = useState(false);
-  const [guardadoOk, setGuardadoOk] = useState(false);
+  const [equipos, setEquipos] = useState<EquipoRevision[]>([]);
+  const [revisiones, setRevisiones] = useState<Record<string, RevisionEquipo>>(
+    {}
+  );
 
   useEffect(() => {
-    cargarRevision();
+    cargarDatos();
   }, [ordenId]);
 
-  async function cargarRevision() {
-    const { data } = await supabase
-      .from("revisiones_jefe")
-      .select("*")
-      .eq("orden_id", ordenId)
-      .maybeSingle();
+  async function cargarDatos() {
+    const { data: hijos } = await supabase
+      .from("ordenes")
+      .select("id,codigo,equipo,marca,modelo,numero_serie")
+      .eq("orden_padre_id", ordenId)
+      .order("created_at", { ascending: true });
 
-    if (!data) return;
+    let equiposBase: EquipoRevision[] = hijos || [];
 
-    setIdRevision(data.id);
-    setEstado(data.aprobado === true ? "Aprobado" : "Rechazado");
-    setMotivo(data.motivo || "");
-    setHoras(data.horas_hombre?.toString() || "");
-    setProcedimiento(data.procedimiento_aprobado || "");
-    setRepuestos(data.repuestos_aprobados || "");
+    if (!equiposBase.length) {
+      const { data: orden } = await supabase
+        .from("ordenes")
+        .select("id,codigo,equipo,marca,modelo,numero_serie")
+        .eq("id", ordenId)
+        .single();
+
+      if (orden) equiposBase = [orden];
+    }
+
+    setEquipos(equiposBase);
+
+    const nuevoEstado: Record<string, RevisionEquipo> = {};
+
+    for (const equipo of equiposBase) {
+      const { data: diagnostico } = await supabase
+        .from("diagnosticos")
+        .select("*")
+        .eq("orden_id", equipo.id)
+        .maybeSingle();
+
+      const { data: revision } = await supabase
+        .from("revisiones_jefe")
+        .select("*")
+        .eq("orden_id", equipo.id)
+        .maybeSingle();
+
+      nuevoEstado[equipo.id] = {
+        idRevision: revision?.id || null,
+        estado:
+          revision?.aprobado === true
+            ? "Aprobado"
+            : revision?.aprobado === false
+            ? "Rechazado"
+            : "",
+        motivo: revision?.motivo || "",
+        horas: revision?.horas_hombre?.toString() || "",
+        procedimiento:
+          revision?.procedimiento_aprobado || diagnostico?.procedimiento || "",
+        repuestos: revision?.repuestos_aprobados || diagnostico?.repuestos || "",
+        guardando: false,
+        guardadoOk: false,
+      };
+    }
+
+    setRevisiones(nuevoEstado);
   }
 
-  async function guardar() {
-    if (!estado) {
+  function actualizarCampo(
+    equipoId: string,
+    campo: "estado" | "motivo" | "horas" | "procedimiento" | "repuestos",
+    valor: string
+  ) {
+    setRevisiones((prev) => ({
+      ...prev,
+      [equipoId]: {
+        ...(prev[equipoId] || revisionVacia()),
+        [campo]: valor,
+      },
+    }));
+  }
+
+  async function guardar(equipoId: string) {
+    const actual = revisiones[equipoId] || revisionVacia();
+
+    if (!actual.estado) {
       alert("Debes aprobar o rechazar la revisión.");
       return;
     }
 
-    if (estado === "Rechazado" && !motivo.trim()) {
+    if (actual.estado === "Rechazado" && !actual.motivo.trim()) {
       alert("Debes indicar el motivo del rechazo.");
       return;
     }
 
-    setGuardando(true);
-    setGuardadoOk(false);
+    setRevisiones((prev) => ({
+      ...prev,
+      [equipoId]: {
+        ...actual,
+        guardando: true,
+        guardadoOk: false,
+      },
+    }));
 
     try {
       const datos = {
-        orden_id: ordenId,
-        aprobado: estado === "Aprobado",
-        motivo,
-        horas_hombre: horas ? Number(horas) : null,
-        procedimiento_aprobado: procedimiento,
-        repuestos_aprobados: repuestos,
+        orden_id: equipoId,
+        aprobado: actual.estado === "Aprobado",
+        motivo: actual.motivo,
+        horas_hombre: actual.horas ? Number(actual.horas) : null,
+        procedimiento_aprobado: actual.procedimiento,
+        repuestos_aprobados: actual.repuestos,
         updated_at: new Date().toISOString(),
       };
 
-      if (idRevision) {
+      if (actual.idRevision) {
         const { error } = await supabase
           .from("revisiones_jefe")
           .update(datos)
-          .eq("id", idRevision);
+          .eq("id", actual.idRevision);
 
         if (error) throw error;
       } else {
@@ -79,205 +176,211 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
           .single();
 
         if (error) throw error;
-        setIdRevision(data.id);
+
+        actual.idRevision = data.id;
       }
 
-      const nuevoEstado = estado === "Aprobado" ? "Cotización" : "Diagnóstico";
-
-      const { error: errorOrden } = await supabase
+      await supabase
         .from("ordenes")
-        .update({ estado: nuevoEstado })
-        .eq("id", ordenId);
+        .update({
+          estado: actual.estado === "Aprobado" ? "cotizacion" : "diagnostico",
+        })
+        .eq("id", equipoId);
 
-      if (errorOrden) throw errorOrden;
+      const todosAprobados = equipos.every((equipo) => {
+        if (equipo.id === equipoId) return actual.estado === "Aprobado";
+        return revisiones[equipo.id]?.estado === "Aprobado";
+      });
 
-     await supabase
-  .from("ordenes")
-  .update({
-    estado: "cotizacion",
-  })
-  .eq("id", ordenId);
+      if (todosAprobados) {
+        await supabase
+          .from("ordenes")
+          .update({ estado: "cotizacion" })
+          .eq("id", ordenId);
 
-onEstadoActualizado?.("cotizacion");
-window.location.reload();
-      setGuardadoOk(true);
-      setTimeout(() => setGuardadoOk(false), 2500);
+        onEstadoActualizado?.("cotizacion");
+      }
+
+      setRevisiones((prev) => ({
+        ...prev,
+        [equipoId]: {
+          ...actual,
+          guardando: false,
+          guardadoOk: true,
+        },
+      }));
+
+      setTimeout(() => {
+        setRevisiones((prev) => ({
+          ...prev,
+          [equipoId]: {
+            ...(prev[equipoId] || revisionVacia()),
+            guardadoOk: false,
+          },
+        }));
+      }, 2500);
     } catch (e: any) {
       alert(e.message || "No se pudo guardar la revisión");
-    } finally {
-      setGuardando(false);
+
+      setRevisiones((prev) => ({
+        ...prev,
+        [equipoId]: {
+          ...(prev[equipoId] || revisionVacia()),
+          guardando: false,
+        },
+      }));
     }
   }
 
-  const textoBoton = guardando
-    ? "Guardando..."
-    : guardadoOk
-    ? "✓ Revisión guardada"
-    : idRevision
-    ? "Modificar revisión"
-    : "Guardar revisión";
-
   return (
-    <section className="card">
-      <div className="header">
-        <div>
-          <h2>Revisión Jefe Técnico</h2>
-          {idRevision && <p className="estado">Revisión ya guardada</p>}
-        </div>
+    <section className="space-y-5">
+      {equipos.map((equipo, index) => {
+        const actual = revisiones[equipo.id] || revisionVacia();
 
-        <button
-          onClick={guardar}
-          disabled={guardando}
-          className={guardadoOk ? "guardado" : ""}
-        >
-          {textoBoton}
-        </button>
-      </div>
+        return (
+          <div
+            key={equipo.id}
+            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+          >
+            <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">
+                  Equipo {index + 1}
+                </h2>
 
-      <div className="fila">
-        <button
-          type="button"
-          className={estado === "Aprobado" ? "opcion verde" : "opcion"}
-          onClick={() => setEstado("Aprobado")}
-        >
-          Aprobar
-        </button>
+                <p className="mt-1 text-sm font-semibold text-slate-700">
+                  {equipo.equipo || "Sin tipo"}
+                </p>
 
-        <button
-          type="button"
-          className={estado === "Rechazado" ? "opcion rojo" : "opcion"}
-          onClick={() => setEstado("Rechazado")}
-        >
-          Rechazar
-        </button>
-      </div>
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  {identificadorEquipo(equipo)}
+                </p>
 
-      <div className="campo">
-        <label>Motivo</label>
-        <textarea
-          rows={3}
-          value={motivo}
-          onChange={(e) => setMotivo(e.target.value)}
-        />
-      </div>
+                {(equipo.marca || equipo.modelo) && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    {[equipo.marca, equipo.modelo].filter(Boolean).join(" · ")}
+                  </p>
+                )}
 
-      <div className="campo">
-        <label>Horas hombre estimadas</label>
-        <input
-          type="number"
-          value={horas}
-          onChange={(e) => setHoras(e.target.value)}
-        />
-      </div>
+                {actual.idRevision && (
+                  <p className="mt-2 text-xs font-bold text-green-700">
+                    Revisión guardada
+                  </p>
+                )}
+              </div>
 
-      <div className="campo">
-        <label>Procedimiento aprobado</label>
-        <textarea
-          rows={4}
-          value={procedimiento}
-          onChange={(e) => setProcedimiento(e.target.value)}
-        />
-      </div>
+              <button
+                type="button"
+                onClick={() => guardar(equipo.id)}
+                disabled={actual.guardando}
+                className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {actual.guardando
+                  ? "Guardando..."
+                  : actual.guardadoOk
+                  ? "✓ Guardado"
+                  : actual.idRevision
+                  ? "Modificar revisión"
+                  : "Guardar revisión"}
+              </button>
+            </div>
 
-      <div className="campo">
-        <label>Repuestos aprobados</label>
-        <textarea
-          rows={4}
-          value={repuestos}
-          onChange={(e) => setRepuestos(e.target.value)}
-        />
-      </div>
+            <div className="mb-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => actualizarCampo(equipo.id, "estado", "Aprobado")}
+                className={`rounded-xl px-4 py-3 text-sm font-bold ${
+                  actual.estado === "Aprobado"
+                    ? "bg-green-600 text-white"
+                    : "bg-slate-100 text-slate-700"
+                }`}
+              >
+                Aprobar
+              </button>
 
-      <style jsx>{`
-        .card {
-          background: #fff;
-          border: 1px solid #e2e8f0;
-          border-radius: 18px;
-          padding: 20px;
-          margin-bottom: 18px;
-        }
+              <button
+                type="button"
+                onClick={() =>
+                  actualizarCampo(equipo.id, "estado", "Rechazado")
+                }
+                className={`rounded-xl px-4 py-3 text-sm font-bold ${
+                  actual.estado === "Rechazado"
+                    ? "bg-red-600 text-white"
+                    : "bg-slate-100 text-slate-700"
+                }`}
+              >
+                Rechazar
+              </button>
+            </div>
 
-        .header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 16px;
-          margin-bottom: 18px;
-        }
+            <div className="space-y-4">
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-700">
+                  Motivo / comentario
+                </label>
 
-        h2 {
-          margin: 0;
-          font-size: 18px;
-          color: #0f172a;
-        }
+                <textarea
+                  rows={3}
+                  value={actual.motivo}
+                  onChange={(event) =>
+                    actualizarCampo(equipo.id, "motivo", event.target.value)
+                  }
+                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
 
-        .estado {
-          margin: 6px 0 0;
-          font-size: 13px;
-          color: #16a34a;
-          font-weight: 800;
-        }
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-700">
+                  Horas hombre estimadas
+                </label>
 
-        .fila {
-          display: flex;
-          gap: 12px;
-          margin-bottom: 20px;
-        }
+                <input
+                  type="number"
+                  value={actual.horas}
+                  onChange={(event) =>
+                    actualizarCampo(equipo.id, "horas", event.target.value)
+                  }
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
 
-        button {
-          border: none;
-          padding: 10px 18px;
-          border-radius: 10px;
-          background: #2563eb;
-          color: white;
-          cursor: pointer;
-          font-weight: 800;
-        }
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-700">
+                  Procedimiento aprobado
+                </label>
 
-        button.guardado {
-          background: #16a34a;
-        }
+                <textarea
+                  rows={4}
+                  value={actual.procedimiento}
+                  onChange={(event) =>
+                    actualizarCampo(
+                      equipo.id,
+                      "procedimiento",
+                      event.target.value
+                    )
+                  }
+                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
 
-        button:disabled {
-          opacity: 0.7;
-          cursor: not-allowed;
-        }
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-700">
+                  Repuestos aprobados
+                </label>
 
-        .opcion {
-          background: #e2e8f0;
-          color: #0f172a;
-        }
-
-        .verde {
-          background: #16a34a;
-          color: white;
-        }
-
-        .rojo {
-          background: #dc2626;
-          color: white;
-        }
-
-        .campo {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          margin-bottom: 18px;
-        }
-
-        label {
-          font-weight: 800;
-          color: #334155;
-        }
-
-        textarea,
-        input {
-          border: 1px solid #cbd5e1;
-          border-radius: 10px;
-          padding: 12px;
-          font-size: 14px;
-        }
-      `}</style>
+                <textarea
+                  rows={4}
+                  value={actual.repuestos}
+                  onChange={(event) =>
+                    actualizarCampo(equipo.id, "repuestos", event.target.value)
+                  }
+                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </section>
   );
 }
