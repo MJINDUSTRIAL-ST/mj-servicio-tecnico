@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CHECKLISTS,
   ChecklistEquipo,
@@ -14,10 +14,23 @@ import {
   generarDiagnosticoMJ,
 } from "../lib/diagnosticoEngine";
 
+type AccionChecklist =
+  | "repuesto"
+  | "reparacion"
+  | "ajuste"
+  | "lubricacion"
+  | "limpieza"
+  | "certificacion"
+  | "otro";
+
 type RespuestaChecklist = {
   estado: EstadoChecklist | "";
   observacion: string;
   fotos: File[];
+  acciones: AccionChecklist[];
+  repuesto_nombre: string;
+  repuesto_cantidad: string;
+  accion_otro: string;
 };
 
 type RespuestasChecklist = Record<string, RespuestaChecklist>;
@@ -25,6 +38,7 @@ type RespuestasChecklist = Record<string, RespuestaChecklist>;
 type ChecklistInteligenteProps = {
   tipoEquipoInicial?: string | null;
   equipoId?: string | null;
+  onProgreso?: (porcentaje: number) => void;
   onGenerarDiagnostico?: (payload: {
     equipoId?: string | null;
     tipoEquipo: TipoEquipoChecklist;
@@ -38,7 +52,19 @@ type ChecklistInteligenteProps = {
   }) => void;
 };
 
-function normalizarTipoEquipo(tipo: string | null | undefined): TipoEquipoChecklist | "" {
+const ACCIONES: Array<{ value: AccionChecklist; label: string }> = [
+  { value: "repuesto", label: "Reemplazar repuesto" },
+  { value: "reparacion", label: "Reparación" },
+  { value: "ajuste", label: "Ajuste" },
+  { value: "lubricacion", label: "Lubricación" },
+  { value: "limpieza", label: "Limpieza / mantención" },
+  { value: "certificacion", label: "Certificación" },
+  { value: "otro", label: "Otro" },
+];
+
+function normalizarTipoEquipo(
+  tipo: string | null | undefined
+): TipoEquipoChecklist | "" {
   if (!tipo) return "";
 
   const value = tipo.toLowerCase().trim();
@@ -46,45 +72,90 @@ function normalizarTipoEquipo(tipo: string | null | undefined): TipoEquipoCheckl
   const equivalencias: Record<string, TipoEquipoChecklist> = {
     "tecle electrico": "tecle_electrico",
     "tecle eléctrico": "tecle_electrico",
-    "tecle_electrico": "tecle_electrico",
+    tecle_electrico: "tecle_electrico",
     "tecle manual": "tecle_manual",
-    "tecle_manual": "tecle_manual",
+    tecle_manual: "tecle_manual",
     "tecle de palanca": "tecle_palanca",
     "tecle palanca": "tecle_palanca",
-    "tecle_palanca": "tecle_palanca",
+    tecle_palanca: "tecle_palanca",
     winche: "winche",
     tirfor: "tirfor",
     minifor: "minifor",
     "transpaleta electrica": "transpaleta_electrica",
     "transpaleta eléctrica": "transpaleta_electrica",
     transpaleta: "transpaleta_electrica",
-    "transpaleta_electrica": "transpaleta_electrica",
+    transpaleta_electrica: "transpaleta_electrica",
   };
 
   return equivalencias[value] ?? "";
 }
 
-function crearRespuestasVacias(checklist: ChecklistEquipo | null): RespuestasChecklist {
+function crearRespuestaVacia(): RespuestaChecklist {
+  return {
+    estado: "",
+    observacion: "",
+    fotos: [],
+    acciones: [],
+    repuesto_nombre: "",
+    repuesto_cantidad: "1",
+    accion_otro: "",
+  };
+}
+
+function crearRespuestasVacias(
+  checklist: ChecklistEquipo | null
+): RespuestasChecklist {
   if (!checklist) return {};
 
   const respuestas: RespuestasChecklist = {};
 
   checklist.sections.forEach((section) => {
     section.items.forEach((item) => {
-      respuestas[item.id] = {
-        estado: "",
-        observacion: "",
-        fotos: [],
-      };
+      respuestas[item.id] = crearRespuestaVacia();
     });
   });
 
   return respuestas;
 }
 
+function normalizarRespuestaGuardada(
+  respuesta: Partial<RespuestaChecklist> | undefined
+): RespuestaChecklist {
+  return {
+    estado: respuesta?.estado ?? "",
+    observacion: respuesta?.observacion ?? "",
+    fotos: [],
+    acciones: respuesta?.acciones ?? [],
+    repuesto_nombre: respuesta?.repuesto_nombre ?? "",
+    repuesto_cantidad: respuesta?.repuesto_cantidad ?? "1",
+    accion_otro: respuesta?.accion_otro ?? "",
+  };
+}
+
+function serializarRespuestas(respuestas: RespuestasChecklist) {
+  const serializadas: Record<
+    string,
+    Omit<RespuestaChecklist, "fotos">
+  > = {};
+
+  Object.entries(respuestas).forEach(([itemId, respuesta]) => {
+    serializadas[itemId] = {
+      estado: respuesta.estado,
+      observacion: respuesta.observacion,
+      acciones: respuesta.acciones,
+      repuesto_nombre: respuesta.repuesto_nombre,
+      repuesto_cantidad: respuesta.repuesto_cantidad,
+      accion_otro: respuesta.accion_otro,
+    };
+  });
+
+  return serializadas;
+}
+
 export default function ChecklistInteligente({
   tipoEquipoInicial,
   equipoId,
+  onProgreso,
   onGenerarDiagnostico,
 }: ChecklistInteligenteProps) {
   const tipoEquipo = normalizarTipoEquipo(tipoEquipoInicial);
@@ -97,12 +168,18 @@ export default function ChecklistInteligente({
     crearRespuestasVacias(tipoEquipo ? CHECKLISTS[tipoEquipo] : null)
   );
 
-  const [seccionesAbiertas, setSeccionesAbiertas] = useState<Record<string, boolean>>({});
+  const [cargadoStorage, setCargadoStorage] = useState(false);
+  const [seccionesAbiertas, setSeccionesAbiertas] = useState<
+    Record<string, boolean>
+  >({});
   const [diagnosticoGenerado, setDiagnosticoGenerado] =
     useState<DiagnosticoGeneradoMJ | null>(null);
 
   const totalItems =
-    checklist?.sections.reduce((total, section) => total + section.items.length, 0) ?? 0;
+    checklist?.sections.reduce(
+      (total, section) => total + section.items.length,
+      0
+    ) ?? 0;
 
   const itemsRespondidos = Object.values(respuestas).filter(
     (respuesta) => respuesta.estado
@@ -124,17 +201,80 @@ export default function ChecklistInteligente({
   const porcentajeAvance =
     totalItems > 0 ? Math.round((itemsRespondidos / totalItems) * 100) : 0;
 
+  useEffect(() => {
+    onProgreso?.(porcentajeAvance);
+  }, [porcentajeAvance, onProgreso]);
+
+  useEffect(() => {
+    const base = crearRespuestasVacias(
+      tipoEquipo ? CHECKLISTS[tipoEquipo] : null
+    );
+
+    if (!equipoId) {
+      setRespuestas(base);
+      setCargadoStorage(true);
+      return;
+    }
+
+    try {
+      const guardado = localStorage.getItem(`checklist-${equipoId}`);
+
+      if (!guardado) {
+        setRespuestas(base);
+        setCargadoStorage(true);
+        return;
+      }
+
+      const parsed = JSON.parse(guardado) as Record<
+        string,
+        Partial<RespuestaChecklist>
+      >;
+
+      const mezclado: RespuestasChecklist = { ...base };
+
+      Object.keys(base).forEach((itemId) => {
+        mezclado[itemId] = normalizarRespuestaGuardada(parsed[itemId]);
+      });
+
+      setRespuestas(mezclado);
+    } catch {
+      setRespuestas(base);
+    } finally {
+      setCargadoStorage(true);
+    }
+  }, [equipoId, tipoEquipo]);
+
+  useEffect(() => {
+    if (!equipoId || !cargadoStorage) return;
+
+    localStorage.setItem(
+      `checklist-${equipoId}`,
+      JSON.stringify(serializarRespuestas(respuestas))
+    );
+  }, [equipoId, respuestas, cargadoStorage]);
+
   function cambiarEstado(itemId: string, estado: EstadoChecklist) {
     setDiagnosticoGenerado(null);
 
-    setRespuestas((prev) => ({
-      ...prev,
-      [itemId]: {
-        estado,
-        observacion: estado === "malo" ? prev[itemId]?.observacion ?? "" : "",
-        fotos: estado === "malo" ? prev[itemId]?.fotos ?? [] : [],
-      },
-    }));
+    setRespuestas((prev) => {
+      const anterior = prev[itemId] ?? crearRespuestaVacia();
+
+      return {
+        ...prev,
+        [itemId]: {
+          ...anterior,
+          estado,
+          observacion: estado === "malo" ? anterior.observacion : "",
+          fotos: estado === "malo" ? anterior.fotos : [],
+          acciones: estado === "malo" ? anterior.acciones : [],
+          repuesto_nombre:
+            estado === "malo" ? anterior.repuesto_nombre : "",
+          repuesto_cantidad:
+            estado === "malo" ? anterior.repuesto_cantidad || "1" : "1",
+          accion_otro: estado === "malo" ? anterior.accion_otro : "",
+        },
+      };
+    });
   }
 
   function cambiarObservacion(itemId: string, observacion: string) {
@@ -143,8 +283,72 @@ export default function ChecklistInteligente({
     setRespuestas((prev) => ({
       ...prev,
       [itemId]: {
-        ...prev[itemId],
+        ...(prev[itemId] ?? crearRespuestaVacia()),
         observacion,
+      },
+    }));
+  }
+
+  function cambiarAccion(itemId: string, accion: AccionChecklist) {
+    setDiagnosticoGenerado(null);
+
+    setRespuestas((prev) => {
+      const anterior = prev[itemId] ?? crearRespuestaVacia();
+      const existe = anterior.acciones.includes(accion);
+
+      const acciones = existe
+        ? anterior.acciones.filter((a) => a !== accion)
+        : [...anterior.acciones, accion];
+
+      return {
+        ...prev,
+        [itemId]: {
+          ...anterior,
+          acciones,
+          repuesto_nombre: acciones.includes("repuesto")
+            ? anterior.repuesto_nombre
+            : "",
+          repuesto_cantidad: acciones.includes("repuesto")
+            ? anterior.repuesto_cantidad || "1"
+            : "1",
+          accion_otro: acciones.includes("otro") ? anterior.accion_otro : "",
+        },
+      };
+    });
+  }
+
+  function cambiarRepuestoNombre(itemId: string, value: string) {
+    setDiagnosticoGenerado(null);
+
+    setRespuestas((prev) => ({
+      ...prev,
+      [itemId]: {
+        ...(prev[itemId] ?? crearRespuestaVacia()),
+        repuesto_nombre: value,
+      },
+    }));
+  }
+
+  function cambiarRepuestoCantidad(itemId: string, value: string) {
+    setDiagnosticoGenerado(null);
+
+    setRespuestas((prev) => ({
+      ...prev,
+      [itemId]: {
+        ...(prev[itemId] ?? crearRespuestaVacia()),
+        repuesto_cantidad: value,
+      },
+    }));
+  }
+
+  function cambiarAccionOtro(itemId: string, value: string) {
+    setDiagnosticoGenerado(null);
+
+    setRespuestas((prev) => ({
+      ...prev,
+      [itemId]: {
+        ...(prev[itemId] ?? crearRespuestaVacia()),
+        accion_otro: value,
       },
     }));
   }
@@ -159,7 +363,7 @@ export default function ChecklistInteligente({
     setRespuestas((prev) => ({
       ...prev,
       [itemId]: {
-        ...prev[itemId],
+        ...(prev[itemId] ?? crearRespuestaVacia()),
         fotos: [...(prev[itemId]?.fotos ?? []), ...nuevasFotos],
       },
     }));
@@ -171,7 +375,7 @@ export default function ChecklistInteligente({
     setRespuestas((prev) => ({
       ...prev,
       [itemId]: {
-        ...prev[itemId],
+        ...(prev[itemId] ?? crearRespuestaVacia()),
         fotos: (prev[itemId]?.fotos ?? []).filter(
           (_, fotoIndex) => fotoIndex !== index
         ),
@@ -210,11 +414,15 @@ export default function ChecklistInteligente({
   if (!tipoEquipo || !checklist) {
     return (
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-        <h2 className="text-xl font-bold text-amber-900">Checklist no disponible</h2>
+        <h2 className="text-xl font-bold text-amber-900">
+          Checklist no disponible
+        </h2>
+
         <p className="mt-2 text-sm text-amber-800">
-          Esta orden no tiene un tipo de equipo compatible con el checklist inteligente.
-          Revisa el campo Tipo de equipo en Detalle.
+          Esta orden no tiene un tipo de equipo compatible con el checklist
+          inteligente. Revisa el campo Tipo de equipo en Detalle.
         </p>
+
         <p className="mt-3 text-sm font-semibold text-amber-900">
           Tipo actual: {tipoEquipoInicial || "Sin tipo definido"}
         </p>
@@ -226,7 +434,10 @@ export default function ChecklistInteligente({
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h2 className="text-xl font-bold text-slate-900">Checklist Inteligente</h2>
+          <h2 className="text-xl font-bold text-slate-900">
+            Checklist Inteligente
+          </h2>
+
           <p className="mt-1 text-sm text-slate-500">
             Checklist cargado automáticamente según el tipo de equipo ingresado.
           </p>
@@ -239,7 +450,9 @@ export default function ChecklistInteligente({
 
       <div className="mb-5 rounded-xl bg-slate-50 p-4">
         <p className="text-sm font-semibold text-slate-500">Tipo de equipo</p>
-        <p className="mt-1 text-lg font-bold text-slate-900">{checklist.nombre}</p>
+        <p className="mt-1 text-lg font-bold text-slate-900">
+          {checklist.nombre}
+        </p>
         <p className="mt-1 text-sm text-slate-500">{checklist.descripcion}</p>
 
         <div className="mt-3 grid grid-cols-3 gap-3 text-center text-xs font-semibold">
@@ -250,12 +463,16 @@ export default function ChecklistInteligente({
 
           <div className="rounded-lg bg-white p-3 text-slate-600">
             Respondidos
-            <div className="mt-1 text-lg text-slate-900">{itemsRespondidos}</div>
+            <div className="mt-1 text-lg text-slate-900">
+              {itemsRespondidos}
+            </div>
           </div>
 
           <div className="rounded-lg bg-white p-3 text-slate-600">
             Malos
-            <div className="mt-1 text-lg text-red-600">{itemsMalos.length}</div>
+            <div className="mt-1 text-lg text-red-600">
+              {itemsMalos.length}
+            </div>
           </div>
         </div>
       </div>
@@ -273,8 +490,11 @@ export default function ChecklistInteligente({
               >
                 <div>
                   <p className="font-bold text-slate-900">{section.titulo}</p>
+
                   {section.descripcion && (
-                    <p className="mt-1 text-sm text-slate-500">{section.descripcion}</p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {section.descripcion}
+                    </p>
                   )}
                 </div>
 
@@ -286,11 +506,7 @@ export default function ChecklistInteligente({
               {abierta && (
                 <div className="space-y-3 border-t border-slate-200 p-4">
                   {section.items.map((item) => {
-                    const respuesta = respuestas[item.id] ?? {
-                      estado: "",
-                      observacion: "",
-                      fotos: [],
-                    };
+                    const respuesta = respuestas[item.id] ?? crearRespuestaVacia();
 
                     return (
                       <div
@@ -299,7 +515,9 @@ export default function ChecklistInteligente({
                       >
                         <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                           <div>
-                            <p className="font-semibold text-slate-900">{item.label}</p>
+                            <p className="font-semibold text-slate-900">
+                              {item.label}
+                            </p>
 
                             {item.afectaSeguridad && (
                               <p className="mt-1 text-xs font-semibold text-red-600">
@@ -352,7 +570,7 @@ export default function ChecklistInteligente({
                         </div>
 
                         {respuesta.estado === "malo" && (
-                          <div className="mt-4 space-y-3 rounded-xl bg-red-50 p-4">
+                          <div className="mt-4 space-y-4 rounded-xl bg-red-50 p-4">
                             <div>
                               <label className="mb-2 block text-sm font-semibold text-slate-700">
                                 Observación
@@ -370,6 +588,94 @@ export default function ChecklistInteligente({
 
                             <div>
                               <label className="mb-2 block text-sm font-semibold text-slate-700">
+                                Acción requerida
+                              </label>
+
+                              <div className="grid gap-2 md:grid-cols-2">
+                                {ACCIONES.map((accion) => {
+                                  const seleccionada =
+                                    respuesta.acciones.includes(accion.value);
+
+                                  return (
+                                    <button
+                                      key={accion.value}
+                                      type="button"
+                                      onClick={() =>
+                                        cambiarAccion(item.id, accion.value)
+                                      }
+                                      className={`rounded-xl border px-3 py-2 text-left text-sm font-semibold ${
+                                        seleccionada
+                                          ? "border-blue-500 bg-blue-50 text-blue-700"
+                                          : "border-red-200 bg-white text-slate-600"
+                                      }`}
+                                    >
+                                      {seleccionada ? "✓ " : ""}
+                                      {accion.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {respuesta.acciones.includes("repuesto") && (
+                              <div className="grid gap-3 md:grid-cols-3">
+                                <div className="md:col-span-2">
+                                  <label className="mb-2 block text-sm font-semibold text-slate-700">
+                                    Repuesto requerido
+                                  </label>
+
+                                  <input
+                                    value={respuesta.repuesto_nombre}
+                                    onChange={(event) =>
+                                      cambiarRepuestoNombre(
+                                        item.id,
+                                        event.target.value
+                                      )
+                                    }
+                                    placeholder="Ej: Gancho inferior, cadena, pestillo..."
+                                    className="w-full rounded-xl border border-red-200 bg-white px-3 py-2 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-2 block text-sm font-semibold text-slate-700">
+                                    Cantidad
+                                  </label>
+
+                                  <input
+                                    value={respuesta.repuesto_cantidad}
+                                    onChange={(event) =>
+                                      cambiarRepuestoCantidad(
+                                        item.id,
+                                        event.target.value
+                                      )
+                                    }
+                                    placeholder="1"
+                                    className="w-full rounded-xl border border-red-200 bg-white px-3 py-2 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {respuesta.acciones.includes("otro") && (
+                              <div>
+                                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                                  Especificar otra acción
+                                </label>
+
+                                <input
+                                  value={respuesta.accion_otro}
+                                  onChange={(event) =>
+                                    cambiarAccionOtro(item.id, event.target.value)
+                                  }
+                                  placeholder="Ej: enviar a proveedor, evaluar con jefatura..."
+                                  className="w-full rounded-xl border border-red-200 bg-white px-3 py-2 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                />
+                              </div>
+                            )}
+
+                            <div>
+                              <label className="mb-2 block text-sm font-semibold text-slate-700">
                                 Fotos
                               </label>
 
@@ -377,7 +683,9 @@ export default function ChecklistInteligente({
                                 type="file"
                                 accept="image/*"
                                 multiple
-                                onChange={(event) => agregarFotos(item.id, event.target.files)}
+                                onChange={(event) =>
+                                  agregarFotos(item.id, event.target.files)
+                                }
                                 className="w-full rounded-xl border border-red-200 bg-white px-3 py-2 text-sm"
                               />
 
@@ -394,7 +702,9 @@ export default function ChecklistInteligente({
 
                                       <button
                                         type="button"
-                                        onClick={() => eliminarFoto(item.id, index)}
+                                        onClick={() =>
+                                          eliminarFoto(item.id, index)
+                                        }
                                         className="ml-3 text-xs font-bold text-red-600"
                                       >
                                         Eliminar
@@ -419,6 +729,7 @@ export default function ChecklistInteligente({
       <div className="mt-6 flex flex-col gap-3 rounded-xl bg-slate-50 p-4 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="font-bold text-slate-900">Generar diagnóstico</p>
+
           <p className="mt-1 text-sm text-slate-500">
             El sistema generará un diagnóstico técnico base usando el motor MJ.
           </p>
