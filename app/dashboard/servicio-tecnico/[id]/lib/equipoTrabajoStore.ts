@@ -64,7 +64,6 @@ export function guardarEquipoTrabajo(
 
 export function generarDiagnosticoBaseDesdeChecklist(payload: any) {
   const respuestas = Object.values(payload?.respuestas || {}) as any[];
-
   const itemsMalos = payload?.itemsMalos || [];
 
   const repuestos = respuestas
@@ -76,14 +75,47 @@ export function generarDiagnosticoBaseDesdeChecklist(payload: any) {
     })
     .join("\n");
 
+  const acciones = respuestas
+    .filter((respuesta) => respuesta.acciones?.length)
+    .map((respuesta) => {
+      const accionesTexto = respuesta.acciones
+        .filter((accion: string) => accion !== "repuesto")
+        .map((accion: string) => {
+          if (accion === "reparacion") return "Reparación";
+          if (accion === "ajuste") return "Ajuste";
+          if (accion === "mantencion") return "Mantención";
+          if (accion === "otro") return respuesta.accion_otro || "Otro";
+          return accion;
+        })
+        .filter(Boolean)
+        .join(", ");
+
+      return accionesTexto;
+    })
+    .filter(Boolean)
+    .join("\n");
+
   const hallazgos =
     itemsMalos.length > 0
-      ? `Durante la inspección del equipo se detectaron ${itemsMalos.length} componente(s) en mal estado que requieren revisión técnica.`
+      ? `Durante la inspección del equipo se detectaron ${itemsMalos.length} componente(s) en mal estado que requieren intervención técnica.`
       : "No se detectaron componentes en mal estado durante el checklist.";
 
-  const procedimiento = repuestos
-    ? `Se recomienda revisar los componentes observados, realizar el reemplazo o reparación correspondiente y efectuar prueba funcional antes de liberar el equipo.\n\nRepuestos solicitados:\n${repuestos}`
-    : "Se recomienda realizar revisión funcional general antes de liberar el equipo.";
+  const procedimientoPartes = [];
+
+  if (repuestos) {
+    procedimientoPartes.push(`Repuestos solicitados:\n${repuestos}`);
+  }
+
+  if (acciones) {
+    procedimientoPartes.push(`Acciones requeridas:\n${acciones}`);
+  }
+
+  const procedimiento =
+    procedimientoPartes.length > 0
+      ? `Se recomienda revisar los componentes observados y ejecutar las acciones correspondientes antes de liberar el equipo.\n\n${procedimientoPartes.join(
+          "\n\n"
+        )}`
+      : "Se recomienda realizar revisión funcional general antes de liberar el equipo.";
 
   return {
     hallazgos,
