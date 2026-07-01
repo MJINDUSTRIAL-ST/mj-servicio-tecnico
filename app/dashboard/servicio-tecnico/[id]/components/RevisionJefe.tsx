@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../../../../lib/supabase";
+import {
+  guardarEquipoTrabajo,
+  obtenerEquipoTrabajo,
+} from "../lib/equipoTrabajoStore";
 
 type Props = {
   ordenId: string;
@@ -17,7 +21,7 @@ type EquipoRevision = {
   numero_serie?: string | null;
 };
 
-type RevisionEquipo = {
+type RevisionPorEquipo = {
   idRevision: string | null;
   estado: "Aprobado" | "Rechazado" | "";
   motivo: string;
@@ -28,7 +32,13 @@ type RevisionEquipo = {
   guardadoOk: boolean;
 };
 
-function revisionVacia(): RevisionEquipo {
+function identificadorEquipo(equipo: EquipoRevision) {
+  if (equipo.numero_serie) return `Serie: ${equipo.numero_serie}`;
+  if (equipo.codigo) return `Código: ${equipo.codigo}`;
+  return `ID: ${equipo.id.slice(0, 8)}`;
+}
+
+function revisionVacia(): RevisionPorEquipo {
   return {
     idRevision: null,
     estado: "",
@@ -41,17 +51,87 @@ function revisionVacia(): RevisionEquipo {
   };
 }
 
-function identificadorEquipo(equipo: EquipoRevision) {
-  if (equipo.numero_serie) return `Serie: ${equipo.numero_serie}`;
-  if (equipo.codigo) return `Código: ${equipo.codigo}`;
-  return `ID: ${equipo.id.slice(0, 8)}`;
+function textoAccion(accion: string) {
+  if (accion === "repuesto") return "Repuesto";
+  if (accion === "reparacion") return "Reparación";
+  if (accion === "ajuste") return "Ajuste";
+  if (accion === "mantencion") return "Mantención";
+  if (accion === "otro") return "Otro";
+  return accion;
 }
 
-export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
+function generarDesdeChecklist(equipoId: string) {
+  const trabajo = obtenerEquipoTrabajo(equipoId);
+  const checklist = trabajo.checklist;
+
+  if (!checklist?.itemsMalos?.length) {
+    return {
+      procedimiento: trabajo.diagnostico?.procedimiento || "",
+      repuestos: trabajo.diagnostico?.repuestos || "",
+    };
+  }
+
+  const repuestos: string[] = [];
+  const acciones: string[] = [];
+
+  checklist.itemsMalos.forEach((registro: any) => {
+    const item = registro.item || {};
+    const respuesta = registro.respuesta || {};
+
+    const nombreItem =
+      item.nombre ||
+      item.titulo ||
+      item.label ||
+      item.name ||
+      item.id ||
+      "Ítem observado";
+
+    const accionesItem = respuesta.acciones || [];
+
+    accionesItem.forEach((accion: string) => {
+      if (accion === "repuesto") {
+        const cantidad = respuesta.repuesto_cantidad || "1";
+        const nombre = respuesta.repuesto_nombre || nombreItem;
+        repuestos.push(`${cantidad} x ${nombre}`);
+      } else if (accion === "otro") {
+        acciones.push(`${respuesta.accion_otro || "Otro"} - ${nombreItem}`);
+      } else {
+        acciones.push(`${textoAccion(accion)} - ${nombreItem}`);
+      }
+    });
+  });
+
+  const procedimientoPartes: string[] = [];
+
+  if (acciones.length > 0) {
+    procedimientoPartes.push(`Acciones aprobadas:\n${acciones.join("\n")}`);
+  }
+
+  if (repuestos.length > 0) {
+    procedimientoPartes.push(`Repuestos aprobados:\n${repuestos.join("\n")}`);
+  }
+
+  const procedimiento =
+    procedimientoPartes.length > 0
+      ? `Se recomienda ejecutar las siguientes acciones antes de liberar el equipo:\n\n${procedimientoPartes.join(
+          "\n\n"
+        )}`
+      : trabajo.diagnostico?.procedimiento || "";
+
+  return {
+    procedimiento,
+    repuestos: repuestos.join("\n"),
+  };
+}
+
+export default function RevisionJefe({
+  ordenId,
+  onEstadoActualizado,
+}: Props) {
   const [equipos, setEquipos] = useState<EquipoRevision[]>([]);
-  const [revisiones, setRevisiones] = useState<Record<string, RevisionEquipo>>(
-    {}
-  );
+  const [revisiones, setRevisiones] = useState<
+    Record<string, RevisionPorEquipo>
+  >({});
 
   useEffect(() => {
     cargarDatos();
@@ -78,34 +158,29 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
 
     setEquipos(equiposBase);
 
-    const nuevoEstado: Record<string, RevisionEquipo> = {};
+    const nuevoEstado: Record<string, RevisionPorEquipo> = {};
 
     for (const equipo of equiposBase) {
-      const { data: diagnostico } = await supabase
-        .from("diagnosticos")
-        .select("*")
-        .eq("orden_id", equipo.id)
-        .maybeSingle();
-
-      const { data: revision } = await supabase
+      const { data } = await supabase
         .from("revisiones_jefe")
         .select("*")
         .eq("orden_id", equipo.id)
         .maybeSingle();
 
+      const base = generarDesdeChecklist(equipo.id);
+
       nuevoEstado[equipo.id] = {
-        idRevision: revision?.id || null,
+        idRevision: data?.id || null,
         estado:
-          revision?.aprobado === true
+          data?.aprobado === true
             ? "Aprobado"
-            : revision?.aprobado === false
+            : data?.aprobado === false
             ? "Rechazado"
             : "",
-        motivo: revision?.motivo || "",
-        horas: revision?.horas_hombre?.toString() || "",
-        procedimiento:
-          revision?.procedimiento_aprobado || diagnostico?.procedimiento || "",
-        repuestos: revision?.repuestos_aprobados || diagnostico?.repuestos || "",
+        motivo: data?.motivo || "",
+        horas: data?.horas_hombre?.toString() || "",
+        procedimiento: data?.procedimiento_aprobado || base.procedimiento,
+        repuestos: data?.repuestos_aprobados || base.repuestos,
         guardando: false,
         guardadoOk: false,
       };
@@ -116,7 +191,7 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
 
   function actualizarCampo(
     equipoId: string,
-    campo: "estado" | "motivo" | "horas" | "procedimiento" | "repuestos",
+    campo: keyof RevisionPorEquipo,
     valor: string
   ) {
     setRevisiones((prev) => ({
@@ -161,6 +236,16 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
         updated_at: new Date().toISOString(),
       };
 
+      guardarEquipoTrabajo(equipoId, {
+        revision: {
+          aprobado: actual.estado === "Aprobado",
+          motivo: actual.motivo,
+          horas_hombre: actual.horas ? Number(actual.horas) : null,
+          procedimiento_aprobado: actual.procedimiento,
+          repuestos_aprobados: actual.repuestos,
+        },
+      });
+
       if (actual.idRevision) {
         const { error } = await supabase
           .from("revisiones_jefe")
@@ -177,19 +262,28 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
 
         if (error) throw error;
 
-        actual.idRevision = data.id;
+        setRevisiones((prev) => ({
+          ...prev,
+          [equipoId]: {
+            ...(prev[equipoId] || revisionVacia()),
+            idRevision: data.id,
+          },
+        }));
       }
+
+      const nuevoEstadoEquipo =
+        actual.estado === "Aprobado" ? "cotizacion" : "diagnostico";
 
       await supabase
         .from("ordenes")
-        .update({
-          estado: actual.estado === "Aprobado" ? "cotizacion" : "diagnostico",
-        })
+        .update({ estado: nuevoEstadoEquipo })
         .eq("id", equipoId);
 
       const todosAprobados = equipos.every((equipo) => {
         if (equipo.id === equipoId) return actual.estado === "Aprobado";
-        return revisiones[equipo.id]?.estado === "Aprobado";
+
+        const revision = revisiones[equipo.id];
+        return revision?.estado === "Aprobado" || revision?.idRevision;
       });
 
       if (todosAprobados) {
@@ -204,7 +298,7 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
       setRevisiones((prev) => ({
         ...prev,
         [equipoId]: {
-          ...actual,
+          ...(prev[equipoId] || revisionVacia()),
           guardando: false,
           guardadoOk: true,
         },
@@ -285,29 +379,31 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
               </button>
             </div>
 
-            <div className="mb-5 grid grid-cols-2 gap-3">
+            <div className="mb-4 grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => actualizarCampo(equipo.id, "estado", "Aprobado")}
                 className={`rounded-xl px-4 py-3 text-sm font-bold ${
                   actual.estado === "Aprobado"
                     ? "bg-green-600 text-white"
                     : "bg-slate-100 text-slate-700"
                 }`}
+                onClick={() =>
+                  actualizarCampo(equipo.id, "estado", "Aprobado")
+                }
               >
                 Aprobar
               </button>
 
               <button
                 type="button"
-                onClick={() =>
-                  actualizarCampo(equipo.id, "estado", "Rechazado")
-                }
                 className={`rounded-xl px-4 py-3 text-sm font-bold ${
                   actual.estado === "Rechazado"
                     ? "bg-red-600 text-white"
                     : "bg-slate-100 text-slate-700"
                 }`}
+                onClick={() =>
+                  actualizarCampo(equipo.id, "estado", "Rechazado")
+                }
               >
                 Rechazar
               </button>
@@ -320,11 +416,11 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
                 </label>
 
                 <textarea
-                  rows={3}
                   value={actual.motivo}
                   onChange={(event) =>
                     actualizarCampo(equipo.id, "motivo", event.target.value)
                   }
+                  rows={3}
                   className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
               </div>
@@ -346,11 +442,10 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
 
               <div>
                 <label className="mb-2 block text-sm font-bold text-slate-700">
-                  Procedimiento aprobado
+                  Procedimiento sugerido
                 </label>
 
                 <textarea
-                  rows={4}
                   value={actual.procedimiento}
                   onChange={(event) =>
                     actualizarCampo(
@@ -359,21 +454,22 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
                       event.target.value
                     )
                   }
+                  rows={5}
                   className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
               </div>
 
               <div>
                 <label className="mb-2 block text-sm font-bold text-slate-700">
-                  Repuestos aprobados
+                  Repuestos sugeridos
                 </label>
 
                 <textarea
-                  rows={4}
                   value={actual.repuestos}
                   onChange={(event) =>
                     actualizarCampo(equipo.id, "repuestos", event.target.value)
                   }
+                  rows={4}
                   className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
               </div>
