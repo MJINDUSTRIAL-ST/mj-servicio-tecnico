@@ -544,20 +544,17 @@ export default function DetalleOrdenPage() {
               />
             ))}
 
-          {tab === "diagnostico" &&
-            (esOtMadreLote ? (
-              <AvisoLote equipos={equiposLote} />
-            ) : (
-              <DiagnosticoTecnico
-                ordenId={orden.id}
-                onEstadoActualizado={(estado) => {
-                  setOrden((prev) => {
-                    if (!prev) return prev;
-                    return { ...prev, estado };
-                  });
-                }}
-              />
-            ))}
+          {tab === "diagnostico" && (
+  <DiagnosticoTecnico
+    ordenId={orden.id}
+    onEstadoActualizado={(estado) => {
+      setOrden((prev) => {
+        if (!prev) return prev;
+        return { ...prev, estado };
+      });
+    }}
+  />
+)}
 
           {tab === "revision" &&
             (esOtMadreLote ? (
