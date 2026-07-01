@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ChecklistInteligente from "./ChecklistInteligente";
 
 type Equipo = {
@@ -31,7 +31,47 @@ export default function ChecklistLote({ equipos }: Props) {
     Record<string, boolean>
   >({});
 
-  function completarEquipo(equipoId: string) {
+  useEffect(() => {
+    const completados: Record<string, boolean> = {};
+
+    equipos.forEach((equipo) => {
+      completados[equipo.id] =
+        localStorage.getItem(`equipo-completado-${equipo.id}`) === "true";
+    });
+
+    setEquiposCompletados(completados);
+  }, [equipos]);
+
+  function completarEquipo(equipoId: string, payload?: any) {
+    localStorage.setItem(`equipo-completado-${equipoId}`, "true");
+
+    if (payload?.diagnostico) {
+      const repuestos = Object.values(payload.respuestas || {})
+        .filter((respuesta: any) =>
+          respuesta.acciones?.includes("repuesto")
+        )
+        .map((respuesta: any) => {
+          const cantidad = respuesta.repuesto_cantidad || "1";
+          const nombre =
+            respuesta.repuesto_nombre || "Repuesto sin especificar";
+          return `${cantidad} x ${nombre}`;
+        })
+        .join("\n");
+
+      localStorage.setItem(
+        `diagnostico-${equipoId}`,
+        JSON.stringify({
+          hallazgos: payload.diagnostico.resumen || "",
+          procedimiento:
+            payload.diagnostico.procedimiento ||
+            payload.diagnostico.recomendacion ||
+            payload.diagnostico.recomendaciones?.join("\n") ||
+            "",
+          repuestos,
+        })
+      );
+    }
+
     setEquiposCompletados((prev) => ({
       ...prev,
       [equipoId]: true,
@@ -159,7 +199,9 @@ export default function ChecklistLote({ equipos }: Props) {
                 <ChecklistInteligente
                   equipoId={equipo.id}
                   tipoEquipoInicial={equipo.equipo}
-                  onGenerarDiagnostico={() => completarEquipo(equipo.id)}
+                  onGenerarDiagnostico={(payload) =>
+                    completarEquipo(equipo.id, payload)
+                  }
                 />
               </div>
             )}
