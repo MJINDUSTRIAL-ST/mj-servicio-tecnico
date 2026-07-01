@@ -8,223 +8,328 @@ type Props = {
   onEstadoActualizado?: (estado: string) => void;
 };
 
+type EquipoDiagnostico = {
+  id: string;
+  codigo?: string | null;
+  equipo?: string | null;
+  marca?: string | null;
+  modelo?: string | null;
+  numero_serie?: string | null;
+};
+
+type DiagnosticoPorEquipo = {
+  idDiagnostico: string | null;
+  hallazgos: string;
+  procedimiento: string;
+  repuestos: string;
+  guardando: boolean;
+  guardadoOk: boolean;
+};
+
+function identificadorEquipo(equipo: EquipoDiagnostico) {
+  if (equipo.numero_serie) return `Serie: ${equipo.numero_serie}`;
+  if (equipo.codigo) return `Código: ${equipo.codigo}`;
+  return `ID: ${equipo.id.slice(0, 8)}`;
+}
+
+function diagnosticoVacio(): DiagnosticoPorEquipo {
+  return {
+    idDiagnostico: null,
+    hallazgos: "",
+    procedimiento: "",
+    repuestos: "",
+    guardando: false,
+    guardadoOk: false,
+  };
+}
+
+function repuestosDesdeChecklist(equipoId: string) {
+  try {
+    const raw = localStorage.getItem(`checklist-${equipoId}`);
+    if (!raw) return "";
+
+    const respuestas = JSON.parse(raw) as Record<
+      string,
+      {
+        acciones?: string[];
+        repuesto_nombre?: string;
+        repuesto_cantidad?: string;
+      }
+    >;
+
+    const repuestos = Object.values(respuestas)
+      .filter((respuesta) => respuesta.acciones?.includes("repuesto"))
+      .map((respuesta) => {
+        const nombre = respuesta.repuesto_nombre || "Repuesto sin especificar";
+        const cantidad = respuesta.repuesto_cantidad || "1";
+        return `${cantidad} x ${nombre}`;
+      });
+
+    return repuestos.join("\n");
+  } catch {
+    return "";
+  }
+}
+
 export default function DiagnosticoTecnico({
   ordenId,
   onEstadoActualizado,
 }: Props) {
-  const [idDiagnostico, setIdDiagnostico] = useState<string | null>(null);
-  const [diagnostico, setDiagnostico] = useState("");
-  const [procedimiento, setProcedimiento] = useState("");
-  const [repuestos, setRepuestos] = useState("");
-  const [guardando, setGuardando] = useState(false);
-  const [guardadoOk, setGuardadoOk] = useState(false);
+  const [equipos, setEquipos] = useState<EquipoDiagnostico[]>([]);
+  const [diagnosticos, setDiagnosticos] = useState<
+    Record<string, DiagnosticoPorEquipo>
+  >({});
 
   useEffect(() => {
-    cargarDiagnostico();
+    cargarDatos();
   }, [ordenId]);
 
-  async function cargarDiagnostico() {
-    const { data } = await supabase
-      .from("diagnosticos")
-      .select("*")
-      .eq("orden_id", ordenId)
-      .maybeSingle();
+  async function cargarDatos() {
+    const { data: hijos } = await supabase
+      .from("ordenes")
+      .select("id,codigo,equipo,marca,modelo,numero_serie")
+      .eq("orden_madre_id", ordenId)
+      .order("created_at", { ascending: true });
 
-    if (!data) return;
+    let equiposBase: EquipoDiagnostico[] = hijos || [];
 
-    setIdDiagnostico(data.id);
-    setDiagnostico(data.hallazgos || "");
-    setProcedimiento(data.procedimiento || "");
-    setRepuestos(data.repuestos || "");
+    if (!equiposBase.length) {
+      const { data: orden } = await supabase
+        .from("ordenes")
+        .select("id,codigo,equipo,marca,modelo,numero_serie")
+        .eq("id", ordenId)
+        .single();
+
+      if (orden) equiposBase = [orden];
+    }
+
+    setEquipos(equiposBase);
+
+    const nuevoEstado: Record<string, DiagnosticoPorEquipo> = {};
+
+    for (const equipo of equiposBase) {
+      const { data } = await supabase
+        .from("diagnosticos")
+        .select("*")
+        .eq("orden_id", equipo.id)
+        .maybeSingle();
+
+      nuevoEstado[equipo.id] = {
+        idDiagnostico: data?.id || null,
+        hallazgos: data?.hallazgos || "",
+        procedimiento: data?.procedimiento || "",
+        repuestos: data?.repuestos || repuestosDesdeChecklist(equipo.id),
+        guardando: false,
+        guardadoOk: false,
+      };
+    }
+
+    setDiagnosticos(nuevoEstado);
   }
 
-  async function guardar() {
-    setGuardando(true);
-    setGuardadoOk(false);
+  function actualizarCampo(
+    equipoId: string,
+    campo: "hallazgos" | "procedimiento" | "repuestos",
+    valor: string
+  ) {
+    setDiagnosticos((prev) => ({
+      ...prev,
+      [equipoId]: {
+        ...(prev[equipoId] || diagnosticoVacio()),
+        [campo]: valor,
+      },
+    }));
+  }
+
+  async function guardar(equipoId: string) {
+    const actual = diagnosticos[equipoId] || diagnosticoVacio();
+
+    setDiagnosticos((prev) => ({
+      ...prev,
+      [equipoId]: {
+        ...actual,
+        guardando: true,
+        guardadoOk: false,
+      },
+    }));
 
     try {
-      if (idDiagnostico) {
+      if (actual.idDiagnostico) {
         const { error } = await supabase
           .from("diagnosticos")
           .update({
-            hallazgos: diagnostico,
-            procedimiento,
-            repuestos,
+            hallazgos: actual.hallazgos,
+            procedimiento: actual.procedimiento,
+            repuestos: actual.repuestos,
             updated_at: new Date().toISOString(),
           })
-          .eq("id", idDiagnostico);
+          .eq("id", actual.idDiagnostico);
 
         if (error) throw error;
       } else {
         const { data, error } = await supabase
           .from("diagnosticos")
           .insert({
-            orden_id: ordenId,
-            hallazgos: diagnostico,
-            procedimiento,
-            repuestos,
+            orden_id: equipoId,
+            hallazgos: actual.hallazgos,
+            procedimiento: actual.procedimiento,
+            repuestos: actual.repuestos,
           })
           .select()
           .single();
 
         if (error) throw error;
-        setIdDiagnostico(data.id);
+
+        setDiagnosticos((prev) => ({
+          ...prev,
+          [equipoId]: {
+            ...(prev[equipoId] || diagnosticoVacio()),
+            idDiagnostico: data.id,
+          },
+        }));
       }
 
-      const { error: errorOrden } = await supabase
-        .from("ordenes")
-        .update({ estado: "Diagnóstico" })
-        .eq("id", ordenId);
+      await supabase.from("ordenes").update({ estado: "revision" }).eq("id", ordenId);
 
-      if (errorOrden) throw errorOrden;
+      onEstadoActualizado?.("revision");
 
-      await supabase
-  .from("ordenes")
-  .update({
-    estado: "revision",
-  })
-  .eq("id", ordenId);
-
-onEstadoActualizado?.("revision");
-window.location.reload();
-
-      setGuardadoOk(true);
+      setDiagnosticos((prev) => ({
+        ...prev,
+        [equipoId]: {
+          ...(prev[equipoId] || diagnosticoVacio()),
+          guardando: false,
+          guardadoOk: true,
+        },
+      }));
 
       setTimeout(() => {
-        setGuardadoOk(false);
+        setDiagnosticos((prev) => ({
+          ...prev,
+          [equipoId]: {
+            ...(prev[equipoId] || diagnosticoVacio()),
+            guardadoOk: false,
+          },
+        }));
       }, 2500);
     } catch (e: any) {
       alert(e.message || "No se pudo guardar el diagnóstico");
-    } finally {
-      setGuardando(false);
+
+      setDiagnosticos((prev) => ({
+        ...prev,
+        [equipoId]: {
+          ...(prev[equipoId] || diagnosticoVacio()),
+          guardando: false,
+        },
+      }));
     }
   }
 
-  const textoBoton = guardando
-    ? "Guardando..."
-    : guardadoOk
-    ? "✓ Diagnóstico guardado"
-    : idDiagnostico
-    ? "Modificar diagnóstico"
-    : "Guardar diagnóstico";
-
   return (
-    <section className="card">
-      <div className="header">
-        <div>
-          <h2>Diagnóstico Técnico</h2>
-          {idDiagnostico && <p className="estado">Diagnóstico ya guardado</p>}
-        </div>
+    <section className="space-y-5">
+      {equipos.map((equipo, index) => {
+        const actual = diagnosticos[equipo.id] || diagnosticoVacio();
 
-        <button
-  onClick={guardar}
-  disabled={guardando}
->
-  {guardando
-    ? "Guardando..."
-    : idDiagnostico
-      ? "Modificar diagnóstico"
-      : "Guardar diagnóstico"}
-</button>
-      </div>
+        return (
+          <div
+            key={equipo.id}
+            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+          >
+            <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">
+                  Equipo {index + 1}
+                </h2>
 
-      <div className="campo">
-        <label>Hallazgos del diagnóstico</label>
-        <textarea
-          value={diagnostico}
-          onChange={(e) => setDiagnostico(e.target.value)}
-          rows={5}
-        />
-      </div>
+                <p className="mt-1 text-sm font-semibold text-slate-700">
+                  {equipo.equipo || "Sin tipo"}
+                </p>
 
-      <div className="campo">
-        <label>Procedimiento recomendado</label>
-        <textarea
-          value={procedimiento}
-          onChange={(e) => setProcedimiento(e.target.value)}
-          rows={4}
-        />
-      </div>
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  {identificadorEquipo(equipo)}
+                </p>
 
-      <div className="campo">
-        <label>Repuestos solicitados</label>
-        <textarea
-          value={repuestos}
-          onChange={(e) => setRepuestos(e.target.value)}
-          rows={4}
-        />
-      </div>
+                {(equipo.marca || equipo.modelo) && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    {[equipo.marca, equipo.modelo].filter(Boolean).join(" · ")}
+                  </p>
+                )}
 
-      <style jsx>{`
-        .card {
-          background: white;
-          border: 1px solid #e2e8f0;
-          border-radius: 18px;
-          padding: 20px;
-          margin-bottom: 18px;
-        }
+                {actual.idDiagnostico && (
+                  <p className="mt-2 text-xs font-bold text-green-700">
+                    Diagnóstico guardado
+                  </p>
+                )}
+              </div>
 
-        .header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 16px;
-          margin-bottom: 20px;
-        }
+              <button
+                type="button"
+                onClick={() => guardar(equipo.id)}
+                disabled={actual.guardando}
+                className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {actual.guardando
+                  ? "Guardando..."
+                  : actual.guardadoOk
+                  ? "✓ Guardado"
+                  : actual.idDiagnostico
+                  ? "Modificar diagnóstico"
+                  : "Guardar diagnóstico"}
+              </button>
+            </div>
 
-        h2 {
-          margin: 0;
-          font-size: 18px;
-          color: #0f172a;
-        }
+            <div className="space-y-4">
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-700">
+                  Hallazgos del diagnóstico
+                </label>
 
-        .estado {
-          margin: 6px 0 0;
-          font-size: 13px;
-          color: #16a34a;
-          font-weight: 800;
-        }
+                <textarea
+                  value={actual.hallazgos}
+                  onChange={(event) =>
+                    actualizarCampo(equipo.id, "hallazgos", event.target.value)
+                  }
+                  rows={5}
+                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
 
-        button {
-          background: #2563eb;
-          color: white;
-          border: none;
-          border-radius: 10px;
-          padding: 10px 16px;
-          cursor: pointer;
-          font-weight: 800;
-          min-width: 190px;
-        }
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-700">
+                  Procedimiento recomendado
+                </label>
 
-        button.guardado {
-          background: #16a34a;
-        }
+                <textarea
+                  value={actual.procedimiento}
+                  onChange={(event) =>
+                    actualizarCampo(
+                      equipo.id,
+                      "procedimiento",
+                      event.target.value
+                    )
+                  }
+                  rows={4}
+                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
 
-        button:disabled {
-          opacity: 0.7;
-          cursor: not-allowed;
-        }
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-700">
+                  Repuestos solicitados
+                </label>
 
-        .campo {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          margin-bottom: 18px;
-        }
-
-        label {
-          font-weight: 800;
-          color: #334155;
-        }
-
-        textarea {
-          resize: vertical;
-          border: 1px solid #cbd5e1;
-          border-radius: 10px;
-          padding: 12px;
-          font-size: 14px;
-        }
-      `}</style>
+                <textarea
+                  value={actual.repuestos}
+                  onChange={(event) =>
+                    actualizarCampo(equipo.id, "repuestos", event.target.value)
+                  }
+                  rows={4}
+                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </section>
   );
 }
