@@ -228,7 +228,12 @@ export default function CotizacionInterna({
   const [equipos, setEquipos] = useState<Equipo[]>([]);
   const [items, setItems] = useState<ItemCotizacion[]>([]);
   const [loading, setLoading] = useState(false);
-  const [guardadoOk, setGuardadoOk] = useState(false);
+  const [guardadoOk, setGuardadoOk] = useState(() => {
+  if (typeof window === "undefined") return false;
+  if (!ordenId) return false;
+
+  return !!localStorage.getItem(`cotizacion-interna-${ordenId}`);
+});
   const [incluirIva, setIncluirIva] = useState(true);
 
   useEffect(() => {
@@ -465,6 +470,7 @@ export default function CotizacionInterna({
   }
 
   setGuardadoOk(true);
+  console.log("guardadoOk = true");
   onEstadoActualizado?.("trabajo");
 }
   function regenerarDesdeFlujo() {

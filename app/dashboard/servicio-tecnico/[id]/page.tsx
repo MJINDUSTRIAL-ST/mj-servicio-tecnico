@@ -602,24 +602,23 @@ export default function DetalleOrdenPage() {
 
 {tab === "cotizacion" && (
   <CotizacionInterna
-  ordenId={orden.id}
-  onEstadoActualizado={(estado) => {
-    setOrden((prev) => {
-      if (!prev) return prev;
-      return { ...prev, estado };
-    });
+    ordenId={orden.id}
+    onEstadoActualizado={(estado) => {
+      setOrden((prev) => {
+        if (!prev) return prev;
+        return { ...prev, estado };
+      });
 
-    setEquiposLote((prev) =>
-      prev.map((equipo) => ({
-        ...equipo,
-        estado,
-      }))
-    );
-
-    setTab("trabajo");
-  }}
-/>
+      setEquiposLote((prev) =>
+        prev.map((equipo) => ({
+          ...equipo,
+          estado,
+        }))
+      );
+    }}
+  />
 )}
+
 
 {tab === "trabajo" && <TrabajoOT ordenId={orden.id} />}
 
