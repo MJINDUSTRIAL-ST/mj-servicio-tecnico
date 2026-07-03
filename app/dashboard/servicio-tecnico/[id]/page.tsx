@@ -565,7 +565,18 @@ export default function DetalleOrdenPage() {
               />
             ))}
 
-          {tab === "diagnostico" && (
+          {tab === "checklist" &&
+  (esOtMadreLote ? (
+    <ChecklistLote equipos={equiposLote} ordenId={orden.id} />
+  ) : (
+    <ChecklistInteligente
+      equipoId={orden.id}
+      tipoEquipoInicial={orden.equipo}
+      onGenerarDiagnostico={avanzarADiagnostico}
+    />
+  ))}
+
+{tab === "diagnostico" && (
   <DiagnosticoTecnico
     ordenId={orden.id}
     onEstadoActualizado={(estado) => {
@@ -577,7 +588,7 @@ export default function DetalleOrdenPage() {
   />
 )}
 
-          {tab === "revision" && (
+{tab === "revision" && (
   <RevisionJefe
     ordenId={orden.id}
     onEstadoActualizado={(estado) => {
@@ -589,17 +600,19 @@ export default function DetalleOrdenPage() {
   />
 )}
 
-          <CotizacionInterna
-  ordenId={orden.id}
-  onEstadoActualizado={(estado) => {
-    setOrden((prev) => {
-      if (!prev) return prev;
-      return { ...prev, estado };
-    });
+{tab === "cotizacion" && (
+  <CotizacionInterna
+    ordenId={orden.id}
+    onEstadoActualizado={(estado) => {
+      setOrden((prev) => {
+        if (!prev) return prev;
+        return { ...prev, estado };
+      });
 
-    setTab("trabajo");
-  }}
-/>
+      setTab("trabajo");
+    }}
+  />
+)}
 
 {tab === "trabajo" && <TrabajoOT ordenId={orden.id} />}
 
