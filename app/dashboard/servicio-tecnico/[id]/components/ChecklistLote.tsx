@@ -1,5 +1,6 @@
 "use client";
 
+import { supabase } from "../../../../lib/supabase";
 import { useEffect, useState } from "react";
 import ChecklistInteligente from "./ChecklistInteligente";
 import {
@@ -18,6 +19,7 @@ type Equipo = {
 
 type Props = {
   equipos: Equipo[];
+  ordenId: string;
 };
 
 function identificadorEquipo(equipo: Equipo) {
@@ -26,7 +28,7 @@ function identificadorEquipo(equipo: Equipo) {
   return `ID: ${equipo.id.slice(0, 8)}`;
 }
 
-export default function ChecklistLote({ equipos }: Props) {
+export default function ChecklistLote({ equipos, ordenId }: Props) {
   const [equipoAbierto, setEquipoAbierto] = useState<string | null>(
     equipos[0]?.id ?? null
   );
@@ -49,7 +51,7 @@ export default function ChecklistLote({ equipos }: Props) {
     setEquipoAbierto(primerPendiente ? primerPendiente.id : null);
   }, [equipos]);
 
-  function completarEquipo(equipoId: string, payload?: any) {
+  async function completarEquipo(equipoId: string, payload?: any) {
     localStorage.setItem(`equipo-completado-${equipoId}`, "true");
 
     if (payload?.diagnostico) {
@@ -70,6 +72,11 @@ guardarEquipoTrabajo(equipoId, {
   checklist: payload,
   diagnostico: diagnosticoBase,
 });
+
+await supabase
+  .from("ordenes")
+  .update({ estado: "diagnostico" })
+  .eq("id", ordenId);
 
       localStorage.setItem(
         `diagnostico-${equipoId}`,
