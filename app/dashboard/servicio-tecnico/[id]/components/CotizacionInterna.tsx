@@ -449,17 +449,24 @@ export default function CotizacionInterna({
     })
   );
 
-  await supabase
+  const { error } = await supabase
     .from("ordenes")
     .update({ estado: "trabajo" })
     .eq("id", ordenId);
 
+    await supabase
+  .from("ordenes")
+  .update({ estado: "trabajo" })
+  .eq("orden_padre_id", ordenId);
+
+  if (error) {
+    alert("No se pudo actualizar la OT a Trabajo");
+    return;
+  }
+
   setGuardadoOk(true);
   onEstadoActualizado?.("trabajo");
-
-  setTimeout(() => setGuardadoOk(false), 2200);
 }
-
   function regenerarDesdeFlujo() {
     if (!ordenId) return;
 
