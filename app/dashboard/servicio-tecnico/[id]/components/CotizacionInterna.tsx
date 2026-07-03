@@ -493,9 +493,7 @@ export default function CotizacionInterna({ ordenId }: Props) {
         </div>
 
         <div className="headerActions">
-          <button type="button" className="secondaryTop" onClick={regenerarDesdeFlujo}>
-            Regenerar desde flujo
-          </button>
+          
 
           <button type="button" onClick={guardarLocal}>
             {guardadoOk ? "✓ Guardado" : "Guardar cotización"}
