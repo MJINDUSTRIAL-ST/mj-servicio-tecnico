@@ -1,10 +1,12 @@
 export type EquipoTrabajoData = {
   checklist?: any;
-    diagnostico?: {
+
+  diagnostico?: {
     hallazgos?: string;
     procedimiento?: string;
     repuestos?: string;
   };
+
   revision?: {
     aprobado?: boolean;
     motivo?: string;
@@ -12,9 +14,20 @@ export type EquipoTrabajoData = {
     procedimiento_aprobado?: string;
     repuestos_aprobados?: string;
   };
+
   cotizacion?: {
     items?: any[];
   };
+
+  trabajo?: {
+    trabajo_realizado?: string;
+    repuestos_utilizados?: string;
+    observaciones?: string;
+    prueba_funcional?: boolean;
+    prueba_carga?: boolean;
+    equipo_liberado?: boolean;
+  };
+
   updated_at?: string;
 };
 
@@ -55,6 +68,10 @@ export function guardarEquipoTrabajo(
     cotizacion: {
       ...actual.cotizacion,
       ...data.cotizacion,
+    },
+    trabajo: {
+      ...actual.trabajo,
+      ...data.trabajo,
     },
     updated_at: new Date().toISOString(),
   };

@@ -1,106 +1,376 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { supabase } from "../../../../lib/supabase";
+import {
+  guardarEquipoTrabajo,
+  obtenerEquipoTrabajo,
+} from "../lib/equipoTrabajoStore";
 
-export default function TrabajoOT() {
-  const [trabajo, setTrabajo] = useState("");
-  const [repuestos, setRepuestos] = useState("");
-  const [observaciones, setObservaciones] = useState("");
+type Props = {
+  ordenId?: string;
+};
 
-  function guardar() {
-    alert("Trabajo guardado temporalmente. Luego lo conectamos a Supabase.");
+type Equipo = {
+  id: string;
+  codigo?: string | null;
+  equipo?: string | null;
+  marca?: string | null;
+  modelo?: string | null;
+  numero_serie?: string | null;
+};
+
+type TrabajoEquipo = {
+  trabajo_realizado: string;
+  repuestos_utilizados: string;
+  observaciones: string;
+  prueba_funcional: boolean;
+  prueba_carga: boolean;
+  equipo_liberado: boolean;
+  guardando: boolean;
+  guardadoOk: boolean;
+};
+
+function trabajoVacio(): TrabajoEquipo {
+  return {
+    trabajo_realizado: "",
+    repuestos_utilizados: "",
+    observaciones: "",
+    prueba_funcional: false,
+    prueba_carga: false,
+    equipo_liberado: false,
+    guardando: false,
+    guardadoOk: false,
+  };
+}
+
+function identificadorEquipo(equipo: Equipo) {
+  if (equipo.numero_serie) return `Serie: ${equipo.numero_serie}`;
+  if (equipo.codigo) return `Código: ${equipo.codigo}`;
+  return `ID: ${equipo.id.slice(0, 8)}`;
+}
+
+function generarTrabajoBase(equipoId: string) {
+  const data = obtenerEquipoTrabajo(equipoId);
+
+  return {
+    trabajo_realizado:
+      data.revision?.procedimiento_aprobado ||
+      data.diagnostico?.procedimiento ||
+      "",
+    repuestos_utilizados:
+      data.revision?.repuestos_aprobados ||
+      data.diagnostico?.repuestos ||
+      "",
+  };
+}
+
+export default function TrabajoOT({ ordenId }: Props) {
+  const [equipos, setEquipos] = useState<Equipo[]>([]);
+  const [trabajos, setTrabajos] = useState<Record<string, TrabajoEquipo>>({});
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    cargarDatos();
+  }, [ordenId]);
+
+  async function cargarDatos() {
+    if (!ordenId) return;
+
+    setLoading(true);
+
+    try {
+      const { data: hijos } = await supabase
+        .from("ordenes")
+        .select("id,codigo,equipo,marca,modelo,numero_serie")
+        .eq("orden_padre_id", ordenId)
+        .order("codigo", { ascending: true });
+
+      let equiposBase: Equipo[] = hijos || [];
+
+      if (!equiposBase.length) {
+        const { data: orden } = await supabase
+          .from("ordenes")
+          .select("id,codigo,equipo,marca,modelo,numero_serie")
+          .eq("id", ordenId)
+          .single();
+
+        if (orden) equiposBase = [orden];
+      }
+
+      const estadoInicial: Record<string, TrabajoEquipo> = {};
+
+      equiposBase.forEach((equipo) => {
+        const data = obtenerEquipoTrabajo(equipo.id);
+        const base = generarTrabajoBase(equipo.id);
+        const trabajoGuardado = data.trabajo as Partial<TrabajoEquipo> | undefined;
+
+        estadoInicial[equipo.id] = {
+          ...trabajoVacio(),
+          trabajo_realizado:
+            trabajoGuardado?.trabajo_realizado || base.trabajo_realizado,
+          repuestos_utilizados:
+            trabajoGuardado?.repuestos_utilizados || base.repuestos_utilizados,
+          observaciones: trabajoGuardado?.observaciones || "",
+          prueba_funcional: Boolean(trabajoGuardado?.prueba_funcional),
+          prueba_carga: Boolean(trabajoGuardado?.prueba_carga),
+          equipo_liberado: Boolean(trabajoGuardado?.equipo_liberado),
+        };
+      });
+
+      setEquipos(equiposBase);
+      setTrabajos(estadoInicial);
+    } catch (e: any) {
+      alert(e.message || "No se pudo cargar el trabajo");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function actualizarCampo(
+    equipoId: string,
+    campo: keyof TrabajoEquipo,
+    valor: string | boolean
+  ) {
+    setTrabajos((prev) => ({
+      ...prev,
+      [equipoId]: {
+        ...(prev[equipoId] || trabajoVacio()),
+        [campo]: valor,
+      },
+    }));
+  }
+
+  async function guardar(equipoId: string) {
+    const actual = trabajos[equipoId] || trabajoVacio();
+
+    setTrabajos((prev) => ({
+      ...prev,
+      [equipoId]: {
+        ...actual,
+        guardando: true,
+        guardadoOk: false,
+      },
+    }));
+
+    try {
+      guardarEquipoTrabajo(equipoId, {
+        trabajo: {
+          trabajo_realizado: actual.trabajo_realizado,
+          repuestos_utilizados: actual.repuestos_utilizados,
+          observaciones: actual.observaciones,
+          prueba_funcional: actual.prueba_funcional,
+          prueba_carga: actual.prueba_carga,
+          equipo_liberado: actual.equipo_liberado,
+        },
+      } as any);
+
+      if (actual.equipo_liberado) {
+        await supabase
+          .from("ordenes")
+          .update({ estado: "listo" })
+          .eq("id", equipoId);
+      } else {
+        await supabase
+          .from("ordenes")
+          .update({ estado: "trabajo" })
+          .eq("id", equipoId);
+      }
+
+      setTrabajos((prev) => ({
+        ...prev,
+        [equipoId]: {
+          ...(prev[equipoId] || trabajoVacio()),
+          guardando: false,
+          guardadoOk: true,
+        },
+      }));
+
+      setTimeout(() => {
+        setTrabajos((prev) => ({
+          ...prev,
+          [equipoId]: {
+            ...(prev[equipoId] || trabajoVacio()),
+            guardadoOk: false,
+          },
+        }));
+      }, 2200);
+    } catch (e: any) {
+      alert(e.message || "No se pudo guardar el trabajo");
+
+      setTrabajos((prev) => ({
+        ...prev,
+        [equipoId]: {
+          ...(prev[equipoId] || trabajoVacio()),
+          guardando: false,
+        },
+      }));
+    }
+  }
+
+  if (loading) {
+    return (
+      <section className="rounded-2xl border border-slate-200 bg-white p-5">
+        Cargando trabajo...
+      </section>
+    );
   }
 
   return (
-    <section className="card">
-      <div className="header">
-        <h2>Trabajo realizado</h2>
-        <button type="button" onClick={guardar}>
-          Guardar trabajo
-        </button>
-      </div>
+    <section className="space-y-5">
+      {equipos.map((equipo, index) => {
+        const actual = trabajos[equipo.id] || trabajoVacio();
 
-      <div className="campo">
-        <label>Trabajo realizado</label>
-        <textarea
-          rows={5}
-          value={trabajo}
-          onChange={(e) => setTrabajo(e.target.value)}
-        />
-      </div>
+        return (
+          <div
+            key={equipo.id}
+            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+          >
+            <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">
+                  Equipo {index + 1}
+                </h2>
 
-      <div className="campo">
-        <label>Repuestos utilizados</label>
-        <textarea
-          rows={4}
-          value={repuestos}
-          onChange={(e) => setRepuestos(e.target.value)}
-        />
-      </div>
+                <p className="mt-1 text-sm font-semibold text-slate-700">
+                  {equipo.equipo || "Sin tipo"}
+                </p>
 
-      <div className="campo">
-        <label>Observaciones del técnico</label>
-        <textarea
-          rows={4}
-          value={observaciones}
-          onChange={(e) => setObservaciones(e.target.value)}
-        />
-      </div>
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  {identificadorEquipo(equipo)}
+                </p>
 
-      <style jsx>{`
-        .card {
-          background: white;
-          border: 1px solid #e2e8f0;
-          border-radius: 18px;
-          padding: 20px;
-          margin-bottom: 18px;
-        }
+                {(equipo.marca || equipo.modelo) && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    {[equipo.marca, equipo.modelo].filter(Boolean).join(" · ")}
+                  </p>
+                )}
 
-        .header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 12px;
-          margin-bottom: 20px;
-        }
+                {actual.equipo_liberado && (
+                  <p className="mt-2 text-xs font-bold text-green-700">
+                    Equipo marcado como listo
+                  </p>
+                )}
+              </div>
 
-        h2 {
-          margin: 0;
-          font-size: 18px;
-          color: #0f172a;
-        }
+              <button
+                type="button"
+                onClick={() => guardar(equipo.id)}
+                disabled={actual.guardando}
+                className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {actual.guardando
+                  ? "Guardando..."
+                  : actual.guardadoOk
+                  ? "✓ Guardado"
+                  : "Guardar trabajo"}
+              </button>
+            </div>
 
-        button {
-          background: #2563eb;
-          color: white;
-          border: none;
-          border-radius: 10px;
-          padding: 10px 16px;
-          cursor: pointer;
-          font-weight: 800;
-        }
+            <div className="space-y-4">
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-700">
+                  Trabajo realizado
+                </label>
 
-        .campo {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          margin-bottom: 18px;
-        }
+                <textarea
+                  value={actual.trabajo_realizado}
+                  onChange={(event) =>
+                    actualizarCampo(
+                      equipo.id,
+                      "trabajo_realizado",
+                      event.target.value
+                    )
+                  }
+                  rows={5}
+                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
 
-        label {
-          font-weight: 800;
-          color: #334155;
-          font-size: 14px;
-        }
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-700">
+                  Repuestos utilizados
+                </label>
 
-        textarea {
-          border: 1px solid #cbd5e1;
-          border-radius: 10px;
-          padding: 12px;
-          font-size: 14px;
-          resize: vertical;
-        }
-      `}</style>
+                <textarea
+                  value={actual.repuestos_utilizados}
+                  onChange={(event) =>
+                    actualizarCampo(
+                      equipo.id,
+                      "repuestos_utilizados",
+                      event.target.value
+                    )
+                  }
+                  rows={4}
+                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-700">
+                  Observaciones finales del técnico
+                </label>
+
+                <textarea
+                  value={actual.observaciones}
+                  onChange={(event) =>
+                    actualizarCampo(equipo.id, "observaciones", event.target.value)
+                  }
+                  rows={4}
+                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-3">
+                <label className="flex items-center gap-2 rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={actual.prueba_funcional}
+                    onChange={(event) =>
+                      actualizarCampo(
+                        equipo.id,
+                        "prueba_funcional",
+                        event.target.checked
+                      )
+                    }
+                  />
+                  Prueba funcional realizada
+                </label>
+
+                <label className="flex items-center gap-2 rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={actual.prueba_carga}
+                    onChange={(event) =>
+                      actualizarCampo(
+                        equipo.id,
+                        "prueba_carga",
+                        event.target.checked
+                      )
+                    }
+                  />
+                  Prueba de carga realizada
+                </label>
+
+                <label className="flex items-center gap-2 rounded-xl bg-green-50 p-4 text-sm font-bold text-green-700">
+                  <input
+                    type="checkbox"
+                    checked={actual.equipo_liberado}
+                    onChange={(event) =>
+                      actualizarCampo(
+                        equipo.id,
+                        "equipo_liberado",
+                        event.target.checked
+                      )
+                    }
+                  />
+                  Equipo listo para entrega
+                </label>
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </section>
   );
 }

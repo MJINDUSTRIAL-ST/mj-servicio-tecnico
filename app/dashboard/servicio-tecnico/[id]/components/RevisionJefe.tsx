@@ -104,11 +104,11 @@ function generarDesdeChecklist(equipoId: string) {
   const procedimientoPartes: string[] = [];
 
   if (acciones.length > 0) {
-    procedimientoPartes.push(`Acciones aprobadas:\n${acciones.join("\n")}`);
+    procedimientoPartes.push(`Acciones sugeridas:\n${acciones.join("\n")}`);
   }
 
   if (repuestos.length > 0) {
-    procedimientoPartes.push(`Repuestos aprobados:\n${repuestos.join("\n")}`);
+    procedimientoPartes.push(`Repuestos sugeridos:\n${repuestos.join("\n")}`);
   }
 
   const procedimiento =
@@ -203,32 +203,33 @@ export default function RevisionJefe({
     }));
   }
 
-  async function guardar(equipoId: string) {
+  async function guardar(
+    equipoId: string,
+    estadoFinal: "Aprobado" | "Rechazado"
+  ) {
     const actual = revisiones[equipoId] || revisionVacia();
 
-    if (!actual.estado) {
-      alert("Debes aprobar o rechazar la revisión.");
-      return;
-    }
-
-    if (actual.estado === "Rechazado" && !actual.motivo.trim()) {
+    if (estadoFinal === "Rechazado" && !actual.motivo.trim()) {
       alert("Debes indicar el motivo del rechazo.");
       return;
     }
 
+    const revisionActualizada: RevisionPorEquipo = {
+      ...actual,
+      estado: estadoFinal,
+      guardando: true,
+      guardadoOk: false,
+    };
+
     setRevisiones((prev) => ({
       ...prev,
-      [equipoId]: {
-        ...actual,
-        guardando: true,
-        guardadoOk: false,
-      },
+      [equipoId]: revisionActualizada,
     }));
 
     try {
       const datos = {
         orden_id: equipoId,
-        aprobado: actual.estado === "Aprobado",
+        aprobado: estadoFinal === "Aprobado",
         motivo: actual.motivo,
         horas_hombre: actual.horas ? Number(actual.horas) : null,
         procedimiento_aprobado: actual.procedimiento,
@@ -238,7 +239,7 @@ export default function RevisionJefe({
 
       guardarEquipoTrabajo(equipoId, {
         revision: {
-          aprobado: actual.estado === "Aprobado",
+          aprobado: estadoFinal === "Aprobado",
           motivo: actual.motivo,
           horas_hombre: actual.horas ? Number(actual.horas) : null,
           procedimiento_aprobado: actual.procedimiento,
@@ -272,7 +273,7 @@ export default function RevisionJefe({
       }
 
       const nuevoEstadoEquipo =
-        actual.estado === "Aprobado" ? "cotizacion" : "diagnostico";
+        estadoFinal === "Aprobado" ? "cotizacion" : "diagnostico";
 
       await supabase
         .from("ordenes")
@@ -280,10 +281,10 @@ export default function RevisionJefe({
         .eq("id", equipoId);
 
       const todosAprobados = equipos.every((equipo) => {
-        if (equipo.id === equipoId) return actual.estado === "Aprobado";
+        if (equipo.id === equipoId) return estadoFinal === "Aprobado";
 
         const revision = revisiones[equipo.id];
-        return revision?.estado === "Aprobado" || revision?.idRevision;
+        return revision?.estado === "Aprobado";
       });
 
       if (todosAprobados) {
@@ -299,6 +300,7 @@ export default function RevisionJefe({
         ...prev,
         [equipoId]: {
           ...(prev[equipoId] || revisionVacia()),
+          estado: estadoFinal,
           guardando: false,
           guardadoOk: true,
         },
@@ -356,57 +358,18 @@ export default function RevisionJefe({
                   </p>
                 )}
 
-                {actual.idRevision && (
+                {actual.estado === "Aprobado" && (
                   <p className="mt-2 text-xs font-bold text-green-700">
-                    Revisión guardada
+                    Revisión aprobada
+                  </p>
+                )}
+
+                {actual.estado === "Rechazado" && (
+                  <p className="mt-2 text-xs font-bold text-red-700">
+                    Revisión rechazada
                   </p>
                 )}
               </div>
-
-              <button
-                type="button"
-                onClick={() => guardar(equipo.id)}
-                disabled={actual.guardando}
-                className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                {actual.guardando
-                  ? "Guardando..."
-                  : actual.guardadoOk
-                  ? "✓ Guardado"
-                  : actual.idRevision
-                  ? "Modificar revisión"
-                  : "Guardar revisión"}
-              </button>
-            </div>
-
-            <div className="mb-4 grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                className={`rounded-xl px-4 py-3 text-sm font-bold ${
-                  actual.estado === "Aprobado"
-                    ? "bg-green-600 text-white"
-                    : "bg-slate-100 text-slate-700"
-                }`}
-                onClick={() =>
-                  actualizarCampo(equipo.id, "estado", "Aprobado")
-                }
-              >
-                Aprobar
-              </button>
-
-              <button
-                type="button"
-                className={`rounded-xl px-4 py-3 text-sm font-bold ${
-                  actual.estado === "Rechazado"
-                    ? "bg-red-600 text-white"
-                    : "bg-slate-100 text-slate-700"
-                }`}
-                onClick={() =>
-                  actualizarCampo(equipo.id, "estado", "Rechazado")
-                }
-              >
-                Rechazar
-              </button>
             </div>
 
             <div className="space-y-4">
@@ -472,6 +435,34 @@ export default function RevisionJefe({
                   rows={4}
                   className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 border-t border-slate-200 pt-5 md:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => guardar(equipo.id, "Aprobado")}
+                  disabled={actual.guardando}
+                  className="rounded-xl bg-green-600 px-5 py-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {actual.guardando
+                    ? "Guardando..."
+                    : actual.guardadoOk && actual.estado === "Aprobado"
+                    ? "✓ Aprobado"
+                    : "Aprobar y guardar"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => guardar(equipo.id, "Rechazado")}
+                  disabled={actual.guardando}
+                  className="rounded-xl bg-red-600 px-5 py-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {actual.guardando
+                    ? "Guardando..."
+                    : actual.guardadoOk && actual.estado === "Rechazado"
+                    ? "✓ Rechazado"
+                    : "Rechazar y guardar"}
+                </button>
               </div>
             </div>
           </div>
