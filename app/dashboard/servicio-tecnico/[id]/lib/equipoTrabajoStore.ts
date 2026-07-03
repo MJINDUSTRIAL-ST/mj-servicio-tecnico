@@ -80,51 +80,63 @@ export function guardarEquipoTrabajo(
 }
 
 export function generarDiagnosticoBaseDesdeChecklist(payload: any) {
-  const respuestas = Object.values(payload?.respuestas || {}) as any[];
   const itemsMalos = payload?.itemsMalos || [];
 
-  const repuestos = respuestas
-    .filter((respuesta) => respuesta.acciones?.includes("repuesto"))
-    .map((respuesta) => {
-      const cantidad = respuesta.repuesto_cantidad || "1";
-      const nombre = respuesta.repuesto_nombre || "Repuesto sin especificar";
-      return `${cantidad} x ${nombre}`;
-    })
-    .join("\n");
+  const repuestos: string[] = [];
+  const acciones: string[] = [];
 
-  const acciones = respuestas
-    .filter((respuesta) => respuesta.acciones?.length)
-    .map((respuesta) => {
-      const accionesTexto = respuesta.acciones
-        .filter((accion: string) => accion !== "repuesto")
-        .map((accion: string) => {
-          if (accion === "reparacion") return "Reparación";
-          if (accion === "ajuste") return "Ajuste";
-          if (accion === "mantencion") return "Mantención";
-          if (accion === "otro") return respuesta.accion_otro || "Otro";
-          return accion;
-        })
-        .filter(Boolean)
-        .join(", ");
+  itemsMalos.forEach((registro: any) => {
+    const item = registro.item || {};
+    const respuesta = registro.respuesta || {};
 
-      return accionesTexto;
-    })
-    .filter(Boolean)
-    .join("\n");
+    const nombreItem =
+      item.nombre ||
+      item.titulo ||
+      item.label ||
+      item.name ||
+      item.id ||
+      "Ítem observado";
+
+    const accionesItem = respuesta.acciones || [];
+
+    accionesItem.forEach((accion: string) => {
+      if (accion === "repuesto") {
+        const cantidad = respuesta.repuesto_cantidad || "1";
+        const nombre = respuesta.repuesto_nombre || nombreItem;
+        repuestos.push(`${cantidad} x ${nombre}`);
+      }
+
+      if (accion === "reparacion") {
+        acciones.push(`Reparación - ${nombreItem}`);
+      }
+
+      if (accion === "ajuste") {
+        acciones.push(`Ajuste - ${nombreItem}`);
+      }
+
+      if (accion === "mantencion") {
+        acciones.push(`Mantención - ${nombreItem}`);
+      }
+
+      if (accion === "otro") {
+        acciones.push(`${respuesta.accion_otro || "Otro"} - ${nombreItem}`);
+      }
+    });
+  });
 
   const hallazgos =
     itemsMalos.length > 0
       ? `Durante la inspección del equipo se detectaron ${itemsMalos.length} componente(s) en mal estado que requieren intervención técnica.`
       : "No se detectaron componentes en mal estado durante el checklist.";
 
-  const procedimientoPartes = [];
+  const procedimientoPartes: string[] = [];
 
-  if (repuestos) {
-    procedimientoPartes.push(`Repuestos solicitados:\n${repuestos}`);
+  if (acciones.length > 0) {
+    procedimientoPartes.push(`Acciones requeridas:\n${acciones.join("\n")}`);
   }
 
-  if (acciones) {
-    procedimientoPartes.push(`Acciones requeridas:\n${acciones}`);
+  if (repuestos.length > 0) {
+    procedimientoPartes.push(`Repuestos solicitados:\n${repuestos.join("\n")}`);
   }
 
   const procedimiento =
@@ -137,6 +149,6 @@ export function generarDiagnosticoBaseDesdeChecklist(payload: any) {
   return {
     hallazgos,
     procedimiento,
-    repuestos,
+    repuestos: repuestos.join("\n"),
   };
 }
