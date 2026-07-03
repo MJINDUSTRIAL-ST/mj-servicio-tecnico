@@ -556,7 +556,7 @@ export default function DetalleOrdenPage() {
 
           {tab === "checklist" &&
             (esOtMadreLote ? (
-              <ChecklistLote equipos={equiposLote} />
+              <ChecklistLote equipos={equiposLote} ordenId={orden.id} />
             ) : (
               <ChecklistInteligente
                 equipoId={orden.id}
@@ -591,8 +591,7 @@ export default function DetalleOrdenPage() {
 
           {tab === "cotizacion" && <CotizacionInterna ordenId={orden.id} />}
 
-{tab === "trabajo" &&
-  (esOtMadreLote ? <AvisoLote equipos={equiposLote} /> : <TrabajoOT />)}
+{tab === "trabajo" && <TrabajoOT ordenId={orden.id} />}
 
           {tab === "reportes" && (
             <>
