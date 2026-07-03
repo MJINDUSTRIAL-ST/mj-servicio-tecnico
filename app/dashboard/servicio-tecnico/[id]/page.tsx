@@ -243,18 +243,39 @@ export default function DetalleOrdenPage() {
     });
   }, [reportes]);
 
-  const estadoActual = useMemo(() => {
-    return normalizarEstado(orden?.estado);
-  }, [orden?.estado]);
+  const esOtMadreLote = useMemo(() => {
+    return Number(orden?.cantidad_equipos || 1) > 1 || equiposLote.length > 0;
+  }, [orden?.cantidad_equipos, equiposLote.length]);
+
+    const estadoActual = useMemo(() => {
+    if (!orden) return "Ingreso";
+
+    if (esOtMadreLote) {
+      const estadosHijos = equiposLote.map((equipo) =>
+        normalizarEstado(equipo.estado)
+      );
+
+      if (estadosHijos.length === 0) {
+        return normalizarEstado(orden.estado);
+      }
+
+      const indices = estadosHijos.map((estado) => {
+        const index = ETAPAS.indexOf(estado);
+        return index >= 0 ? index : 0;
+      });
+
+      const menorIndice = Math.min(...indices);
+
+      return ETAPAS[menorIndice] || "Ingreso";
+    }
+
+    return normalizarEstado(orden.estado);
+  }, [orden, esOtMadreLote, equiposLote]);
 
   const etapaActualIndex = useMemo(() => {
     const index = ETAPAS.indexOf(estadoActual);
     return index >= 0 ? index : 0;
   }, [estadoActual]);
-
-  const esOtMadreLote = useMemo(() => {
-    return Number(orden?.cantidad_equipos || 1) > 1 || equiposLote.length > 0;
-  }, [orden?.cantidad_equipos, equiposLote.length]);
 
   useEffect(() => {
     cargarDatos();
