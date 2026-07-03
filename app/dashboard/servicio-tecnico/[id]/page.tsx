@@ -589,7 +589,17 @@ export default function DetalleOrdenPage() {
   />
 )}
 
-          {tab === "cotizacion" && <CotizacionInterna ordenId={orden.id} />}
+          <CotizacionInterna
+  ordenId={orden.id}
+  onEstadoActualizado={(estado) => {
+    setOrden((prev) => {
+      if (!prev) return prev;
+      return { ...prev, estado };
+    });
+
+    setTab("trabajo");
+  }}
+/>
 
 {tab === "trabajo" && <TrabajoOT ordenId={orden.id} />}
 

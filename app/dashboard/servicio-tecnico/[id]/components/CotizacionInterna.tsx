@@ -5,7 +5,8 @@ import { supabase } from "../../../../lib/supabase";
 import { obtenerEquipoTrabajo } from "../lib/equipoTrabajoStore";
 
 type Props = {
-  ordenId?: string;
+  ordenId: string;
+  onEstadoActualizado?: (estado: string) => void;
 };
 
 type Equipo = {
@@ -220,7 +221,10 @@ function cargarCotizacionGuardada(ordenId: string) {
   }
 }
 
-export default function CotizacionInterna({ ordenId }: Props) {
+export default function CotizacionInterna({
+  ordenId,
+  onEstadoActualizado,
+}: Props) {
   const [equipos, setEquipos] = useState<Equipo[]>([]);
   const [items, setItems] = useState<ItemCotizacion[]>([]);
   const [loading, setLoading] = useState(false);
@@ -429,25 +433,32 @@ export default function CotizacionInterna({ ordenId }: Props) {
       }, 0);
   }
 
-  function guardarLocal() {
-    if (!ordenId) return;
+  async function guardarLocal() {
+  if (!ordenId) return;
 
-    localStorage.setItem(
-      `cotizacion-interna-${ordenId}`,
-      JSON.stringify({
-        ordenId,
-        items,
-        incluirIva,
-        totalNeto,
-        iva,
-        totalFinal,
-        updated_at: new Date().toISOString(),
-      })
-    );
+  localStorage.setItem(
+    `cotizacion-interna-${ordenId}`,
+    JSON.stringify({
+      ordenId,
+      items,
+      incluirIva,
+      totalNeto,
+      iva,
+      totalFinal,
+      updated_at: new Date().toISOString(),
+    })
+  );
 
-    setGuardadoOk(true);
-    setTimeout(() => setGuardadoOk(false), 2200);
-  }
+  await supabase
+    .from("ordenes")
+    .update({ estado: "trabajo" })
+    .eq("id", ordenId);
+
+  setGuardadoOk(true);
+  onEstadoActualizado?.("trabajo");
+
+  setTimeout(() => setGuardadoOk(false), 2200);
+}
 
   function regenerarDesdeFlujo() {
     if (!ordenId) return;
@@ -495,9 +506,13 @@ export default function CotizacionInterna({ ordenId }: Props) {
         <div className="headerActions">
           
 
-          <button type="button" onClick={guardarLocal}>
-            {guardadoOk ? "✓ Guardado" : "Guardar cotización"}
-          </button>
+          <button
+  type="button"
+  onClick={guardarLocal}
+  className={guardadoOk ? "guardado" : ""}
+>
+  {guardadoOk ? "✓ Cotización guardada" : "Guardar cotización"}
+</button>
         </div>
       </div>
 
@@ -970,6 +985,11 @@ export default function CotizacionInterna({ ordenId }: Props) {
           .totales {
             max-width: none;
           }
+
+          button.guardado {
+  background: #16a34a;
+  color: white;
+}
         }
       `}</style>
     </section>
