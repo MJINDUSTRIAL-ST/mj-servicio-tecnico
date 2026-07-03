@@ -1,5 +1,6 @@
 "use client";
 
+import { descargarInformeTecnico } from "../lib/informeTecnicoHTML";
 import { useEffect, useState } from "react";
 import { supabase } from "../../../../lib/supabase";
 import {
@@ -463,6 +464,29 @@ export default function RevisionJefe({
                     ? "✓ Rechazado"
                     : "Rechazar y guardar"}
                 </button>
+
+                {actual.estado === "Aprobado" && (
+  <button
+    type="button"
+    onClick={() =>
+      descargarInformeTecnico({
+        equipoTitulo: `Equipo ${index + 1} - ${equipo.equipo || "Sin tipo"}`,
+        equipoDetalle: `${identificadorEquipo(equipo)}${
+          equipo.marca || equipo.modelo
+            ? `\n${[equipo.marca, equipo.modelo].filter(Boolean).join(" · ")}`
+            : ""
+        }`,
+        procedimiento: actual.procedimiento,
+        repuestos: actual.repuestos,
+        horas: actual.horas,
+        comentario: actual.motivo,
+      })
+    }
+    className="rounded-xl bg-slate-900 px-5 py-4 text-sm font-bold text-white"
+  >
+    Descargar informe técnico
+  </button>
+)}
               </div>
             </div>
           </div>
