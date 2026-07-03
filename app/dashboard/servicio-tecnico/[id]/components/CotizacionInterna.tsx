@@ -35,8 +35,9 @@ type ItemCotizacion = {
   unitario: number;
 };
 
-type RevisionData = {
+type RevisionDb = {
   orden_id: string;
+  aprobado?: boolean | null;
   horas_hombre?: number | null;
   procedimiento_aprobado?: string | null;
   repuestos_aprobados?: string | null;
@@ -52,6 +53,20 @@ function identificadorEquipo(equipo: Equipo) {
   return `ID: ${equipo.id.slice(0, 8)}`;
 }
 
+function formatearMoneda(valor: number) {
+  return `$${Math.round(valor || 0).toLocaleString("es-CL")}`;
+}
+
+function normalizarTipo(accion: string): TipoItem {
+  if (accion === "repuesto") return "repuesto";
+  if (accion === "reparacion") return "reparacion";
+  if (accion === "ajuste") return "ajuste";
+  if (accion === "mantencion") return "mantencion";
+  if (accion === "mantenimiento") return "mantencion";
+  if (accion === "trabajo") return "trabajo";
+  return "otro";
+}
+
 function parsearLineas(texto?: string | null) {
   if (!texto) return [];
 
@@ -62,7 +77,7 @@ function parsearLineas(texto?: string | null) {
 }
 
 function parsearCantidadDescripcion(linea: string) {
-  const limpia = linea.trim();
+  const limpia = linea.replace(/^[-•]\s*/, "").trim();
   const match = limpia.match(/^(\d+(?:[.,]\d+)?)\s*x\s*(.+)$/i);
 
   if (match) {
@@ -76,16 +91,6 @@ function parsearCantidadDescripcion(linea: string) {
     cantidad: 1,
     descripcion: limpia,
   };
-}
-
-function normalizarTipo(accion: string): TipoItem {
-  if (accion === "repuesto") return "repuesto";
-  if (accion === "reparacion") return "reparacion";
-  if (accion === "ajuste") return "ajuste";
-  if (accion === "mantencion") return "mantencion";
-  if (accion === "mantenimiento") return "mantencion";
-  if (accion === "trabajo") return "trabajo";
-  return "otro";
 }
 
 function crearItemsDesdeChecklist(equipoId: string) {
@@ -120,6 +125,8 @@ function crearItemsDesdeChecklist(equipoId: string) {
         descripcion:
           tipo === "repuesto"
             ? respuesta.repuesto_nombre || nombreItem
+            : tipo === "otro"
+            ? respuesta.accion_otro || nombreItem
             : nombreItem,
         cantidad:
           tipo === "repuesto"
@@ -133,15 +140,13 @@ function crearItemsDesdeChecklist(equipoId: string) {
   return items;
 }
 
-function crearItemsDesdeRevision(
+function crearItemsDesdeRevisionTexto(
   equipoId: string,
-  revision?: RevisionData | null
+  revision?: RevisionDb | null
 ) {
   const items: ItemCotizacion[] = [];
 
-  const repuestos = parsearLineas(revision?.repuestos_aprobados);
-
-  repuestos.forEach((linea) => {
+  parsearLineas(revision?.repuestos_aprobados).forEach((linea) => {
     const parsed = parsearCantidadDescripcion(linea);
 
     items.push({
@@ -154,52 +159,65 @@ function crearItemsDesdeRevision(
     });
   });
 
-  const procedimiento = parsearLineas(revision?.procedimiento_aprobado);
-
-  procedimiento.forEach((linea) => {
+  parsearLineas(revision?.procedimiento_aprobado).forEach((linea) => {
     const texto = linea.replace(/^[-•]\s*/, "").trim();
-    if (!texto) return;
 
+    if (!texto) return;
+    if (texto.toLowerCase().includes("repuestos sugeridos")) return;
+    if (texto.toLowerCase().includes("repuestos aprobados")) return;
     if (texto.toLowerCase().includes("repuestos solicitados")) return;
+    if (texto.toLowerCase().includes("acciones sugeridas")) return;
+    if (texto.toLowerCase().includes("acciones aprobadas")) return;
     if (texto.toLowerCase().includes("acciones requeridas")) return;
+    if (texto.toLowerCase().includes("se recomienda")) return;
+
+    const lower = texto.toLowerCase();
+    let tipo: TipoItem = "trabajo";
+    let descripcion = texto;
+
+    if (lower.startsWith("reparación -") || lower.startsWith("reparacion -")) {
+      tipo = "reparacion";
+      descripcion = texto.split("-").slice(1).join("-").trim() || texto;
+    } else if (lower.startsWith("ajuste -")) {
+      tipo = "ajuste";
+      descripcion = texto.split("-").slice(1).join("-").trim() || texto;
+    } else if (
+      lower.startsWith("mantención -") ||
+      lower.startsWith("mantencion -")
+    ) {
+      tipo = "mantencion";
+      descripcion = texto.split("-").slice(1).join("-").trim() || texto;
+    }
 
     items.push({
       id: crearId(),
       equipoId,
-      tipo: "trabajo",
-      descripcion: texto,
+      tipo,
+      descripcion,
       cantidad: 1,
       unitario: 0,
     });
   });
 
-  if (revision?.horas_hombre && Number(revision.horas_hombre) > 0) {
-    items.push({
-      id: crearId(),
-      equipoId,
-      tipo: "mano_obra",
-      descripcion: "Mano de obra servicio técnico",
-      cantidad: Number(revision.horas_hombre),
-      unitario: 0,
-    });
-  }
-
-  if (!items.length) {
-    items.push({
-      id: crearId(),
-      equipoId,
-      tipo: "otro",
-      descripcion: "",
-      cantidad: 1,
-      unitario: 0,
-    });
-  }
-
   return items;
 }
 
-function formatearMoneda(valor: number) {
-  return `$${Math.round(valor || 0).toLocaleString("es-CL")}`;
+function cargarCotizacionGuardada(ordenId: string) {
+  try {
+    const raw = localStorage.getItem(`cotizacion-interna-${ordenId}`);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as {
+      items?: ItemCotizacion[];
+      incluirIva?: boolean;
+    };
+
+    if (!Array.isArray(parsed.items)) return null;
+
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 export default function CotizacionInterna({ ordenId }: Props) {
@@ -242,7 +260,7 @@ export default function CotizacionInterna({ ordenId }: Props) {
         .from("ordenes")
         .select("id,codigo,equipo,marca,modelo,numero_serie")
         .eq("orden_padre_id", ordenId)
-        .order("created_at", { ascending: true });
+        .order("codigo", { ascending: true });
 
       let equiposBase: Equipo[] = hijos || [];
 
@@ -256,23 +274,90 @@ export default function CotizacionInterna({ ordenId }: Props) {
         if (orden) equiposBase = [orden];
       }
 
+      const guardada = cargarCotizacionGuardada(ordenId);
+      if (guardada?.items?.length) {
+        setEquipos(equiposBase);
+        setItems(guardada.items);
+        setIncluirIva(guardada.incluirIva ?? true);
+        setLoading(false);
+        return;
+      }
+
       const nuevosItems: ItemCotizacion[] = [];
 
       for (const equipo of equiposBase) {
-        const { data: revision } = await supabase
+        const trabajoEquipo = obtenerEquipoTrabajo(equipo.id);
+
+        const { data: revisionDb } = await supabase
           .from("revisiones_jefe")
           .select(
-            "orden_id,horas_hombre,procedimiento_aprobado,repuestos_aprobados"
+            "orden_id,aprobado,horas_hombre,procedimiento_aprobado,repuestos_aprobados"
           )
           .eq("orden_id", equipo.id)
           .maybeSingle();
+
+        const revision: RevisionDb | null = {
+          orden_id: equipo.id,
+          aprobado: revisionDb?.aprobado ?? trabajoEquipo.revision?.aprobado,
+          horas_hombre:
+            revisionDb?.horas_hombre ?? trabajoEquipo.revision?.horas_hombre,
+          procedimiento_aprobado:
+            revisionDb?.procedimiento_aprobado ??
+            trabajoEquipo.revision?.procedimiento_aprobado,
+          repuestos_aprobados:
+            revisionDb?.repuestos_aprobados ??
+            trabajoEquipo.revision?.repuestos_aprobados,
+        };
+
+        if (revision?.aprobado === false) {
+          nuevosItems.push({
+            id: crearId(),
+            equipoId: equipo.id,
+            tipo: "otro",
+            descripcion: "Equipo rechazado en revisión técnica",
+            cantidad: 1,
+            unitario: 0,
+          });
+          continue;
+        }
 
         const itemsChecklist = crearItemsDesdeChecklist(equipo.id);
 
         if (itemsChecklist.length > 0) {
           nuevosItems.push(...itemsChecklist);
         } else {
-          nuevosItems.push(...crearItemsDesdeRevision(equipo.id, revision));
+          nuevosItems.push(...crearItemsDesdeRevisionTexto(equipo.id, revision));
+        }
+
+        const horas =
+          revision?.horas_hombre && Number(revision.horas_hombre) > 0
+            ? Number(revision.horas_hombre)
+            : 0;
+
+        if (horas > 0) {
+          nuevosItems.push({
+            id: crearId(),
+            equipoId: equipo.id,
+            tipo: "mano_obra",
+            descripcion: "Mano de obra servicio técnico",
+            cantidad: horas,
+            unitario: 0,
+          });
+        }
+
+        const itemsEquipo = nuevosItems.filter(
+          (item) => item.equipoId === equipo.id
+        );
+
+        if (!itemsEquipo.length) {
+          nuevosItems.push({
+            id: crearId(),
+            equipoId: equipo.id,
+            tipo: "otro",
+            descripcion: "",
+            cantidad: 1,
+            unitario: 0,
+          });
         }
       }
 
@@ -352,6 +437,7 @@ export default function CotizacionInterna({ ordenId }: Props) {
       JSON.stringify({
         ordenId,
         items,
+        incluirIva,
         totalNeto,
         iva,
         totalFinal,
@@ -361,6 +447,19 @@ export default function CotizacionInterna({ ordenId }: Props) {
 
     setGuardadoOk(true);
     setTimeout(() => setGuardadoOk(false), 2200);
+  }
+
+  function regenerarDesdeFlujo() {
+    if (!ordenId) return;
+
+    const confirmar = window.confirm(
+      "Esto volverá a cargar la cotización desde el checklist/revisión y perderá cambios no guardados en esta pantalla. ¿Continuar?"
+    );
+
+    if (!confirmar) return;
+
+    localStorage.removeItem(`cotizacion-interna-${ordenId}`);
+    cargarDatos();
   }
 
   if (loading) {
@@ -387,14 +486,21 @@ export default function CotizacionInterna({ ordenId }: Props) {
         <div>
           <h2>Cotización Interna</h2>
           <p>
-            Los ítems se cargan desde el checklist del equipo. Puedes editar
-            cantidades, valores y agregar ítems manuales.
+            Los ítems se cargan desde el checklist aprobado y se complementan
+            con las horas hombre de revisión. Puedes editar cantidades, valores
+            y agregar ítems manuales.
           </p>
         </div>
 
-        <button type="button" onClick={guardarLocal}>
-          {guardadoOk ? "✓ Guardado" : "Guardar cotización"}
-        </button>
+        <div className="headerActions">
+          <button type="button" className="secondaryTop" onClick={regenerarDesdeFlujo}>
+            Regenerar desde flujo
+          </button>
+
+          <button type="button" onClick={guardarLocal}>
+            {guardadoOk ? "✓ Guardado" : "Guardar cotización"}
+          </button>
+        </div>
       </div>
 
       <div className="ivaBox">
@@ -629,6 +735,13 @@ export default function CotizacionInterna({ ordenId }: Props) {
           margin-bottom: 16px;
         }
 
+        .headerActions {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+
         h2 {
           margin: 0;
           color: #0f172a;
@@ -651,6 +764,11 @@ export default function CotizacionInterna({ ordenId }: Props) {
           cursor: pointer;
           font-weight: 800;
           white-space: nowrap;
+        }
+
+        .secondaryTop {
+          background: #e0f2fe;
+          color: #0369a1;
         }
 
         .ivaBox {
@@ -841,6 +959,10 @@ export default function CotizacionInterna({ ordenId }: Props) {
           .header,
           .equipoHeader {
             flex-direction: column;
+          }
+
+          .headerActions {
+            justify-content: flex-start;
           }
 
           .subtotalEquipo {
