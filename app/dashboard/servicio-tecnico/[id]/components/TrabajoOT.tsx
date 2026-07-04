@@ -9,6 +9,8 @@ import {
 
 type Props = {
   ordenId?: string;
+  equipos?: any[];
+  onEstadoActualizado?: (estado: string) => void;
 };
 
 type Equipo = {
@@ -65,7 +67,11 @@ function generarTrabajoBase(equipoId: string) {
   };
 }
 
-export default function TrabajoOT({ ordenId }: Props) {
+export default function TrabajoOT({
+  ordenId,
+  equipos: equiposIniciales,
+  onEstadoActualizado,
+}: Props) {
   const [equipos, setEquipos] = useState<Equipo[]>([]);
   const [trabajos, setTrabajos] = useState<Record<string, TrabajoEquipo>>({});
   const [loading, setLoading] = useState(false);
@@ -166,16 +172,26 @@ export default function TrabajoOT({ ordenId }: Props) {
       } as any);
 
       if (actual.equipo_liberado) {
-        await supabase
-          .from("ordenes")
-          .update({ estado: "listo" })
-          .eq("id", equipoId);
-      } else {
-        await supabase
-          .from("ordenes")
-          .update({ estado: "trabajo" })
-          .eq("id", equipoId);
-      }
+  await supabase
+    .from("ordenes")
+    .update({ estado: "listo" })
+    .eq("id", equipoId)
+
+  if (ordenId) {
+    await supabase
+      .from("ordenes")
+      .update({ estado: "listo" })
+      .eq("id", ordenId)
+
+    onEstadoActualizado?.("listo")
+  }
+
+} else {
+  await supabase
+    .from("ordenes")
+    .update({ estado: "trabajo" })
+    .eq("id", equipoId)
+}
 
       setTrabajos((prev) => ({
         ...prev,
