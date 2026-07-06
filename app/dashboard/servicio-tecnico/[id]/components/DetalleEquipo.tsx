@@ -80,7 +80,14 @@ export default function DetalleEquipo({ orden, onActualizar, supabase }: Props) 
     <section className="card">
       <div className="header">
         <h2>Detalle del equipo</h2>
-        <button onClick={modificarEquipo}>Modificar</button>
+        
+        <button
+  onClick={() =>
+    (window.location.href = `/dashboard/servicio-tecnico/nueva?editar=1&id=${orden.id}`)
+  }
+>
+  Modificar
+</button>
       </div>
 
       <div className="grid">

@@ -57,7 +57,14 @@ export default function DetalleCliente({
     <section className="card">
       <div className="header">
         <h2>Detalle del cliente</h2>
-        <button onClick={modificarCliente}>Modificar</button>
+       <button
+  onClick={() =>
+    window.location.href =
+      `/dashboard/servicio-tecnico/nueva?editar=1&id=${ordenId}`
+  }
+>
+  Modificar
+</button>
       </div>
 
       <div className="grid">

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
+import { useSearchParams } from "next/navigation";
 
 type Cliente = {
   id: string;
@@ -42,8 +43,13 @@ function crearEquipoLote(): EquipoLote {
   };
 }
 
-export default function NuevaOrden() {
+function NuevaOrdenContenido() {
   const router = useRouter();
+
+  const searchParams = useSearchParams();
+
+const editar = searchParams.get("editar") === "1";
+const ordenId = searchParams.get("id");
 
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [clienteId, setClienteId] = useState("");
@@ -100,9 +106,74 @@ export default function NuevaOrden() {
       const siguienteNumero = mayorNumero + 1;
       setCodigo(`OT-${String(siguienteNumero).padStart(3, "0")}`);
     };
+if (editar && ordenId) {
+  cargarOrdenExistente();
+}
 
     cargarDatos();
   }, []);
+  async function cargarOrdenExistente() {
+  if (!ordenId) return;
+
+  const { data: orden, error } = await supabase
+    .from("ordenes")
+    .select("*")
+    .eq("id", ordenId)
+    .single();
+
+  if (error || !orden) {
+    alert("No se pudo cargar la OT para editar");
+    return;
+  }
+
+  setCodigo(orden.codigo || "");
+  setTecnicoIngreso(orden.tecnico_ingreso || "");
+  setTipoIngreso(orden.es_lote ? "lote" : "individual");
+  setCantidadEquipos(orden.cantidad_equipos || 2);
+  setEquipo(orden.equipo || "");
+  setMarca(orden.marca || "");
+  setModelo(orden.modelo || "");
+  setNumeroSerie(orden.numero_serie || "");
+  setAccesoriosEntregados(orden.accesorios_entregados || "");
+  setPrioridad(orden.prioridad || "Media");
+  setProblemaReportado(orden.problema_reportado || "");
+  setObservacionesIniciales(orden.observaciones_iniciales || "");
+
+  const clienteEncontrado = clientes.find(
+    (cliente) =>
+      cliente.nombre === orden.cliente ||
+      cliente.email === orden.cliente_email
+  );
+
+  if (clienteEncontrado) {
+    setClienteId(clienteEncontrado.id);
+  }
+
+  if (orden.es_lote) {
+    const { data: hijos } = await supabase
+      .from("ordenes")
+      .select("*")
+      .eq("orden_padre_id", orden.id)
+      .order("codigo", { ascending: true });
+
+    const equiposEditables =
+      hijos && hijos.length > 0
+        ? hijos.map((hijo) => ({
+            equipo: hijo.equipo || "",
+            marca: hijo.marca || "",
+            modelo: hijo.modelo || "",
+            numero_serie: hijo.numero_serie || "",
+            accesorios_entregados: hijo.accesorios_entregados || "",
+            problema_reportado: hijo.problema_reportado || "",
+            observaciones_iniciales: hijo.observaciones_iniciales || "",
+            fotos: [],
+          }))
+        : [crearEquipoLote(), crearEquipoLote()];
+
+    setEquiposLote(equiposEditables);
+    setCantidadEquipos(Math.max(2, equiposEditables.length));
+  }
+}
 
   useEffect(() => {
     setEquiposLote((prev) => {
@@ -303,6 +374,78 @@ if (tipoIngreso === "lote" && !observacionesIniciales.trim()) {
     setGuardando(true);
 
     try {
+
+      if (editar && ordenId) {
+  const clienteSeleccionado = clientes.find((c) => c.id === clienteId);
+
+  if (!clienteSeleccionado) {
+    alert("Selecciona un cliente");
+    setGuardando(false);
+    return;
+  }
+
+  const { error: errorOrden } = await supabase
+    .from("ordenes")
+    .update({
+      cliente: clienteSeleccionado.nombre,
+      cliente_email: clienteSeleccionado.email?.trim().toLowerCase() || "",
+      tecnico_ingreso: tecnicoIngreso,
+      equipo: tipoIngreso === "lote" ? `Lote de ${cantidadEquipos} equipos` : equipo,
+      prioridad,
+      marca: tipoIngreso === "lote" ? "" : marca,
+      modelo: tipoIngreso === "lote" ? "" : modelo,
+      numero_serie: tipoIngreso === "lote" ? "" : numeroSerie,
+      accesorios_entregados:
+        tipoIngreso === "lote" ? "" : accesoriosEntregados,
+      problema_reportado:
+        tipoIngreso === "lote" ? "Lote de equipos" : problemaReportado,
+      observaciones_iniciales: observacionesIniciales,
+      es_lote: tipoIngreso === "lote",
+      cantidad_equipos: tipoIngreso === "lote" ? cantidadEquipos : 1,
+    })
+    .eq("id", ordenId);
+
+  if (errorOrden) {
+    alert("Error actualizando OT: " + errorOrden.message);
+    setGuardando(false);
+    return;
+  }
+
+  if (tipoIngreso === "lote") {
+    const { data: hijos } = await supabase
+      .from("ordenes")
+      .select("id,codigo")
+      .eq("orden_padre_id", ordenId)
+      .order("codigo", { ascending: true });
+
+    for (let index = 0; index < equiposLote.length; index++) {
+      const item = equiposLote[index];
+      const hijoExistente = hijos?.[index];
+
+      if (!hijoExistente?.id) continue;
+
+      await supabase
+        .from("ordenes")
+        .update({
+          equipo: item.equipo,
+          marca: item.marca,
+          modelo: item.modelo,
+          numero_serie: item.numero_serie,
+          accesorios_entregados: item.accesorios_entregados,
+          problema_reportado: item.problema_reportado,
+          observaciones_iniciales: item.observaciones_iniciales,
+          prioridad,
+          cliente: clienteSeleccionado.nombre,
+          cliente_email: clienteSeleccionado.email?.trim().toLowerCase() || "",
+          tecnico_ingreso: tecnicoIngreso,
+        })
+        .eq("id", hijoExistente.id);
+    }
+  }
+
+  router.push(`/dashboard/servicio-tecnico/${ordenId}`);
+  return;
+}
       const fotosUrl = await subirFotosGenerales();
 
       if (tipoIngreso === "individual") {
@@ -455,8 +598,8 @@ problema_reportado: tipoIngreso === "lote" ? "Lote de equipos" : problemaReporta
       </button>
 
       <h1 className="text-3xl font-bold text-slate-900">
-        Nueva Orden de Servicio
-      </h1>
+  {editar ? "Editar Orden de Servicio" : "Nueva Orden de Servicio"}
+</h1>
 
       <p className="mt-1 text-sm text-slate-500">
         Registrar ingreso individual o lote de equipos
@@ -820,6 +963,7 @@ problema_reportado: tipoIngreso === "lote" ? "Lote de equipos" : problemaReporta
           </section>
         ) : null}
 
+{tipoIngreso === "individual" && (
         <section className="rounded-2xl border border-slate-200 bg-white p-6">
           <h2 className="mb-4 text-lg font-bold">Problema Reportado</h2>
 
@@ -844,6 +988,7 @@ problema_reportado: tipoIngreso === "lote" ? "Lote de equipos" : problemaReporta
             className="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-3"
           />
         </section>
+        )}
 
         <section className="rounded-2xl border border-slate-200 bg-white p-6">
           <h2 className="mb-2 text-lg font-bold">
@@ -964,15 +1109,25 @@ problema_reportado: tipoIngreso === "lote" ? "Lote de equipos" : problemaReporta
             disabled={guardando}
             className="rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
           >
-            {guardando
-              ? "Creando..."
-              : tipoIngreso === "lote"
-              ? "Crear Lote"
-              : "Crear Orden"}
+           {guardando
+  ? "Guardando..."
+  : editar
+    ? "Guardar cambios"
+    : tipoIngreso === "lote"
+      ? "Crear Lote"
+      : "Crear Orden"}
           </button>
         </div>
       </form>
     </div>
+  );
+}
+
+export default function NuevaOrden() {
+  return (
+    <Suspense fallback={<div className="p-8">Cargando...</div>}>
+      <NuevaOrdenContenido />
+    </Suspense>
   );
 }
 
