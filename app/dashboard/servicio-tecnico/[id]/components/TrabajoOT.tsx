@@ -22,25 +22,56 @@ type Equipo = {
   numero_serie?: string | null;
 };
 
+type RepuestoUtilizado = {
+  id: string;
+  cantidad: number;
+  descripcion: string;
+  observacion: string;
+};
+
+type FotoEgreso = {
+  id: string;
+  nombre: string;
+  url: string;
+};
+
+type DocumentoTrabajo = {
+  id: string;
+  tipo: "Certificado" | "Test de carga" | "Manual" | "Ficha técnica" | "Otro";
+  nombre: string;
+  comentario: string;
+  url: string;
+};
+
 type TrabajoEquipo = {
   trabajo_realizado: string;
-  repuestos_utilizados: string;
+  repuestos_utilizados: RepuestoUtilizado[];
+  horas_reales: string;
   observaciones: string;
   prueba_funcional: boolean;
   prueba_carga: boolean;
   equipo_liberado: boolean;
+  fotos_egreso: FotoEgreso[];
+  documentos: DocumentoTrabajo[];
   guardando: boolean;
   guardadoOk: boolean;
 };
 
+function crearId() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function trabajoVacio(): TrabajoEquipo {
   return {
     trabajo_realizado: "",
-    repuestos_utilizados: "",
+    repuestos_utilizados: [],
+    horas_reales: "",
     observaciones: "",
     prueba_funcional: false,
     prueba_carga: false,
     equipo_liberado: false,
+    fotos_egreso: [],
+    documentos: [],
     guardando: false,
     guardadoOk: false,
   };
@@ -52,19 +83,66 @@ function identificadorEquipo(equipo: Equipo) {
   return `ID: ${equipo.id.slice(0, 8)}`;
 }
 
+function repuestosDesdeTexto(texto?: string) {
+  if (!texto) return [];
+
+  return texto
+    .split("\n")
+    .map((linea) => linea.trim())
+    .filter(Boolean)
+    .map((linea) => {
+      const match = linea.match(/^(\d+(?:[.,]\d+)?)\s*x\s*(.+)$/i);
+
+      return {
+        id: crearId(),
+        cantidad: match ? Number(match[1].replace(",", ".")) || 1 : 1,
+        descripcion: match ? match[2].trim() : linea,
+        observacion: "",
+      };
+    });
+}
+
 function generarTrabajoBase(equipoId: string) {
   const data = obtenerEquipoTrabajo(equipoId);
 
+  const trabajoRealizado =
+    data.trabajo?.trabajo_realizado ||
+    data.revision?.procedimiento_aprobado ||
+    data.diagnostico?.procedimiento ||
+    "";
+
+  const repuestosTexto =
+    data.trabajo?.repuestos_utilizados ||
+    data.revision?.repuestos_aprobados ||
+    data.diagnostico?.repuestos ||
+    "";
+
   return {
-    trabajo_realizado:
-      data.revision?.procedimiento_aprobado ||
-      data.diagnostico?.procedimiento ||
+    trabajo_realizado: trabajoRealizado,
+    repuestos_utilizados: Array.isArray(data.trabajo?.repuestos_utilizados)
+      ? data.trabajo?.repuestos_utilizados
+      : repuestosDesdeTexto(repuestosTexto as string),
+    horas_reales:
+      (data.trabajo as any)?.horas_reales ||
+      data.revision?.horas_hombre?.toString() ||
       "",
-    repuestos_utilizados:
-      data.revision?.repuestos_aprobados ||
-      data.diagnostico?.repuestos ||
-      "",
+    observaciones: data.trabajo?.observaciones || "",
+    prueba_funcional: Boolean(data.trabajo?.prueba_funcional),
+    prueba_carga: Boolean(data.trabajo?.prueba_carga),
+    equipo_liberado: Boolean(data.trabajo?.equipo_liberado),
+    fotos_egreso: ((data.trabajo as any)?.fotos_egreso || []) as FotoEgreso[],
+    documentos: ((data.trabajo as any)?.documentos || []) as DocumentoTrabajo[],
   };
+}
+
+function archivoADataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("No se pudo leer el archivo"));
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function TrabajoOT({
@@ -104,23 +182,18 @@ export default function TrabajoOT({
         if (orden) equiposBase = [orden];
       }
 
+      if (!equiposBase.length && equiposIniciales?.length) {
+        equiposBase = equiposIniciales;
+      }
+
       const estadoInicial: Record<string, TrabajoEquipo> = {};
 
       equiposBase.forEach((equipo) => {
-        const data = obtenerEquipoTrabajo(equipo.id);
         const base = generarTrabajoBase(equipo.id);
-        const trabajoGuardado = data.trabajo as Partial<TrabajoEquipo> | undefined;
 
         estadoInicial[equipo.id] = {
           ...trabajoVacio(),
-          trabajo_realizado:
-            trabajoGuardado?.trabajo_realizado || base.trabajo_realizado,
-          repuestos_utilizados:
-            trabajoGuardado?.repuestos_utilizados || base.repuestos_utilizados,
-          observaciones: trabajoGuardado?.observaciones || "",
-          prueba_funcional: Boolean(trabajoGuardado?.prueba_funcional),
-          prueba_carga: Boolean(trabajoGuardado?.prueba_carga),
-          equipo_liberado: Boolean(trabajoGuardado?.equipo_liberado),
+          ...base,
         };
       });
 
@@ -136,7 +209,7 @@ export default function TrabajoOT({
   function actualizarCampo(
     equipoId: string,
     campo: keyof TrabajoEquipo,
-    valor: string | boolean
+    valor: string | boolean | RepuestoUtilizado[] | FotoEgreso[] | DocumentoTrabajo[]
   ) {
     setTrabajos((prev) => ({
       ...prev,
@@ -145,6 +218,138 @@ export default function TrabajoOT({
         [campo]: valor,
       },
     }));
+  }
+
+  function agregarRepuesto(equipoId: string) {
+    const actual = trabajos[equipoId] || trabajoVacio();
+
+    actualizarCampo(equipoId, "repuestos_utilizados", [
+      ...actual.repuestos_utilizados,
+      {
+        id: crearId(),
+        cantidad: 1,
+        descripcion: "",
+        observacion: "",
+      },
+    ]);
+  }
+
+  function actualizarRepuesto(
+    equipoId: string,
+    repuestoId: string,
+    campo: keyof RepuestoUtilizado,
+    valor: string | number
+  ) {
+    const actual = trabajos[equipoId] || trabajoVacio();
+
+    actualizarCampo(
+      equipoId,
+      "repuestos_utilizados",
+      actual.repuestos_utilizados.map((repuesto) =>
+        repuesto.id === repuestoId
+          ? {
+              ...repuesto,
+              [campo]:
+                campo === "cantidad"
+                  ? Number(valor) || 0
+                  : String(valor),
+            }
+          : repuesto
+      )
+    );
+  }
+
+  function eliminarRepuesto(equipoId: string, repuestoId: string) {
+    const actual = trabajos[equipoId] || trabajoVacio();
+
+    actualizarCampo(
+      equipoId,
+      "repuestos_utilizados",
+      actual.repuestos_utilizados.filter((repuesto) => repuesto.id !== repuestoId)
+    );
+  }
+
+  async function agregarFotos(equipoId: string, files: FileList | null) {
+    if (!files?.length) return;
+
+    const actual = trabajos[equipoId] || trabajoVacio();
+
+    const nuevasFotos: FotoEgreso[] = [];
+
+    for (const file of Array.from(files)) {
+      const url = await archivoADataUrl(file);
+
+      nuevasFotos.push({
+        id: crearId(),
+        nombre: file.name,
+        url,
+      });
+    }
+
+    actualizarCampo(equipoId, "fotos_egreso", [
+      ...actual.fotos_egreso,
+      ...nuevasFotos,
+    ]);
+  }
+
+  function eliminarFoto(equipoId: string, fotoId: string) {
+    const actual = trabajos[equipoId] || trabajoVacio();
+
+    actualizarCampo(
+      equipoId,
+      "fotos_egreso",
+      actual.fotos_egreso.filter((foto) => foto.id !== fotoId)
+    );
+  }
+
+  async function agregarDocumento(equipoId: string, file: File | null) {
+    if (!file) return;
+
+    const actual = trabajos[equipoId] || trabajoVacio();
+    const url = await archivoADataUrl(file);
+
+    actualizarCampo(equipoId, "documentos", [
+      ...actual.documentos,
+      {
+        id: crearId(),
+        tipo: "Certificado",
+        nombre: file.name,
+        comentario: "",
+        url,
+      },
+    ]);
+  }
+
+  function actualizarDocumento(
+    equipoId: string,
+    documentoId: string,
+    campo: keyof DocumentoTrabajo,
+    valor: string
+  ) {
+    const actual = trabajos[equipoId] || trabajoVacio();
+
+    actualizarCampo(
+      equipoId,
+      "documentos",
+      actual.documentos.map((documento) =>
+        documento.id === documentoId
+          ? {
+              ...documento,
+              [campo]: valor,
+            }
+          : documento
+      )
+    );
+  }
+
+  function eliminarDocumento(equipoId: string, documentoId: string) {
+    const actual = trabajos[equipoId] || trabajoVacio();
+
+    actualizarCampo(
+      equipoId,
+      "documentos",
+      actual.documentos.filter((documento) => documento.id !== documentoId)
+    );
   }
 
   async function guardar(equipoId: string) {
@@ -163,35 +368,37 @@ export default function TrabajoOT({
       guardarEquipoTrabajo(equipoId, {
         trabajo: {
           trabajo_realizado: actual.trabajo_realizado,
-          repuestos_utilizados: actual.repuestos_utilizados,
+          repuestos_utilizados: actual.repuestos_utilizados as any,
+          horas_reales: actual.horas_reales,
           observaciones: actual.observaciones,
           prueba_funcional: actual.prueba_funcional,
           prueba_carga: actual.prueba_carga,
           equipo_liberado: actual.equipo_liberado,
+          fotos_egreso: actual.fotos_egreso as any,
+          documentos: actual.documentos as any,
         },
       } as any);
 
-      if (actual.equipo_liberado) {
-  await supabase
-    .from("ordenes")
-    .update({ estado: "listo" })
-    .eq("id", equipoId)
+      const nuevoEstado = actual.equipo_liberado ? "listo" : "trabajo";
 
-  if (ordenId) {
-    await supabase
-      .from("ordenes")
-      .update({ estado: "listo" })
-      .eq("id", ordenId)
+      await supabase
+        .from("ordenes")
+        .update({ estado: nuevoEstado })
+        .eq("id", equipoId);
 
-    onEstadoActualizado?.("listo")
-  }
+      if (ordenId) {
+        await supabase
+          .from("ordenes")
+          .update({ estado: nuevoEstado })
+          .eq("id", ordenId);
 
-} else {
-  await supabase
-    .from("ordenes")
-    .update({ estado: "trabajo" })
-    .eq("id", equipoId)
-}
+        await supabase
+          .from("ordenes")
+          .update({ estado: nuevoEstado })
+          .eq("orden_padre_id", ordenId);
+
+        onEstadoActualizado?.(nuevoEstado);
+      }
 
       setTrabajos((prev) => ({
         ...prev,
@@ -201,16 +408,6 @@ export default function TrabajoOT({
           guardadoOk: true,
         },
       }));
-
-      setTimeout(() => {
-        setTrabajos((prev) => ({
-          ...prev,
-          [equipoId]: {
-            ...(prev[equipoId] || trabajoVacio()),
-            guardadoOk: false,
-          },
-        }));
-      }, 2200);
     } catch (e: any) {
       alert(e.message || "No se pudo guardar el trabajo");
 
@@ -264,7 +461,7 @@ export default function TrabajoOT({
 
                 {actual.equipo_liberado && (
                   <p className="mt-2 text-xs font-bold text-green-700">
-                    Equipo marcado como listo
+                    Equipo listo para entrega
                   </p>
                 )}
               </div>
@@ -273,17 +470,19 @@ export default function TrabajoOT({
                 type="button"
                 onClick={() => guardar(equipo.id)}
                 disabled={actual.guardando}
-                className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                className={`rounded-xl px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300 ${
+                  actual.guardadoOk ? "bg-green-600" : "bg-blue-600"
+                }`}
               >
                 {actual.guardando
                   ? "Guardando..."
                   : actual.guardadoOk
-                  ? "✓ Guardado"
+                  ? "✓ Trabajo guardado"
                   : "Guardar trabajo"}
               </button>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div>
                 <label className="mb-2 block text-sm font-bold text-slate-700">
                   Trabajo realizado
@@ -304,22 +503,257 @@ export default function TrabajoOT({
               </div>
 
               <div>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <label className="block text-sm font-bold text-slate-700">
+                    Repuestos utilizados
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => agregarRepuesto(equipo.id)}
+                    className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white"
+                  >
+                    + Agregar repuesto
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="w-full min-w-[720px] border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                        <th className="p-3">Cantidad</th>
+                        <th className="p-3">Repuesto</th>
+                        <th className="p-3">Observación</th>
+                        <th className="p-3"></th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {actual.repuestos_utilizados.map((repuesto) => (
+                        <tr key={repuesto.id} className="border-t border-slate-200">
+                          <td className="p-3">
+                            <input
+                              type="number"
+                              value={repuesto.cantidad}
+                              onChange={(event) =>
+                                actualizarRepuesto(
+                                  equipo.id,
+                                  repuesto.id,
+                                  "cantidad",
+                                  event.target.value
+                                )
+                              }
+                              className="w-full rounded-lg border border-slate-300 px-2 py-2"
+                            />
+                          </td>
+
+                          <td className="p-3">
+                            <input
+                              value={repuesto.descripcion}
+                              onChange={(event) =>
+                                actualizarRepuesto(
+                                  equipo.id,
+                                  repuesto.id,
+                                  "descripcion",
+                                  event.target.value
+                                )
+                              }
+                              className="w-full rounded-lg border border-slate-300 px-2 py-2"
+                            />
+                          </td>
+
+                          <td className="p-3">
+                            <input
+                              value={repuesto.observacion}
+                              onChange={(event) =>
+                                actualizarRepuesto(
+                                  equipo.id,
+                                  repuesto.id,
+                                  "observacion",
+                                  event.target.value
+                                )
+                              }
+                              className="w-full rounded-lg border border-slate-300 px-2 py-2"
+                            />
+                          </td>
+
+                          <td className="p-3">
+                            <button
+                              type="button"
+                              onClick={() => eliminarRepuesto(equipo.id, repuesto.id)}
+                              className="rounded-lg bg-red-100 px-3 py-2 text-xs font-bold text-red-700"
+                            >
+                              Eliminar
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+
+                      {!actual.repuestos_utilizados.length && (
+                        <tr>
+                          <td colSpan={4} className="p-4 text-center text-slate-400">
+                            Sin repuestos utilizados.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
                 <label className="mb-2 block text-sm font-bold text-slate-700">
-                  Repuestos utilizados
+                  Horas hombre reales
                 </label>
 
-                <textarea
-                  value={actual.repuestos_utilizados}
+                <input
+                  type="number"
+                  value={actual.horas_reales}
                   onChange={(event) =>
-                    actualizarCampo(
-                      equipo.id,
-                      "repuestos_utilizados",
-                      event.target.value
-                    )
+                    actualizarCampo(equipo.id, "horas_reales", event.target.value)
                   }
-                  rows={4}
-                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-700">
+                  Fotografías de egreso
+                </label>
+
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(event) => agregarFotos(equipo.id, event.target.files)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                />
+
+                {!!actual.fotos_egreso.length && (
+                  <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+                    {actual.fotos_egreso.map((foto) => (
+                      <div
+                        key={foto.id}
+                        className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+                      >
+                        <a href={foto.url} target="_blank" rel="noreferrer">
+                          <img
+                            src={foto.url}
+                            alt={foto.nombre}
+                            className="h-28 w-full object-cover"
+                          />
+                        </a>
+
+                        <div className="p-2">
+                          <p className="truncate text-xs font-semibold text-slate-600">
+                            {foto.nombre}
+                          </p>
+
+                          <button
+                            type="button"
+                            onClick={() => eliminarFoto(equipo.id, foto.id)}
+                            className="mt-2 rounded-lg bg-red-100 px-2 py-1 text-xs font-bold text-red-700"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-700">
+                  Documentos asociados
+                </label>
+
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,image/*"
+                  onChange={(event) =>
+                    agregarDocumento(equipo.id, event.target.files?.[0] || null)
+                  }
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                />
+
+                {!!actual.documentos.length && (
+                  <div className="mt-3 space-y-3">
+                    {actual.documentos.map((documento) => (
+                      <div
+                        key={documento.id}
+                        className="rounded-xl border border-slate-200 bg-slate-50 p-3"
+                      >
+                        <div className="grid gap-3 md:grid-cols-3">
+                          <select
+                            value={documento.tipo}
+                            onChange={(event) =>
+                              actualizarDocumento(
+                                equipo.id,
+                                documento.id,
+                                "tipo",
+                                event.target.value
+                              )
+                            }
+                            className="rounded-lg border border-slate-300 px-2 py-2 text-sm"
+                          >
+                            <option>Certificado</option>
+                            <option>Test de carga</option>
+                            <option>Manual</option>
+                            <option>Ficha técnica</option>
+                            <option>Otro</option>
+                          </select>
+
+                          <input
+                            value={documento.nombre}
+                            onChange={(event) =>
+                              actualizarDocumento(
+                                equipo.id,
+                                documento.id,
+                                "nombre",
+                                event.target.value
+                              )
+                            }
+                            className="rounded-lg border border-slate-300 px-2 py-2 text-sm"
+                          />
+
+                          <input
+                            value={documento.comentario}
+                            onChange={(event) =>
+                              actualizarDocumento(
+                                equipo.id,
+                                documento.id,
+                                "comentario",
+                                event.target.value
+                              )
+                            }
+                            placeholder="Comentario"
+                            className="rounded-lg border border-slate-300 px-2 py-2 text-sm"
+                          />
+                        </div>
+
+                        <div className="mt-3 flex items-center justify-between gap-3">
+                          <a
+                            href={documento.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-sm font-bold text-blue-700"
+                          >
+                            Abrir documento
+                          </a>
+
+                          <button
+                            type="button"
+                            onClick={() => eliminarDocumento(equipo.id, documento.id)}
+                            className="rounded-lg bg-red-100 px-3 py-2 text-xs font-bold text-red-700"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div>
