@@ -1,22 +1,22 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-
-    const { equipo, checklist, observaciones } = body;
-
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
         { error: "Falta configurar OPENAI_API_KEY" },
         { status: 500 }
       );
     }
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+
+    const body = await request.json();
+
+    const { equipo, checklist, observaciones } = body;
 
     const response = await openai.responses.create({
       model: "gpt-4.1-mini",
@@ -56,6 +56,8 @@ Prioridad:
       resultado: response.output_text,
     });
   } catch (error: any) {
+    console.error(error);
+
     return NextResponse.json(
       {
         error: error.message || "Error generando diagnóstico IA",
