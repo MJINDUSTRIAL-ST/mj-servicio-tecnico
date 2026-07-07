@@ -442,17 +442,40 @@ export default function ChecklistInteligente({
       }
 
       const data = await response.json();
-      const textoIA = data.resultado || "Diagnóstico generado por IA.";
 
-      const diagnosticoIA: DiagnosticoGeneradoMJ = {
+const resultadoIA = data.resultado || {};
+const hallazgosIA =
+  resultadoIA.hallazgos ||
+  "Diagnóstico generado por IA sin hallazgos estructurados.";
+
+const trabajosIA = Array.isArray(resultadoIA.trabajosRequeridos)
+  ? resultadoIA.trabajosRequeridos
+  : [];
+
+const criticidadIA =
+  resultadoIA.criticidad === "critica" ||
+  resultadoIA.criticidad === "alta" ||
+  resultadoIA.criticidad === "media" ||
+  resultadoIA.criticidad === "baja"
+    ? resultadoIA.criticidad
+    : "media";
+
+const estadoFinalIA =
+  resultadoIA.estadoFinal === "no_apto"
+    ? "no_apto"
+    : resultadoIA.estadoFinal === "apto"
+    ? "apto"
+    : "observaciones";
+
+const diagnosticoIA: DiagnosticoGeneradoMJ = {
   tipoEquipo,
   nombreEquipo: checklist.nombre,
-  resumen: textoIA,
-  diagnosticoTecnico: textoIA,
-  procedimientoRecomendado: [],
+  resumen: resultadoIA.resumenCliente || hallazgosIA,
+  diagnosticoTecnico: hallazgosIA,
+  procedimientoRecomendado: trabajosIA,
   repuestosSugeridos: [],
-  criticidad: "media",
-  requiereRetiroServicio: false,
+  criticidad: criticidadIA,
+  requiereRetiroServicio: estadoFinalIA === "no_apto",
   itemsMalos: [],
 };
 
