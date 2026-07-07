@@ -565,16 +565,7 @@ export default function DetalleOrdenPage() {
               />
             ))}
 
-          {tab === "checklist" &&
-  (esOtMadreLote ? (
-    <ChecklistLote equipos={equiposLote} ordenId={orden.id} />
-  ) : (
-    <ChecklistInteligente
-      equipoId={orden.id}
-      tipoEquipoInicial={orden.equipo}
-      onGenerarDiagnostico={avanzarADiagnostico}
-    />
-  ))}
+          
 
 {tab === "diagnostico" && (
   <DiagnosticoTecnico
