@@ -16,11 +16,7 @@ import {
 import { obtenerRepuestoSugerido } from "../lib/repuestosSugeridos";
 
 type AccionChecklist =
-  | "repuesto"
-  | "reparacion"
-  | "ajuste"
-  | "mantencion"
-  | "otro";
+  "repuesto" | "reparacion" | "ajuste" | "mantencion" | "otro";
 
 type RespuestaChecklist = {
   estado: EstadoChecklist | "";
@@ -60,7 +56,7 @@ const ACCIONES: Array<{ value: AccionChecklist; label: string }> = [
 ];
 
 function normalizarTipoEquipo(
-  tipo: string | null | undefined
+  tipo: string | null | undefined,
 ): TipoEquipoChecklist | "" {
   if (!tipo) return "";
 
@@ -100,7 +96,7 @@ function crearRespuestaVacia(): RespuestaChecklist {
 }
 
 function crearRespuestasVacias(
-  checklist: ChecklistEquipo | null
+  checklist: ChecklistEquipo | null,
 ): RespuestasChecklist {
   if (!checklist) return {};
 
@@ -116,7 +112,7 @@ function crearRespuestasVacias(
 }
 
 function normalizarRespuestaGuardada(
-  respuesta: Partial<RespuestaChecklist> | undefined
+  respuesta: Partial<RespuestaChecklist> | undefined,
 ): RespuestaChecklist {
   return {
     estado: respuesta?.estado ?? "",
@@ -130,10 +126,7 @@ function normalizarRespuestaGuardada(
 }
 
 function serializarRespuestas(respuestas: RespuestasChecklist) {
-  const serializadas: Record<
-    string,
-    Omit<RespuestaChecklist, "fotos">
-  > = {};
+  const serializadas: Record<string, Omit<RespuestaChecklist, "fotos">> = {};
 
   Object.entries(respuestas).forEach(([itemId, respuesta]) => {
     serializadas[itemId] = {
@@ -162,7 +155,7 @@ export default function ChecklistInteligente({
   }, [tipoEquipo]);
 
   const [respuestas, setRespuestas] = useState<RespuestasChecklist>(() =>
-    crearRespuestasVacias(tipoEquipo ? CHECKLISTS[tipoEquipo] : null)
+    crearRespuestasVacias(tipoEquipo ? CHECKLISTS[tipoEquipo] : null),
   );
 
   const [cargadoStorage, setCargadoStorage] = useState(false);
@@ -171,15 +164,17 @@ export default function ChecklistInteligente({
   >({});
   const [diagnosticoGenerado, setDiagnosticoGenerado] =
     useState<DiagnosticoGeneradoMJ | null>(null);
+  const [generandoIA, setGenerandoIA] = useState(false);
+  const [usoRespaldoLocal, setUsoRespaldoLocal] = useState(false);
 
   const totalItems =
     checklist?.sections.reduce(
       (total, section) => total + section.items.length,
-      0
+      0,
     ) ?? 0;
 
   const itemsRespondidos = Object.values(respuestas).filter(
-    (respuesta) => respuesta.estado
+    (respuesta) => respuesta.estado,
   ).length;
 
   const itemsMalos = useMemo(() => {
@@ -191,7 +186,7 @@ export default function ChecklistInteligente({
           item,
           respuesta: respuestas[item.id],
         }))
-        .filter((registro) => registro.respuesta?.estado === "malo")
+        .filter((registro) => registro.respuesta?.estado === "malo"),
     );
   }, [checklist, respuestas]);
 
@@ -204,7 +199,7 @@ export default function ChecklistInteligente({
 
   useEffect(() => {
     const base = crearRespuestasVacias(
-      tipoEquipo ? CHECKLISTS[tipoEquipo] : null
+      tipoEquipo ? CHECKLISTS[tipoEquipo] : null,
     );
 
     if (!equipoId) {
@@ -246,7 +241,7 @@ export default function ChecklistInteligente({
 
     localStorage.setItem(
       `checklist-${equipoId}`,
-      JSON.stringify(serializarRespuestas(respuestas))
+      JSON.stringify(serializarRespuestas(respuestas)),
     );
   }, [equipoId, respuestas, cargadoStorage]);
 
@@ -264,8 +259,7 @@ export default function ChecklistInteligente({
           observacion: estado === "malo" ? anterior.observacion : "",
           fotos: estado === "malo" ? anterior.fotos : [],
           acciones: estado === "malo" ? anterior.acciones : [],
-          repuesto_nombre:
-            estado === "malo" ? anterior.repuesto_nombre : "",
+          repuesto_nombre: estado === "malo" ? anterior.repuesto_nombre : "",
           repuesto_cantidad:
             estado === "malo" ? anterior.repuesto_cantidad || "1" : "1",
           accion_otro: estado === "malo" ? anterior.accion_otro : "",
@@ -287,39 +281,37 @@ export default function ChecklistInteligente({
   }
 
   function cambiarAccion(
-  itemId: string,
-  accion: AccionChecklist,
-  itemLabel?: string
-) {
-  setDiagnosticoGenerado(null);
+    itemId: string,
+    accion: AccionChecklist,
+    itemLabel?: string,
+  ) {
+    setDiagnosticoGenerado(null);
 
-  setRespuestas((prev) => {
-    const anterior = prev[itemId] ?? crearRespuestaVacia();
-    const existe = anterior.acciones.includes(accion);
+    setRespuestas((prev) => {
+      const anterior = prev[itemId] ?? crearRespuestaVacia();
+      const existe = anterior.acciones.includes(accion);
 
-    const acciones = existe
-      ? anterior.acciones.filter((a) => a !== accion)
-      : [...anterior.acciones, accion];
+      const acciones = existe
+        ? anterior.acciones.filter((a) => a !== accion)
+        : [...anterior.acciones, accion];
 
-    return {
-      ...prev,
-      [itemId]: {
-        ...anterior,
-        acciones,
-        repuesto_nombre:
-  acciones.includes("repuesto")
-    ? anterior.repuesto_nombre ||
-      obtenerRepuestoSugerido(itemLabel || "")
-    : "",
-        repuesto_cantidad:
-          acciones.includes("repuesto")
+      return {
+        ...prev,
+        [itemId]: {
+          ...anterior,
+          acciones,
+          repuesto_nombre: acciones.includes("repuesto")
+            ? anterior.repuesto_nombre ||
+              obtenerRepuestoSugerido(itemLabel || "")
+            : "",
+          repuesto_cantidad: acciones.includes("repuesto")
             ? anterior.repuesto_cantidad || "1"
             : "1",
-        accion_otro: acciones.includes("otro") ? anterior.accion_otro : "",
-      },
-    };
-  });
-}
+          accion_otro: acciones.includes("otro") ? anterior.accion_otro : "",
+        },
+      };
+    });
+  }
 
   function cambiarRepuestoNombre(itemId: string, value: string) {
     setDiagnosticoGenerado(null);
@@ -381,7 +373,7 @@ export default function ChecklistInteligente({
       [itemId]: {
         ...(prev[itemId] ?? crearRespuestaVacia()),
         fotos: (prev[itemId]?.fotos ?? []).filter(
-          (_, fotoIndex) => fotoIndex !== index
+          (_, fotoIndex) => fotoIndex !== index,
         ),
       },
     }));
@@ -394,33 +386,123 @@ export default function ChecklistInteligente({
     }));
   }
 
-  function generarDiagnostico() {
+  async function generarDiagnostico() {
     if (!checklist || !tipoEquipo) return;
 
-    const diagnostico = generarDiagnosticoMJ({
-      tipoEquipo,
-      checklist,
-      respuestas,
-    });
+    setGenerandoIA(true);
+    setUsoRespaldoLocal(false);
 
-    setDiagnosticoGenerado(diagnostico);
+    try {
+      const response = await fetch("/api/diagnostico-ia", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          equipo: {
+            tipoEquipo,
+            nombreChecklist: checklist.nombre,
+            descripcionChecklist: checklist.descripcion,
+          },
+          checklist: {
+            totalItems,
+            itemsRespondidos,
+            itemsMalos: itemsMalos.map((registro) => ({
+              item: {
+                id: registro.item.id,
+                label: registro.item.label,
+                descripcion: "",
+                sistema: registro.item.sistema || "",
+                afectaSeguridad: Boolean(registro.item.afectaSeguridad),
+              },
+              respuesta: {
+                estado: registro.respuesta.estado,
+                observacion: registro.respuesta.observacion,
+                acciones: registro.respuesta.acciones,
+                repuesto_nombre: registro.respuesta.repuesto_nombre,
+                repuesto_cantidad: registro.respuesta.repuesto_cantidad,
+                accion_otro: registro.respuesta.accion_otro,
+                cantidad_fotos: registro.respuesta.fotos?.length || 0,
+              },
+            })),
+          },
+          observaciones: itemsMalos
+            .map(
+              (registro) =>
+                `${registro.item.label}: ${
+                  registro.respuesta.observacion || "Sin observación"
+                }`,
+            )
+            .join("\n"),
+        }),
+      });
 
-    // Guardar automáticamente antes de cerrar el equipo
-if (equipoId) {
-  localStorage.setItem(
-    `checklist-${equipoId}`,
-    JSON.stringify(serializarRespuestas(respuestas))
-  );
-}
+      if (!response.ok) {
+        throw new Error("La IA no respondió correctamente");
+      }
 
-    onGenerarDiagnostico?.({
-      equipoId,
-      tipoEquipo,
-      checklist,
-      respuestas,
-      itemsMalos,
-      diagnostico,
-    });
+      const data = await response.json();
+      const textoIA = data.resultado || "Diagnóstico generado por IA.";
+
+      const diagnosticoIA: DiagnosticoGeneradoMJ = {
+  tipoEquipo,
+  nombreEquipo: checklist.nombre,
+  resumen: textoIA,
+  diagnosticoTecnico: textoIA,
+  procedimientoRecomendado: [],
+  repuestosSugeridos: [],
+  criticidad: "media",
+  requiereRetiroServicio: false,
+  itemsMalos: [],
+};
+
+      setDiagnosticoGenerado(diagnosticoIA);
+
+      if (equipoId) {
+        localStorage.setItem(
+          `checklist-${equipoId}`,
+          JSON.stringify(serializarRespuestas(respuestas)),
+        );
+      }
+
+      onGenerarDiagnostico?.({
+        equipoId,
+        tipoEquipo,
+        checklist,
+        respuestas,
+        itemsMalos,
+        diagnostico: diagnosticoIA,
+      });
+    } catch (error) {
+      console.error("Error IA, usando respaldo local:", error);
+
+      const diagnosticoLocal = generarDiagnosticoMJ({
+        tipoEquipo,
+        checklist,
+        respuestas,
+      });
+
+      setUsoRespaldoLocal(true);
+      setDiagnosticoGenerado(diagnosticoLocal);
+
+      if (equipoId) {
+        localStorage.setItem(
+          `checklist-${equipoId}`,
+          JSON.stringify(serializarRespuestas(respuestas)),
+        );
+      }
+
+      onGenerarDiagnostico?.({
+        equipoId,
+        tipoEquipo,
+        checklist,
+        respuestas,
+        itemsMalos,
+        diagnostico: diagnosticoLocal,
+      });
+    } finally {
+      setGenerandoIA(false);
+    }
   }
 
   if (!tipoEquipo || !checklist) {
@@ -482,9 +564,7 @@ if (equipoId) {
 
           <div className="rounded-lg bg-white p-3 text-slate-600">
             Malos
-            <div className="mt-1 text-lg text-red-600">
-              {itemsMalos.length}
-            </div>
+            <div className="mt-1 text-lg text-red-600">{itemsMalos.length}</div>
           </div>
         </div>
       </div>
@@ -494,7 +574,10 @@ if (equipoId) {
           const abierta = seccionesAbiertas[section.id] ?? sectionIndex === 0;
 
           return (
-            <div key={section.id} className="rounded-xl border border-slate-200">
+            <div
+              key={section.id}
+              className="rounded-xl border border-slate-200"
+            >
               <button
                 type="button"
                 onClick={() => toggleSeccion(section.id)}
@@ -518,7 +601,8 @@ if (equipoId) {
               {abierta && (
                 <div className="space-y-3 border-t border-slate-200 p-4">
                   {section.items.map((item) => {
-                    const respuesta = respuestas[item.id] ?? crearRespuestaVacia();
+                    const respuesta =
+                      respuestas[item.id] ?? crearRespuestaVacia();
 
                     return (
                       <div
@@ -591,7 +675,10 @@ if (equipoId) {
                               <textarea
                                 value={respuesta.observacion}
                                 onChange={(event) =>
-                                  cambiarObservacion(item.id, event.target.value)
+                                  cambiarObservacion(
+                                    item.id,
+                                    event.target.value,
+                                  )
                                 }
                                 placeholder="Describe brevemente la falla encontrada..."
                                 className="min-h-[90px] w-full rounded-xl border border-red-200 bg-white px-3 py-2 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
@@ -613,7 +700,11 @@ if (equipoId) {
                                       key={accion.value}
                                       type="button"
                                       onClick={() =>
-                                        cambiarAccion(item.id, accion.value, item.label)
+                                        cambiarAccion(
+                                          item.id,
+                                          accion.value,
+                                          item.label,
+                                        )
                                       }
                                       className={`rounded-xl border px-3 py-2 text-left text-sm font-semibold ${
                                         seleccionada
@@ -641,7 +732,7 @@ if (equipoId) {
                                     onChange={(event) =>
                                       cambiarRepuestoNombre(
                                         item.id,
-                                        event.target.value
+                                        event.target.value,
                                       )
                                     }
                                     placeholder="Ej: Gancho inferior, cadena, pestillo..."
@@ -659,7 +750,7 @@ if (equipoId) {
                                     onChange={(event) =>
                                       cambiarRepuestoCantidad(
                                         item.id,
-                                        event.target.value
+                                        event.target.value,
                                       )
                                     }
                                     placeholder="1"
@@ -678,7 +769,10 @@ if (equipoId) {
                                 <input
                                   value={respuesta.accion_otro}
                                   onChange={(event) =>
-                                    cambiarAccionOtro(item.id, event.target.value)
+                                    cambiarAccionOtro(
+                                      item.id,
+                                      event.target.value,
+                                    )
                                   }
                                   placeholder="Ej: enviar a proveedor, evaluar con jefatura..."
                                   className="w-full rounded-xl border border-red-200 bg-white px-3 py-2 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
@@ -743,24 +837,33 @@ if (equipoId) {
           <p className="font-bold text-slate-900">Generar diagnóstico</p>
 
           <p className="mt-1 text-sm text-slate-500">
-            El sistema generará un diagnóstico técnico base usando el motor MJ.
+            El sistema intentará generar el diagnóstico con IA. Si falla, usará
+            el Motor MJ como respaldo.
           </p>
         </div>
 
         <button
           type="button"
           onClick={generarDiagnostico}
-          disabled={itemsRespondidos === 0}
+          disabled={itemsRespondidos === 0 || generandoIA}
           className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
         >
-          Guardar equipo y generar diagnóstico
+          {generandoIA
+            ? "Generando con IA..."
+            : "Guardar equipo y generar diagnóstico"}
         </button>
       </div>
 
       {diagnosticoGenerado && (
         <div className="mt-4 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">
-          <p className="font-bold">Diagnóstico generado por Motor MJ</p>
-          <p className="mt-2">{diagnosticoGenerado.resumen}</p>
+          <p className="font-bold">
+            {usoRespaldoLocal
+              ? "Diagnóstico generado por Motor MJ (respaldo local)"
+              : "Diagnóstico generado con IA"}
+          </p>
+          <p className="mt-2 whitespace-pre-wrap">
+            {diagnosticoGenerado.resumen}
+          </p>
         </div>
       )}
     </div>
