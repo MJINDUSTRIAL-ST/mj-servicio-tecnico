@@ -1,5 +1,6 @@
 "use client";
 
+import { descargarInformeEjecutivoMJ } from "../lib/informeEjecutivoMJHTML";
 import { descargarInformeTecnico } from "../lib/informeTecnicoHTML";
 import { useEffect, useState } from "react";
 import { supabase } from "../../../../lib/supabase";
@@ -466,26 +467,48 @@ export default function RevisionJefe({
                 </button>
 
                 {actual.estado === "Aprobado" && (
-  <button
-    type="button"
-    onClick={() =>
-      descargarInformeTecnico({
-        equipoTitulo: `Equipo ${index + 1} - ${equipo.equipo || "Sin tipo"}`,
-        equipoDetalle: `${identificadorEquipo(equipo)}${
-          equipo.marca || equipo.modelo
-            ? `\n${[equipo.marca, equipo.modelo].filter(Boolean).join(" · ")}`
-            : ""
-        }`,
-        procedimiento: actual.procedimiento,
-        repuestos: actual.repuestos,
-        horas: actual.horas,
-        comentario: actual.motivo,
-      })
-    }
-    className="rounded-xl bg-slate-900 px-5 py-4 text-sm font-bold text-white"
-  >
-    Descargar informe técnico
-  </button>
+ <button
+  type="button"
+  onClick={() => {
+    descargarInformeEjecutivoMJ({
+      ot: "Informe técnico",
+      cliente: "-",
+      empresa: "-",
+      contacto: "-",
+      fechaIngreso: "-",
+      fechaEmision: new Date().toLocaleDateString("es-CL"),
+      tecnico: "-",
+      estado: actual.estado || "Revisión técnica",
+      equipos: [
+        {
+          titulo: `Equipo ${index + 1}`,
+          tipo: equipo.equipo || "Sin tipo",
+          marca: equipo.marca || "-",
+          modelo: equipo.modelo || "-",
+          serie: equipo.numero_serie || "-",
+          capacidad: "-",
+          hallazgos: actual.motivo || "Sin hallazgos registrados.",
+          trabajosRequeridos: actual.procedimiento
+            ? actual.procedimiento
+                .split("\n")
+                .map((item) => item.trim())
+                .filter(Boolean)
+            : [],
+          estadoFinal:
+            actual.estado === "Aprobado"
+              ? "apto"
+              : actual.estado === "Rechazado"
+              ? "no_apto"
+              : "observaciones",
+          fotos: [],
+        },
+      ],
+    });
+  }}
+  className="rounded-xl bg-slate-900 px-5 py-4 text-sm font-bold text-white"
+>
+  Descargar informe técnico
+</button>
 )}
               </div>
             </div>
