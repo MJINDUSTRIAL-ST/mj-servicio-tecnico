@@ -443,6 +443,8 @@ export default function ChecklistInteligente({
 
       const data = await response.json();
 
+      console.log("RESPUESTA IA:", data);
+
 const resultadoIA = data.resultado || {};
 const hallazgosIA =
   resultadoIA.hallazgos ||

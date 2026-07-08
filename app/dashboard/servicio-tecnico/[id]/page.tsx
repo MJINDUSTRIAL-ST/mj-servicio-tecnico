@@ -22,6 +22,7 @@ import RevisionJefe from "./components/RevisionJefe";
 import CotizacionInterna from "./components/CotizacionInterna";
 import TrabajoOT from "./components/TrabajoOT";
 import EquiposLote from "./components/EquiposLote";
+import { guardarEquipoTrabajo } from "./lib/equipoTrabajoStore";
 
 type Orden = {
   id: string;
@@ -449,23 +450,96 @@ export default function DetalleOrdenPage() {
     }
   }
 
-  async function avanzarADiagnostico() {
-    if (!orden) return;
+ async function avanzarADiagnostico(payload?: any) {
+  if (!orden) return;
 
-    setTab("diagnostico");
+  const equipoId = payload?.equipoId || orden.id;
+  const diagnosticoIA = payload?.diagnostico;
 
-    const { error: errorEstado } = await supabase
-      .from("ordenes")
-      .update({ estado: "Diagnóstico" })
-      .eq("id", orden.id);
+  if (diagnosticoIA) {
+    const hallazgos =
+      diagnosticoIA.diagnosticoTecnico ||
+      diagnosticoIA.hallazgos ||
+      diagnosticoIA.resumen ||
+      "Sin hallazgos registrados.";
 
-    if (!errorEstado) {
-      setOrden((prev) => {
-        if (!prev) return prev;
-        return { ...prev, estado: "Diagnóstico" };
+    const procedimiento = Array.isArray(diagnosticoIA.procedimientoRecomendado)
+      ? diagnosticoIA.procedimientoRecomendado.join("\n")
+      : diagnosticoIA.procedimientoRecomendado || "";
+
+    const repuestos = Array.isArray(diagnosticoIA.repuestosSugeridos)
+      ? diagnosticoIA.repuestosSugeridos.join("\n")
+      : diagnosticoIA.repuestosSugeridos || "";
+
+    guardarEquipoTrabajo(equipoId, {
+      diagnostico: {
+        hallazgos,
+        procedimiento,
+        repuestos,
+      },
+    });
+
+    const { data: existente, error: errorExiste } = await supabase
+      .from("diagnosticos")
+      .select("id")
+      .eq("orden_id", equipoId)
+      .maybeSingle();
+
+    if (errorExiste) {
+      alert(errorExiste.message);
+      return;
+    }
+
+    if (existente?.id) {
+      const { error } = await supabase
+        .from("diagnosticos")
+        .update({
+          hallazgos,
+          procedimiento,
+          repuestos,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existente.id);
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+    } else {
+      const { error } = await supabase.from("diagnosticos").insert({
+        orden_id: equipoId,
+        hallazgos,
+        procedimiento,
+        repuestos,
       });
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
     }
   }
+
+  setTab("diagnostico");
+
+  const { error: errorEstado } = await supabase
+    .from("ordenes")
+    .update({ estado: "Diagnóstico" })
+    .eq("id", equipoId);
+
+  if (errorEstado) {
+    alert(errorEstado.message);
+    return;
+  }
+
+  setOrden((prev) => {
+    if (!prev) return prev;
+    return { ...prev, estado: "Diagnóstico" };
+  });
+
+  await cargarDatos();
+
+}
 
   if (loading) {
     return (
