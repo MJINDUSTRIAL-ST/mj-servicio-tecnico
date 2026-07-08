@@ -266,24 +266,28 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
   }, [ordenId]);
 
   async function cargarDatos() {
-    const { data: hijos } = await supabase
-      .from("ordenes")
-      .select(
-        "id,codigo,equipo,marca,modelo,numero_serie,capacidad,diagnostico_ia_json,diagnostico_ia_fuente,diagnostico_ia_generado_en",
-      )
-      .eq("orden_padre_id", ordenId)
-      .order("codigo", { ascending: true });
+    const { data: hijos, error: errorHijos } = await supabase
+  .from("ordenes")
+  .select("id,codigo,equipo,marca,modelo,numero_serie")
+  .eq("orden_padre_id", ordenId)
+  .order("codigo", { ascending: true });
+
+if (errorHijos) {
+  console.error("Error cargando equipos hijos para revisión:", errorHijos);
+}
 
     let equiposBase: EquipoRevision[] = hijos || [];
 
     if (!equiposBase.length) {
-      const { data: orden } = await supabase
-        .from("ordenes")
-        .select(
-          "id,codigo,equipo,marca,modelo,numero_serie,capacidad,diagnostico_ia_json,diagnostico_ia_fuente,diagnostico_ia_generado_en",
-        )
-        .eq("id", ordenId)
-        .single();
+      const { data: orden, error: errorOrden } = await supabase
+  .from("ordenes")
+  .select("id,codigo,equipo,marca,modelo,numero_serie")
+  .eq("id", ordenId)
+  .single();
+
+if (errorOrden) {
+  console.error("Error cargando orden para revisión:", errorOrden);
+}
 
       if (orden) equiposBase = [orden];
     }
