@@ -31,6 +31,7 @@ type DiagnosticoGuardado = {
   hallazgos: string | null;
   procedimiento: string | null;
   repuestos: string | null;
+  updated_at?: string | null;
 };
 
 type DiagnosticoIA = {
@@ -300,13 +301,36 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
 
       const { data: diagnosticoGuardado } = await supabase
         .from("diagnosticos")
-        .select("id,hallazgos,procedimiento,repuestos")
+        .select("id,hallazgos,procedimiento,repuestos,updated_at")
         .eq("orden_id", equipo.id)
         .maybeSingle();
 
       const respaldoLocal = generarDesdeChecklist(equipo.id);
       const diagnosticoIA = normalizarDiagnosticoIA(equipo.diagnostico_ia_json);
       const horasIA = formatearHorasDesdeIA(diagnosticoIA);
+
+      const diagnosticoBase = {
+        hallazgos: diagnosticoGuardado?.hallazgos || respaldoLocal.hallazgos || "",
+        procedimiento:
+          diagnosticoGuardado?.procedimiento || respaldoLocal.procedimiento || "",
+        repuestos: diagnosticoGuardado?.repuestos || respaldoLocal.repuestos || "",
+      };
+
+      const revisionActualizadaEn = revision?.updated_at
+        ? new Date(revision.updated_at).getTime()
+        : 0;
+
+      const diagnosticoActualizadoEn = diagnosticoGuardado?.updated_at
+        ? new Date(diagnosticoGuardado.updated_at).getTime()
+        : 0;
+
+      const revisionEsMasNueva =
+        Boolean(revision?.id) &&
+        revisionActualizadaEn > 0 &&
+        revisionActualizadaEn > diagnosticoActualizadoEn;
+
+      const usarRevisionGuardada =
+        revisionEsMasNueva && (revision?.aprobado === true || revision?.aprobado === false);
 
       nuevoEstado[equipo.id] = {
         idRevision: revision?.id || null,
@@ -316,23 +340,22 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
             : revision?.aprobado === false
               ? "Rechazado"
               : "",
-        motivo: revision?.motivo || "",
-        horas: revision?.horas_hombre?.toString() || horasIA,
-        hallazgosDiagnostico:
-          revision?.diagnostico_aprobado_json?.hallazgos_aprobados ||
-          diagnosticoGuardado?.hallazgos ||
-          respaldoLocal.hallazgos ||
-          "",
+        motivo: usarRevisionGuardada ? revision?.motivo || "" : "",
+        horas: usarRevisionGuardada
+          ? revision?.horas_hombre?.toString() || horasIA
+          : horasIA,
+        hallazgosDiagnostico: usarRevisionGuardada
+          ? revision?.diagnostico_aprobado_json?.hallazgos_aprobados ||
+            diagnosticoBase.hallazgos
+          : diagnosticoBase.hallazgos,
         procedimiento:
-          revision?.procedimiento_aprobado ||
-          diagnosticoGuardado?.procedimiento ||
-          respaldoLocal.procedimiento ||
-          "",
+          usarRevisionGuardada && revision?.procedimiento_aprobado
+            ? revision.procedimiento_aprobado
+            : diagnosticoBase.procedimiento,
         repuestos:
-          revision?.repuestos_aprobados ||
-          diagnosticoGuardado?.repuestos ||
-          respaldoLocal.repuestos ||
-          "",
+          usarRevisionGuardada && revision?.repuestos_aprobados
+            ? revision.repuestos_aprobados
+            : diagnosticoBase.repuestos,
         guardando: false,
         guardadoOk: false,
         diagnosticoIA,
