@@ -114,7 +114,7 @@ const ETAPAS = [
 function normalizarEstado(estado?: string | null) {
   if (!estado) return "Ingreso";
 
-  const e = estado.toLowerCase();
+  const e = estado.toLowerCase().trim();
 
   if (e.includes("entregado")) return "Entregado";
   if (e.includes("listo")) return "Listo";
@@ -136,10 +136,20 @@ function normalizarEstado(estado?: string | null) {
     return "Cotización";
   }
 
-  if (e.includes("jefe") || e.includes("aprobado")) return "Revisión";
-  if (e.includes("diagnóstico") || e.includes("diagnostico")) return "Diagnóstico";
+  if (
+    e.includes("revisión") ||
+    e.includes("revision") ||
+    e.includes("jefe") ||
+    e.includes("aprobado")
+  ) {
+    return "Revisión";
+  }
+
+  if (e.includes("diagnóstico") || e.includes("diagnostico")) {
+    return "Diagnóstico";
+  }
+
   if (e.includes("checklist")) return "Checklist";
-  if (e.includes("revisión") || e.includes("revision")) return "Checklist";
 
   return "Ingreso";
 }
@@ -148,10 +158,12 @@ function badgeEstado(estado: string) {
   const estadoNormal = normalizarEstado(estado);
 
   if (estadoNormal === "Cotización") return { bg: "#fef3c7", color: "#b45309" };
-  if (estadoNormal === "Listo" || estadoNormal === "Entregado") return { bg: "#dcfce7", color: "#15803d" };
+  if (estadoNormal === "Listo" || estadoNormal === "Entregado")
+    return { bg: "#dcfce7", color: "#15803d" };
   if (estadoNormal === "Trabajo") return { bg: "#dcfce7", color: "#15803d" };
   if (estadoNormal === "Revisión") return { bg: "#fef3c7", color: "#b45309" };
-  if (estadoNormal === "Diagnóstico") return { bg: "#ede9fe", color: "#6d28d9" };
+  if (estadoNormal === "Diagnóstico")
+    return { bg: "#ede9fe", color: "#6d28d9" };
   if (estadoNormal === "Checklist") return { bg: "#e0f2fe", color: "#0369a1" };
 
   return { bg: "#dbeafe", color: "#2563eb" };
@@ -168,7 +180,10 @@ function normalizarFotosIngreso(fotos?: string | string[] | null) {
       if (Array.isArray(parsed)) return parsed.filter(Boolean);
     } catch {}
 
-    return fotos.split(",").map((foto) => foto.trim()).filter(Boolean);
+    return fotos
+      .split(",")
+      .map((foto) => foto.trim())
+      .filter(Boolean);
   }
 
   return [];
@@ -215,7 +230,9 @@ export default function DetalleOrdenPage() {
 
   const [orden, setOrden] = useState<Orden | null>(null);
   const [equiposLote, setEquiposLote] = useState<EquipoLote[]>([]);
-  const [documentosIngreso, setDocumentosIngreso] = useState<OrdenDocumento[]>([]);
+  const [documentosIngreso, setDocumentosIngreso] = useState<OrdenDocumento[]>(
+    [],
+  );
   const [reportes, setReportes] = useState<Reporte[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -248,12 +265,12 @@ export default function DetalleOrdenPage() {
     return Number(orden?.cantidad_equipos || 1) > 1 || equiposLote.length > 0;
   }, [orden?.cantidad_equipos, equiposLote.length]);
 
-    const estadoActual = useMemo(() => {
+  const estadoActual = useMemo(() => {
     if (!orden) return "Ingreso";
 
     if (esOtMadreLote) {
       const estadosHijos = equiposLote.map((equipo) =>
-        normalizarEstado(equipo.estado)
+        normalizarEstado(equipo.estado),
       );
 
       if (estadosHijos.length === 0) {
@@ -315,7 +332,9 @@ export default function DetalleOrdenPage() {
 
     const { data: equiposData, error: errorEquipos } = await supabase
       .from("ordenes")
-      .select("id,codigo,equipo,marca,modelo,numero_serie,estado,problema_reportado")
+      .select(
+        "id,codigo,equipo,marca,modelo,numero_serie,estado,problema_reportado",
+      )
       .eq("orden_padre_id", id)
       .order("codigo", { ascending: true });
 
@@ -361,7 +380,7 @@ export default function DetalleOrdenPage() {
           storage_path,
           created_at
         )
-      `
+      `,
       )
       .eq("orden_id", id)
       .order("created_at", { ascending: true });
@@ -372,19 +391,23 @@ export default function DetalleOrdenPage() {
       return;
     }
 
-    const reportesNormalizados = ((reportesData || []) as Reporte[]).map((reporte) => ({
-      ...reporte,
-      reporte_fotos: [...(reporte.reporte_fotos || [])].sort((a, b) => {
-        const ordenA = a.orden ?? 0;
-        const ordenB = b.orden ?? 0;
-        return ordenA - ordenB;
+    const reportesNormalizados = ((reportesData || []) as Reporte[]).map(
+      (reporte) => ({
+        ...reporte,
+        reporte_fotos: [...(reporte.reporte_fotos || [])].sort((a, b) => {
+          const ordenA = a.orden ?? 0;
+          const ordenB = b.orden ?? 0;
+          return ordenA - ordenB;
+        }),
+        reporte_documentos: [...(reporte.reporte_documentos || [])].sort(
+          (a, b) => {
+            const fechaA = new Date(a.created_at || "").getTime();
+            const fechaB = new Date(b.created_at || "").getTime();
+            return fechaA - fechaB;
+          },
+        ),
       }),
-      reporte_documentos: [...(reporte.reporte_documentos || [])].sort((a, b) => {
-        const fechaA = new Date(a.created_at || "").getTime();
-        const fechaB = new Date(b.created_at || "").getTime();
-        return fechaA - fechaB;
-      }),
-    }));
+    );
 
     setOrden(ordenData as Orden);
     setEquiposLote((equiposData || []) as EquipoLote[]);
@@ -416,14 +439,18 @@ export default function DetalleOrdenPage() {
 
       setReportes((prev) =>
         prev.map((reporte) => {
-          const contieneFoto = reporte.reporte_fotos?.some((f) => f.id === foto.id);
+          const contieneFoto = reporte.reporte_fotos?.some(
+            (f) => f.id === foto.id,
+          );
           if (!contieneFoto) return reporte;
 
           return {
             ...reporte,
-            reporte_fotos: (reporte.reporte_fotos || []).filter((f) => f.id !== foto.id),
+            reporte_fotos: (reporte.reporte_fotos || []).filter(
+              (f) => f.id !== foto.id,
+            ),
           };
-        })
+        }),
       );
 
       setFotoModal(null);
@@ -450,96 +477,125 @@ export default function DetalleOrdenPage() {
     }
   }
 
- async function avanzarADiagnostico(payload?: any) {
-  if (!orden) return;
+  async function avanzarADiagnostico(payload?: any) {
+    if (!orden) return;
 
-  const equipoId = payload?.equipoId || orden.id;
-  const diagnosticoIA = payload?.diagnostico;
+    const equipoId = payload?.equipoId || orden.id;
+    const diagnosticoIA = payload?.diagnostico;
 
-  if (diagnosticoIA) {
-    const hallazgos =
-      diagnosticoIA.diagnosticoTecnico ||
-      diagnosticoIA.hallazgos ||
-      diagnosticoIA.resumen ||
-      "Sin hallazgos registrados.";
+    if (diagnosticoIA) {
+      const hallazgos =
+        diagnosticoIA.diagnosticoTecnico ||
+        diagnosticoIA.hallazgos ||
+        diagnosticoIA.resumen ||
+        "Sin hallazgos registrados.";
 
-    const procedimiento = Array.isArray(diagnosticoIA.procedimientoRecomendado)
-      ? diagnosticoIA.procedimientoRecomendado.join("\n")
-      : diagnosticoIA.procedimientoRecomendado || "";
+      const procedimiento = Array.isArray(
+        diagnosticoIA.procedimientoRecomendado,
+      )
+        ? diagnosticoIA.procedimientoRecomendado.join("\n")
+        : diagnosticoIA.procedimientoRecomendado || "";
 
-    const repuestos = Array.isArray(diagnosticoIA.repuestosSugeridos)
-      ? diagnosticoIA.repuestosSugeridos.join("\n")
-      : diagnosticoIA.repuestosSugeridos || "";
+      const repuestos = Array.isArray(diagnosticoIA.repuestosSugeridos)
+        ? diagnosticoIA.repuestosSugeridos.join("\n")
+        : diagnosticoIA.repuestosSugeridos || "";
 
-    guardarEquipoTrabajo(equipoId, {
-      diagnostico: {
-        hallazgos,
-        procedimiento,
-        repuestos,
-      },
-    });
-
-    const { data: existente, error: errorExiste } = await supabase
-      .from("diagnosticos")
-      .select("id")
-      .eq("orden_id", equipoId)
-      .maybeSingle();
-
-    if (errorExiste) {
-      alert(errorExiste.message);
-      return;
-    }
-
-    if (existente?.id) {
-      const { error } = await supabase
-        .from("diagnosticos")
-        .update({
+      guardarEquipoTrabajo(equipoId, {
+        diagnostico: {
           hallazgos,
           procedimiento,
           repuestos,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", existente.id);
-
-      if (error) {
-        alert(error.message);
-        return;
-      }
-    } else {
-      const { error } = await supabase.from("diagnosticos").insert({
-        orden_id: equipoId,
-        hallazgos,
-        procedimiento,
-        repuestos,
+        },
       });
 
-      if (error) {
-        alert(error.message);
+      const { data: existente, error: errorExiste } = await supabase
+        .from("diagnosticos")
+        .select("id")
+        .eq("orden_id", equipoId)
+        .maybeSingle();
+
+      if (errorExiste) {
+        alert(errorExiste.message);
+        return;
+      }
+
+      if (existente?.id) {
+        const { error } = await supabase
+          .from("diagnosticos")
+          .update({
+            hallazgos,
+            procedimiento,
+            repuestos,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existente.id);
+
+        if (error) {
+          alert(error.message);
+          return;
+        }
+      } else {
+        const { error } = await supabase.from("diagnosticos").insert({
+          orden_id: equipoId,
+          hallazgos,
+          procedimiento,
+          repuestos,
+        });
+
+        if (error) {
+          alert(error.message);
+          return;
+        }
+      }
+    }
+
+    const datosRevisionEquipo: Record<string, any> = {
+      estado: "Revisión",
+    };
+
+    if (payload?.diagnosticoIASenior) {
+      datosRevisionEquipo.diagnostico_ia_json = payload.diagnosticoIASenior;
+      datosRevisionEquipo.diagnostico_ia_fuente = payload?.fuenteIA || "openai";
+      datosRevisionEquipo.diagnostico_ia_generado_en = new Date().toISOString();
+    }
+
+    const { error: errorEstadoEquipo } = await supabase
+      .from("ordenes")
+      .update(datosRevisionEquipo)
+      .eq("id", equipoId);
+
+    if (errorEstadoEquipo) {
+      alert(errorEstadoEquipo.message);
+      return;
+    }
+
+    if (equipoId !== orden.id) {
+      const { error: errorEstadoOrden } = await supabase
+        .from("ordenes")
+        .update({ estado: "Revisión" })
+        .eq("id", orden.id);
+
+      if (errorEstadoOrden) {
+        alert(errorEstadoOrden.message);
         return;
       }
     }
+
+    setOrden((prev) => {
+      if (!prev) return prev;
+      return { ...prev, estado: "Revisión" };
+    });
+
+    setEquiposLote((prev) =>
+      prev.map((equipo) =>
+        equipo.id === equipoId ? { ...equipo, estado: "Revisión" } : equipo,
+      ),
+    );
+
+    setTab("revision");
+
+    await cargarDatos();
   }
-
-  setTab("diagnostico");
-
-  const { error: errorEstado } = await supabase
-    .from("ordenes")
-    .update({ estado: "Diagnóstico" })
-    .eq("id", equipoId);
-
-  if (errorEstado) {
-    alert(errorEstado.message);
-    return;
-  }
-
-  setOrden((prev) => {
-    if (!prev) return prev;
-    return { ...prev, estado: "Diagnóstico" };
-  });
-
-  await cargarDatos();
-
-}
 
   if (loading) {
     return (
@@ -639,53 +695,50 @@ export default function DetalleOrdenPage() {
               />
             ))}
 
-          
+          {tab === "diagnostico" && (
+            <DiagnosticoTecnico
+              ordenId={orden.id}
+              onEstadoActualizado={(estado) => {
+                setOrden((prev) => {
+                  if (!prev) return prev;
+                  return { ...prev, estado };
+                });
+              }}
+            />
+          )}
 
-{tab === "diagnostico" && (
-  <DiagnosticoTecnico
-    ordenId={orden.id}
-    onEstadoActualizado={(estado) => {
-      setOrden((prev) => {
-        if (!prev) return prev;
-        return { ...prev, estado };
-      });
-    }}
-  />
-)}
+          {tab === "revision" && (
+            <RevisionJefe
+              ordenId={orden.id}
+              onEstadoActualizado={(estado) => {
+                setOrden((prev) => {
+                  if (!prev) return prev;
+                  return { ...prev, estado };
+                });
+              }}
+            />
+          )}
 
-{tab === "revision" && (
-  <RevisionJefe
-    ordenId={orden.id}
-    onEstadoActualizado={(estado) => {
-      setOrden((prev) => {
-        if (!prev) return prev;
-        return { ...prev, estado };
-      });
-    }}
-  />
-)}
+          {tab === "cotizacion" && (
+            <CotizacionInterna
+              ordenId={orden.id}
+              onEstadoActualizado={(estado) => {
+                setOrden((prev) => {
+                  if (!prev) return prev;
+                  return { ...prev, estado };
+                });
 
-{tab === "cotizacion" && (
-  <CotizacionInterna
-    ordenId={orden.id}
-    onEstadoActualizado={(estado) => {
-      setOrden((prev) => {
-        if (!prev) return prev;
-        return { ...prev, estado };
-      });
+                setEquiposLote((prev) =>
+                  prev.map((equipo) => ({
+                    ...equipo,
+                    estado,
+                  })),
+                );
+              }}
+            />
+          )}
 
-      setEquiposLote((prev) =>
-        prev.map((equipo) => ({
-          ...equipo,
-          estado,
-        }))
-      );
-    }}
-  />
-)}
-
-
-{tab === "trabajo" && <TrabajoOT ordenId={orden.id} />}
+          {tab === "trabajo" && <TrabajoOT ordenId={orden.id} />}
 
           {tab === "reportes" && (
             <>
