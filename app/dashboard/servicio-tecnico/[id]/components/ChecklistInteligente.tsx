@@ -72,8 +72,9 @@ type DiagnosticoIASenior = {
     detalle?: string;
     supuesto?: string;
   };
-  observacionesCliente?: string;
-  confianzaDiagnostico?: string;
+ observacionesCliente?: string;
+textoTecnicoNatural?: string;
+confianzaDiagnostico?: string;
   conocimientoUtilizado?: Array<{
     casoId?: string;
     similitud?: number;

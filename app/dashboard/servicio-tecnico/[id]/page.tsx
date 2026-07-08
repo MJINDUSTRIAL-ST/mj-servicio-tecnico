@@ -572,7 +572,7 @@ export default function DetalleOrdenPage() {
     if (equipoId !== orden.id) {
       const { error: errorEstadoOrden } = await supabase
         .from("ordenes")
-        .update({ estado: "Revisión" })
+        .update({ estado: "Diagnóstico" })
         .eq("id", orden.id);
 
       if (errorEstadoOrden) {
@@ -582,17 +582,17 @@ export default function DetalleOrdenPage() {
     }
 
     setOrden((prev) => {
-      if (!prev) return prev;
-      return { ...prev, estado: "Revisión" };
-    });
+  if (!prev) return prev;
+  return { ...prev, estado: "Diagnóstico" };
+});
 
     setEquiposLote((prev) =>
-      prev.map((equipo) =>
-        equipo.id === equipoId ? { ...equipo, estado: "Revisión" } : equipo,
-      ),
-    );
+  prev.map((equipo) =>
+    equipo.id === equipoId ? { ...equipo, estado: "Diagnóstico" } : equipo,
+  ),
+);
 
-    setTab("revision");
+setTab("diagnostico");
 
     await cargarDatos();
   }
