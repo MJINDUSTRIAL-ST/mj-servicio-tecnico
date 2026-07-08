@@ -20,18 +20,24 @@ type EquipoRevision = {
   marca?: string | null;
   modelo?: string | null;
   numero_serie?: string | null;
+  capacidad?: string | null;
   diagnostico_ia_json?: DiagnosticoIA | string | null;
   diagnostico_ia_fuente?: string | null;
   diagnostico_ia_generado_en?: string | null;
 };
 
-type NivelRiesgo = "bajo" | "medio" | "alto" | "critico";
+type DiagnosticoGuardado = {
+  id: string;
+  hallazgos: string | null;
+  procedimiento: string | null;
+  repuestos: string | null;
+};
 
 type DiagnosticoIA = {
   resumenEjecutivo?: {
     equipoLlegado?: string;
     estadoGeneral?: string;
-    nivelRiesgo?: NivelRiesgo | string;
+    nivelRiesgo?: string;
     conclusion?: string;
   };
   hallazgosTecnicos?: {
@@ -47,7 +53,7 @@ type DiagnosticoIA = {
     confianza?: string;
   }[];
   riesgo?: {
-    clasificacion?: "Apto" | "Apto con observaciones" | "No Apto" | string;
+    clasificacion?: string;
     justificacion?: string;
   };
   procedimientoRecomendado?: {
@@ -84,13 +90,13 @@ type RevisionPorEquipo = {
   estado: "Aprobado" | "Rechazado" | "";
   motivo: string;
   horas: string;
+  hallazgosDiagnostico: string;
   procedimiento: string;
   repuestos: string;
   guardando: boolean;
   guardadoOk: boolean;
   diagnosticoIA: DiagnosticoIA | null;
-  diagnosticoIAFuente: string;
-  diagnosticoIAGeneradoEn: string;
+  diagnosticoId: string | null;
 };
 
 type CampoEditableRevision = "motivo" | "horas" | "procedimiento" | "repuestos";
@@ -107,24 +113,19 @@ function revisionVacia(): RevisionPorEquipo {
     estado: "",
     motivo: "",
     horas: "",
+    hallazgosDiagnostico: "",
     procedimiento: "",
     repuestos: "",
     guardando: false,
     guardadoOk: false,
     diagnosticoIA: null,
-    diagnosticoIAFuente: "",
-    diagnosticoIAGeneradoEn: "",
+    diagnosticoId: null,
   };
 }
 
 function textoSeguro(valor: unknown) {
   if (valor === null || valor === undefined) return "";
   return String(valor).trim();
-}
-
-function numeroSeguro(valor: unknown) {
-  const numero = Number(valor);
-  return Number.isFinite(numero) ? numero : null;
 }
 
 function normalizarDiagnosticoIA(valor: unknown): DiagnosticoIA | null {
@@ -160,6 +161,7 @@ function generarDesdeChecklist(equipoId: string) {
 
   if (!checklist?.itemsMalos?.length) {
     return {
+      hallazgos: trabajo.diagnostico?.hallazgos || "",
       procedimiento: trabajo.diagnostico?.procedimiento || "",
       repuestos: trabajo.diagnostico?.repuestos || "",
     };
@@ -195,118 +197,28 @@ function generarDesdeChecklist(equipoId: string) {
     });
   });
 
-  const procedimientoPartes: string[] = [];
-
-  if (acciones.length > 0) {
-    procedimientoPartes.push(`Acciones sugeridas:\n${acciones.join("\n")}`);
-  }
-
-  if (repuestos.length > 0) {
-    procedimientoPartes.push(`Repuestos sugeridos:\n${repuestos.join("\n")}`);
-  }
-
-  const procedimiento =
-    procedimientoPartes.length > 0
-      ? `Se recomienda ejecutar las siguientes acciones antes de liberar el equipo:\n\n${procedimientoPartes.join(
-          "\n\n"
-        )}`
-      : trabajo.diagnostico?.procedimiento || "";
-
   return {
-    procedimiento,
-    repuestos: repuestos.join("\n"),
+    hallazgos: trabajo.diagnostico?.hallazgos || "",
+    procedimiento:
+      trabajo.diagnostico?.procedimiento ||
+      (acciones.length > 0 ? acciones.join("\n") : ""),
+    repuestos: trabajo.diagnostico?.repuestos || repuestos.join("\n"),
   };
 }
 
-function formatearProcedimientoDesdeIA(diagnosticoIA: DiagnosticoIA | null) {
-  const procedimiento = diagnosticoIA?.procedimientoRecomendado || [];
-
-  if (!procedimiento.length) return "";
-
-  return procedimiento
-    .map((item, index) => {
-      const paso = item.paso || index + 1;
-      const trabajo = textoSeguro(item.trabajo) || "Trabajo recomendado";
-      const prioridad = textoSeguro(item.prioridad);
-      const observacion = textoSeguro(item.observacion);
-      const requiereRepuesto = item.requiereRepuesto
-        ? "Requiere repuesto"
-        : "No requiere repuesto";
-
-      return [
-        `${paso}. ${trabajo}`,
-        prioridad ? `Prioridad: ${prioridad}` : "",
-        requiereRepuesto,
-        observacion ? `Observación: ${observacion}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n");
-    })
-    .join("\n\n");
-}
-
-function formatearRepuestosDesdeIA(diagnosticoIA: DiagnosticoIA | null) {
-  const repuestos = diagnosticoIA?.repuestosSugeridos || [];
-
-  if (!repuestos.length) return "";
-
-  return repuestos
-    .map((item) => {
-      const cantidad = item.cantidad || 1;
-      const nombre = textoSeguro(item.nombre) || "Repuesto sugerido";
-      const prioridad = textoSeguro(item.prioridad);
-      const motivo = textoSeguro(item.motivo);
-
-      return [
-        `${cantidad} x ${nombre}`,
-        prioridad ? `Prioridad: ${prioridad}` : "",
-        motivo ? `Motivo: ${motivo}` : "",
-      ]
-        .filter(Boolean)
-        .join(" | ");
-    })
-    .join("\n");
-}
-
 function formatearHorasDesdeIA(diagnosticoIA: DiagnosticoIA | null) {
-  const minimo = numeroSeguro(diagnosticoIA?.horasEstimadas?.minimo);
-  const maximo = numeroSeguro(diagnosticoIA?.horasEstimadas?.maximo);
+  const minimo = Number(diagnosticoIA?.horasEstimadas?.minimo);
+  const maximo = Number(diagnosticoIA?.horasEstimadas?.maximo);
 
-  if (minimo === null && maximo === null) return "";
-
-  if (minimo !== null && maximo !== null) {
+  if (Number.isFinite(minimo) && Number.isFinite(maximo)) {
     const promedio = (minimo + maximo) / 2;
     return promedio % 1 === 0 ? String(promedio) : promedio.toFixed(1);
   }
 
-  if (maximo !== null) return String(maximo);
-  if (minimo !== null) return String(minimo);
+  if (Number.isFinite(maximo)) return String(maximo);
+  if (Number.isFinite(minimo)) return String(minimo);
 
   return "";
-}
-
-function formatearHallazgosDesdeIA(diagnosticoIA: DiagnosticoIA | null) {
-  const hallazgos = diagnosticoIA?.hallazgosTecnicos || [];
-
-  if (!hallazgos.length) return "";
-
-  return hallazgos
-    .map((hallazgo) => {
-      const categoria = textoSeguro(hallazgo.categoria) || "General";
-      const estado = textoSeguro(hallazgo.estado);
-      const severidad = textoSeguro(hallazgo.severidad);
-      const detalle = textoSeguro(hallazgo.detalle);
-
-      return [
-        `${categoria}`,
-        estado ? `Estado: ${estado}` : "",
-        severidad ? `Severidad: ${severidad}` : "",
-        detalle ? `Detalle: ${detalle}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n");
-    })
-    .join("\n\n");
 }
 
 function formatearTrabajosParaPDF(procedimiento: string, repuestos: string) {
@@ -324,61 +236,25 @@ function formatearTrabajosParaPDF(procedimiento: string, repuestos: string) {
   return [...trabajos, ...repuestosLista];
 }
 
-function claseRiesgo(nivel?: string) {
-  const valor = textoSeguro(nivel).toLowerCase();
-
-  if (valor === "critico" || valor === "crítico" || valor === "alto") {
-    return "border-red-200 bg-red-50 text-red-800";
-  }
-
-  if (valor === "medio") {
-    return "border-amber-200 bg-amber-50 text-amber-800";
-  }
-
-  return "border-green-200 bg-green-50 text-green-800";
-}
-
-function claseClasificacion(clasificacion?: string) {
-  const valor = textoSeguro(clasificacion).toLowerCase();
-
-  if (valor === "no apto") {
-    return "border-red-200 bg-red-50 text-red-800";
-  }
-
-  if (valor === "apto con observaciones") {
-    return "border-amber-200 bg-amber-50 text-amber-800";
-  }
-
-  return "border-green-200 bg-green-50 text-green-800";
-}
-
 function construirDiagnosticoAprobadoJson(
   actual: RevisionPorEquipo,
-  estadoFinal: "Aprobado" | "Rechazado"
+  estadoFinal: "Aprobado" | "Rechazado",
 ) {
   return {
-    version: "revision-jefe-mj-v1",
+    version: "revision-jefe-mj-v2",
     aprobado: estadoFinal === "Aprobado",
     fecha_revision: new Date().toISOString(),
     observaciones_jefe: actual.motivo,
     horas_hombre_aprobadas: actual.horas ? Number(actual.horas) : null,
+    hallazgos_aprobados: actual.hallazgosDiagnostico,
     procedimiento_aprobado: actual.procedimiento,
     repuestos_aprobados: actual.repuestos,
+    diagnostico_id: actual.diagnosticoId,
     diagnostico_ia_original: actual.diagnosticoIA,
-    resumen_ejecutivo_aprobado: actual.diagnosticoIA?.resumenEjecutivo || null,
-    hallazgos_tecnicos_aprobados:
-      actual.diagnosticoIA?.hallazgosTecnicos || [],
-    causa_probable_aprobada: actual.diagnosticoIA?.causaProbable || [],
-    riesgo_aprobado: actual.diagnosticoIA?.riesgo || null,
-    observaciones_cliente_aprobadas:
-      actual.diagnosticoIA?.observacionesCliente || "",
   };
 }
 
-export default function RevisionJefe({
-  ordenId,
-  onEstadoActualizado,
-}: Props) {
+export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
   const [equipos, setEquipos] = useState<EquipoRevision[]>([]);
   const [revisiones, setRevisiones] = useState<
     Record<string, RevisionPorEquipo>
@@ -392,7 +268,7 @@ export default function RevisionJefe({
     const { data: hijos } = await supabase
       .from("ordenes")
       .select(
-        "id,codigo,equipo,marca,modelo,numero_serie,diagnostico_ia_json,diagnostico_ia_fuente,diagnostico_ia_generado_en"
+        "id,codigo,equipo,marca,modelo,numero_serie,capacidad,diagnostico_ia_json,diagnostico_ia_fuente,diagnostico_ia_generado_en",
       )
       .eq("orden_padre_id", ordenId)
       .order("codigo", { ascending: true });
@@ -403,7 +279,7 @@ export default function RevisionJefe({
       const { data: orden } = await supabase
         .from("ordenes")
         .select(
-          "id,codigo,equipo,marca,modelo,numero_serie,diagnostico_ia_json,diagnostico_ia_fuente,diagnostico_ia_generado_en"
+          "id,codigo,equipo,marca,modelo,numero_serie,capacidad,diagnostico_ia_json,diagnostico_ia_fuente,diagnostico_ia_generado_en",
         )
         .eq("id", ordenId)
         .single();
@@ -416,39 +292,51 @@ export default function RevisionJefe({
     const nuevoEstado: Record<string, RevisionPorEquipo> = {};
 
     for (const equipo of equiposBase) {
-      const { data } = await supabase
+      const { data: revision } = await supabase
         .from("revisiones_jefe")
         .select("*")
         .eq("orden_id", equipo.id)
         .maybeSingle();
 
-      const base = generarDesdeChecklist(equipo.id);
-      const diagnosticoIA = normalizarDiagnosticoIA(
-        equipo.diagnostico_ia_json
-      );
+      const { data: diagnosticoGuardado } = await supabase
+        .from("diagnosticos")
+        .select("id,hallazgos,procedimiento,repuestos")
+        .eq("orden_id", equipo.id)
+        .maybeSingle();
 
-      const procedimientoIA = formatearProcedimientoDesdeIA(diagnosticoIA);
-      const repuestosIA = formatearRepuestosDesdeIA(diagnosticoIA);
+      const respaldoLocal = generarDesdeChecklist(equipo.id);
+      const diagnosticoIA = normalizarDiagnosticoIA(equipo.diagnostico_ia_json);
       const horasIA = formatearHorasDesdeIA(diagnosticoIA);
 
       nuevoEstado[equipo.id] = {
-        idRevision: data?.id || null,
+        idRevision: revision?.id || null,
         estado:
-          data?.aprobado === true
+          revision?.aprobado === true
             ? "Aprobado"
-            : data?.aprobado === false
-            ? "Rechazado"
-            : "",
-        motivo: data?.motivo || "",
-        horas: data?.horas_hombre?.toString() || horasIA,
+            : revision?.aprobado === false
+              ? "Rechazado"
+              : "",
+        motivo: revision?.motivo || "",
+        horas: revision?.horas_hombre?.toString() || horasIA,
+        hallazgosDiagnostico:
+          revision?.diagnostico_aprobado_json?.hallazgos_aprobados ||
+          diagnosticoGuardado?.hallazgos ||
+          respaldoLocal.hallazgos ||
+          "",
         procedimiento:
-          data?.procedimiento_aprobado || procedimientoIA || base.procedimiento,
-        repuestos: data?.repuestos_aprobados || repuestosIA || base.repuestos,
+          revision?.procedimiento_aprobado ||
+          diagnosticoGuardado?.procedimiento ||
+          respaldoLocal.procedimiento ||
+          "",
+        repuestos:
+          revision?.repuestos_aprobados ||
+          diagnosticoGuardado?.repuestos ||
+          respaldoLocal.repuestos ||
+          "",
         guardando: false,
         guardadoOk: false,
         diagnosticoIA,
-        diagnosticoIAFuente: equipo.diagnostico_ia_fuente || "",
-        diagnosticoIAGeneradoEn: equipo.diagnostico_ia_generado_en || "",
+        diagnosticoId: diagnosticoGuardado?.id || null,
       };
     }
 
@@ -458,7 +346,7 @@ export default function RevisionJefe({
   function actualizarCampo(
     equipoId: string,
     campo: CampoEditableRevision,
-    valor: string
+    valor: string,
   ) {
     setRevisiones((prev) => ({
       ...prev,
@@ -471,7 +359,7 @@ export default function RevisionJefe({
 
   async function guardar(
     equipoId: string,
-    estadoFinal: "Aprobado" | "Rechazado"
+    estadoFinal: "Aprobado" | "Rechazado",
   ) {
     const actual = revisiones[equipoId] || revisionVacia();
 
@@ -480,22 +368,20 @@ export default function RevisionJefe({
       return;
     }
 
-    const revisionActualizada: RevisionPorEquipo = {
-      ...actual,
-      estado: estadoFinal,
-      guardando: true,
-      guardadoOk: false,
-    };
-
     setRevisiones((prev) => ({
       ...prev,
-      [equipoId]: revisionActualizada,
+      [equipoId]: {
+        ...(prev[equipoId] || revisionVacia()),
+        estado: estadoFinal,
+        guardando: true,
+        guardadoOk: false,
+      },
     }));
 
     try {
       const diagnosticoAprobadoJson = construirDiagnosticoAprobadoJson(
         actual,
-        estadoFinal
+        estadoFinal,
       );
 
       const datos = {
@@ -561,8 +447,8 @@ export default function RevisionJefe({
       const todosAprobados = equipos.every((equipo) => {
         if (equipo.id === equipoId) return estadoFinal === "Aprobado";
 
-        const revision = revisiones[equipo.id];
-        return revision?.estado === "Aprobado";
+        const revisionEquipo = revisiones[equipo.id];
+        return revisionEquipo?.estado === "Aprobado";
       });
 
       if (todosAprobados) {
@@ -611,15 +497,11 @@ export default function RevisionJefe({
     <section className="space-y-5">
       {equipos.map((equipo, index) => {
         const actual = revisiones[equipo.id] || revisionVacia();
-        const diagnosticoIA = actual.diagnosticoIA;
-        const resumen = diagnosticoIA?.resumenEjecutivo;
-        const riesgo = diagnosticoIA?.riesgo;
-        const hallazgos = diagnosticoIA?.hallazgosTecnicos || [];
-        const causas = diagnosticoIA?.causaProbable || [];
-        const repuestos = diagnosticoIA?.repuestosSugeridos || [];
-        const procedimiento = diagnosticoIA?.procedimientoRecomendado || [];
-        const advertencias = diagnosticoIA?.advertencias || [];
-        const conocimiento = diagnosticoIA?.conocimientoUtilizado || [];
+        const tieneDiagnostico = Boolean(
+          actual.hallazgosDiagnostico ||
+          actual.procedimiento ||
+          actual.repuestos,
+        );
 
         return (
           <div
@@ -659,318 +541,58 @@ export default function RevisionJefe({
                 )}
               </div>
 
-              {diagnosticoIA && (
-                <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-800">
-                  <p className="font-bold">Diagnóstico IA cargado</p>
+              {tieneDiagnostico && (
+                <div className="rounded-xl border border-green-100 bg-green-50 px-4 py-3 text-xs text-green-800">
+                  <p className="font-bold">Diagnóstico cargado</p>
                   <p className="mt-1">
-                    Fuente: {actual.diagnosticoIAFuente || "OpenAI"}
+                    Fuente: diagnóstico técnico aprobado para revisión
                   </p>
-                  {actual.diagnosticoIAGeneradoEn && (
-                    <p>
-                      Generado:{" "}
-                      {new Date(
-                        actual.diagnosticoIAGeneradoEn
-                      ).toLocaleString("es-CL")}
-                    </p>
-                  )}
                 </div>
               )}
             </div>
 
-            {!diagnosticoIA && (
+            {!tieneDiagnostico && (
               <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                <p className="font-bold">No hay diagnóstico IA cargado.</p>
+                <p className="font-bold">No hay diagnóstico cargado.</p>
                 <p className="mt-1">
-                  Puedes revisar con la información del checklist, pero lo ideal
-                  es generar primero el diagnóstico IA.
+                  Primero genera el diagnóstico desde el checklist. Luego vuelve
+                  a esta pestaña para aprobarlo o editarlo.
                 </p>
               </div>
             )}
 
-            {diagnosticoIA && (
+            {tieneDiagnostico && (
               <div className="mb-6 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Diagnóstico IA para revisión
-                    </p>
-                    <h3 className="mt-1 text-base font-bold text-slate-900">
-                      {resumen?.equipoLlegado || "Equipo revisado"}
-                    </h3>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <span
-                      className={`rounded-full border px-3 py-1 text-xs font-bold ${claseRiesgo(
-                        resumen?.nivelRiesgo
-                      )}`}
-                    >
-                      Riesgo: {resumen?.nivelRiesgo || "No indicado"}
-                    </span>
-
-                    <span
-                      className={`rounded-full border px-3 py-1 text-xs font-bold ${claseClasificacion(
-                        riesgo?.clasificacion
-                      )}`}
-                    >
-                      {riesgo?.clasificacion || "Sin clasificación"}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div className="rounded-xl bg-white p-4">
-                    <p className="text-sm font-bold text-slate-800">
-                      Estado general
-                    </p>
-                    <p className="mt-2 text-sm text-slate-600">
-                      {resumen?.estadoGeneral || "Sin estado general informado."}
-                    </p>
-                  </div>
-
-                  <div className="rounded-xl bg-white p-4">
-                    <p className="text-sm font-bold text-slate-800">
-                      Conclusión
-                    </p>
-                    <p className="mt-2 text-sm text-slate-600">
-                      {resumen?.conclusion || "Sin conclusión informada."}
-                    </p>
-                  </div>
-                </div>
-
                 <div className="rounded-xl bg-white p-4">
                   <p className="text-sm font-bold text-slate-800">
-                    Hallazgos técnicos
+                    Diagnóstico técnico generado
                   </p>
-
-                  {hallazgos.length ? (
-                    <div className="mt-3 space-y-3">
-                      {hallazgos.map((hallazgo, hallazgoIndex) => (
-                        <div
-                          key={`${hallazgo.categoria}-${hallazgoIndex}`}
-                          className="rounded-lg border border-slate-200 p-3"
-                        >
-                          <div className="flex flex-wrap gap-2">
-                            <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">
-                              {hallazgo.categoria || "General"}
-                            </span>
-
-                            {hallazgo.estado && (
-                              <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">
-                                {hallazgo.estado}
-                              </span>
-                            )}
-
-                            {hallazgo.severidad && (
-                              <span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700">
-                                Severidad: {hallazgo.severidad}
-                              </span>
-                            )}
-                          </div>
-
-                          <p className="mt-2 text-sm text-slate-600">
-                            {hallazgo.detalle || "Sin detalle."}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-2 text-sm text-slate-500">
-                      No se registraron hallazgos técnicos.
-                    </p>
-                  )}
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">
+                    {actual.hallazgosDiagnostico ||
+                      "Sin hallazgos registrados."}
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <div className="rounded-xl bg-white p-4">
                     <p className="text-sm font-bold text-slate-800">
-                      Causa probable
+                      Procedimiento recomendado
                     </p>
-
-                    {causas.length ? (
-                      <div className="mt-3 space-y-3">
-                        {causas.map((causa, causaIndex) => (
-                          <div key={`${causa.causa}-${causaIndex}`}>
-                            <p className="text-sm font-semibold text-slate-700">
-                              {causa.causa || "Causa probable"}
-                            </p>
-                            <p className="mt-1 text-sm text-slate-500">
-                              {causa.justificacion || "Sin justificación."}
-                            </p>
-                            {causa.confianza && (
-                              <p className="mt-1 text-xs font-bold text-slate-400">
-                                Confianza: {causa.confianza}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="mt-2 text-sm text-slate-500">
-                        Sin causa probable informada.
-                      </p>
-                    )}
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">
+                      {actual.procedimiento ||
+                        "Sin procedimiento recomendado registrado."}
+                    </p>
                   </div>
 
                   <div className="rounded-xl bg-white p-4">
                     <p className="text-sm font-bold text-slate-800">
-                      Riesgo técnico
+                      Repuestos solicitados
                     </p>
-                    <p className="mt-2 text-sm font-semibold text-slate-700">
-                      {riesgo?.clasificacion || "Sin clasificación"}
-                    </p>
-                    <p className="mt-1 text-sm text-slate-500">
-                      {riesgo?.justificacion || "Sin justificación."}
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">
+                      {actual.repuestos || "Sin repuestos solicitados."}
                     </p>
                   </div>
                 </div>
-
-                <div className="rounded-xl bg-white p-4">
-                  <p className="text-sm font-bold text-slate-800">
-                    Procedimiento recomendado por IA
-                  </p>
-
-                  {procedimiento.length ? (
-                    <div className="mt-3 space-y-3">
-                      {procedimiento.map((item, procedimientoIndex) => (
-                        <div
-                          key={`${item.trabajo}-${procedimientoIndex}`}
-                          className="rounded-lg border border-slate-200 p-3"
-                        >
-                          <p className="text-sm font-bold text-slate-700">
-                            {item.paso || procedimientoIndex + 1}.{" "}
-                            {item.trabajo || "Trabajo recomendado"}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            Prioridad: {item.prioridad || "No indicada"} ·{" "}
-                            {item.requiereRepuesto
-                              ? "Requiere repuesto"
-                              : "No requiere repuesto"}
-                          </p>
-                          {item.observacion && (
-                            <p className="mt-2 text-sm text-slate-500">
-                              {item.observacion}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-2 text-sm text-slate-500">
-                      Sin procedimiento recomendado.
-                    </p>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div className="rounded-xl bg-white p-4">
-                    <p className="text-sm font-bold text-slate-800">
-                      Repuestos sugeridos por IA
-                    </p>
-
-                    {repuestos.length ? (
-                      <div className="mt-3 space-y-3">
-                        {repuestos.map((repuesto, repuestoIndex) => (
-                          <div
-                            key={`${repuesto.nombre}-${repuestoIndex}`}
-                            className="rounded-lg border border-slate-200 p-3"
-                          >
-                            <p className="text-sm font-bold text-slate-700">
-                              {repuesto.cantidad || 1} x{" "}
-                              {repuesto.nombre || "Repuesto"}
-                            </p>
-                            <p className="mt-1 text-xs font-semibold text-slate-500">
-                              Prioridad: {repuesto.prioridad || "No indicada"}
-                            </p>
-                            {repuesto.motivo && (
-                              <p className="mt-2 text-sm text-slate-500">
-                                {repuesto.motivo}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="mt-2 text-sm text-slate-500">
-                        Sin repuestos sugeridos.
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="rounded-xl bg-white p-4">
-                    <p className="text-sm font-bold text-slate-800">
-                      Horas estimadas IA
-                    </p>
-                    <p className="mt-2 text-sm text-slate-600">
-                      Mínimo: {diagnosticoIA.horasEstimadas?.minimo ?? "-"} h ·
-                      Máximo: {diagnosticoIA.horasEstimadas?.maximo ?? "-"} h
-                    </p>
-                    {diagnosticoIA.horasEstimadas?.detalle && (
-                      <p className="mt-2 text-sm text-slate-500">
-                        {diagnosticoIA.horasEstimadas.detalle}
-                      </p>
-                    )}
-                    {diagnosticoIA.horasEstimadas?.supuesto && (
-                      <p className="mt-2 text-xs text-slate-400">
-                        Supuesto: {diagnosticoIA.horasEstimadas.supuesto}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {diagnosticoIA.observacionesCliente && (
-                  <div className="rounded-xl bg-white p-4">
-                    <p className="text-sm font-bold text-slate-800">
-                      Observación sugerida para cliente
-                    </p>
-                    <p className="mt-2 text-sm text-slate-600">
-                      {diagnosticoIA.observacionesCliente}
-                    </p>
-                  </div>
-                )}
-
-                {conocimiento.length > 0 && (
-                  <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4">
-                    <p className="text-sm font-bold text-indigo-900">
-                      Conocimiento histórico utilizado
-                    </p>
-
-                    <div className="mt-3 space-y-2">
-                      {conocimiento.map((caso, casoIndex) => (
-                        <div
-                          key={`${caso.casoId}-${casoIndex}`}
-                          className="rounded-lg bg-white p-3 text-sm text-indigo-900"
-                        >
-                          <p className="font-bold">
-                            Caso similar: {caso.casoId || "Sin ID"}
-                          </p>
-                          <p className="mt-1">
-                            Similitud:{" "}
-                            {typeof caso.similitud === "number"
-                              ? `${Math.round(caso.similitud * 100)}%`
-                              : "-"}
-                          </p>
-                          <p className="mt-1">{caso.aprendizaje}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {advertencias.length > 0 && (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                    <p className="text-sm font-bold text-amber-900">
-                      Advertencias IA
-                    </p>
-                    <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-amber-800">
-                      {advertencias.map((advertencia, advertenciaIndex) => (
-                        <li key={`${advertencia}-${advertenciaIndex}`}>
-                          {advertencia}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
               </div>
             )}
 
@@ -980,8 +602,8 @@ export default function RevisionJefe({
                   Revisión del Jefe Técnico
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
-                  La información viene desde el diagnóstico IA. Puedes editarla
-                  antes de aprobar.
+                  La información viene desde el diagnóstico técnico guardado.
+                  Puedes editar procedimiento y repuestos antes de aprobar.
                 </p>
               </div>
 
@@ -996,7 +618,7 @@ export default function RevisionJefe({
                     actualizarCampo(equipo.id, "motivo", event.target.value)
                   }
                   rows={3}
-                  placeholder="Ejemplo: Se aprueba diagnóstico IA. Validar disponibilidad de repuestos antes de cotizar."
+                  placeholder="Ejemplo: Se aprueba diagnóstico. Validar disponibilidad de repuestos antes de cotizar."
                   className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
               </div>
@@ -1027,7 +649,7 @@ export default function RevisionJefe({
                     actualizarCampo(
                       equipo.id,
                       "procedimiento",
-                      event.target.value
+                      event.target.value,
                     )
                   }
                   rows={7}
@@ -1054,14 +676,14 @@ export default function RevisionJefe({
                 <button
                   type="button"
                   onClick={() => guardar(equipo.id, "Aprobado")}
-                  disabled={actual.guardando}
+                  disabled={actual.guardando || !tieneDiagnostico}
                   className="rounded-xl bg-green-600 px-5 py-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
                   {actual.guardando
                     ? "Guardando..."
                     : actual.guardadoOk && actual.estado === "Aprobado"
-                    ? "✓ Aprobado"
-                    : "Aprobar diagnóstico"}
+                      ? "✓ Aprobado"
+                      : "Aprobar diagnóstico"}
                 </button>
 
                 <button
@@ -1073,19 +695,14 @@ export default function RevisionJefe({
                   {actual.guardando
                     ? "Guardando..."
                     : actual.guardadoOk && actual.estado === "Rechazado"
-                    ? "✓ Rechazado"
-                    : "Rechazar diagnóstico"}
+                      ? "✓ Rechazado"
+                      : "Rechazar diagnóstico"}
                 </button>
 
                 {actual.estado === "Aprobado" && (
                   <button
                     type="button"
                     onClick={() => {
-                      const hallazgosPDF =
-                        actual.motivo ||
-                        formatearHallazgosDesdeIA(actual.diagnosticoIA) ||
-                        "Sin hallazgos registrados.";
-
                       descargarInformeEjecutivoMJ({
                         ot: "Informe técnico",
                         cliente: "-",
@@ -1102,18 +719,20 @@ export default function RevisionJefe({
                             marca: equipo.marca || "-",
                             modelo: equipo.modelo || "-",
                             serie: equipo.numero_serie || "-",
-                            capacidad: "-",
-                            hallazgos: hallazgosPDF,
+                            capacidad: equipo.capacidad || "-",
+                            hallazgos:
+                              actual.hallazgosDiagnostico ||
+                              "Sin hallazgos registrados.",
                             trabajosRequeridos: formatearTrabajosParaPDF(
                               actual.procedimiento,
-                              actual.repuestos
+                              actual.repuestos,
                             ),
                             estadoFinal:
                               actual.estado === "Aprobado"
                                 ? "apto"
                                 : actual.estado === "Rechazado"
-                                ? "no_apto"
-                                : "observaciones",
+                                  ? "no_apto"
+                                  : "observaciones",
                             fotos: [],
                           },
                         ],
