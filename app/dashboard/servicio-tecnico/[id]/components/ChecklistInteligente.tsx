@@ -30,6 +30,336 @@ type RespuestaChecklist = {
 
 type RespuestasChecklist = Record<string, RespuestaChecklist>;
 
+type DiagnosticoIASenior = {
+  resumenEjecutivo?: {
+    equipoLlegado?: string;
+    estadoGeneral?: string;
+    nivelRiesgo?: string;
+    conclusion?: string;
+  };
+  hallazgosTecnicos?: Array<{
+    categoria?: string;
+    estado?: string;
+    detalle?: string;
+    evidenciaChecklist?: string[];
+    severidad?: string;
+  }>;
+  causaProbable?: Array<{
+    causa?: string;
+    justificacion?: string;
+    confianza?: string;
+  }>;
+  riesgo?: {
+    clasificacion?: string;
+    justificacion?: string;
+  };
+  procedimientoRecomendado?: Array<{
+    paso?: number;
+    trabajo?: string;
+    prioridad?: string;
+    requiereRepuesto?: boolean;
+    observacion?: string;
+  }>;
+  repuestosSugeridos?: Array<{
+    cantidad?: number;
+    nombre?: string;
+    prioridad?: string;
+    motivo?: string;
+  }>;
+  horasEstimadas?: {
+    minimo?: number;
+    maximo?: number;
+    detalle?: string;
+    supuesto?: string;
+  };
+  observacionesCliente?: string;
+  confianzaDiagnostico?: string;
+  conocimientoUtilizado?: Array<{
+    casoId?: string;
+    similitud?: number;
+    aprendizaje?: string;
+  }>;
+  advertencias?: string[];
+};
+
+type RespuestaDiagnosticoIA = {
+  ok?: boolean;
+  fuente?: string;
+  diagnostico?: DiagnosticoIASenior;
+  resultado?: any;
+  conocimientoHistoricoUsado?: number;
+};
+
+function textoSeguro(valor: unknown): string {
+  if (valor === null || valor === undefined) return "";
+  return String(valor).trim();
+}
+
+function unirLineas(lineas: Array<string | null | undefined>): string {
+  return lineas.map(textoSeguro).filter(Boolean).join("\n");
+}
+
+function formatearHallazgosSenior(diagnostico: DiagnosticoIASenior): string {
+  const hallazgos = diagnostico.hallazgosTecnicos || [];
+
+  if (!hallazgos.length) {
+    return "Sin hallazgos técnicos estructurados informados por IA.";
+  }
+
+  return hallazgos
+    .map((hallazgo, index) => {
+      return unirLineas([
+        `${index + 1}. ${hallazgo.categoria || "General"}`,
+        hallazgo.estado ? `Estado: ${hallazgo.estado}` : "",
+        hallazgo.severidad ? `Severidad: ${hallazgo.severidad}` : "",
+        hallazgo.detalle ? `Detalle: ${hallazgo.detalle}` : "",
+        hallazgo.evidenciaChecklist?.length
+          ? `Evidencia checklist: ${hallazgo.evidenciaChecklist.join(", ")}`
+          : "",
+      ]);
+    })
+    .join("\n\n");
+}
+
+function formatearCausasSenior(diagnostico: DiagnosticoIASenior): string {
+  const causas = diagnostico.causaProbable || [];
+
+  if (!causas.length) return "";
+
+  return causas
+    .map((causa, index) =>
+      unirLineas([
+        `${index + 1}. ${causa.causa || "Causa probable"}`,
+        causa.justificacion ? `Justificación: ${causa.justificacion}` : "",
+        causa.confianza ? `Confianza: ${causa.confianza}` : "",
+      ]),
+    )
+    .join("\n\n");
+}
+
+function formatearProcedimientoSenior(diagnostico: DiagnosticoIASenior): string[] {
+  const procedimiento = diagnostico.procedimientoRecomendado || [];
+
+  return procedimiento.map((paso, index) =>
+    unirLineas([
+      `${paso.paso || index + 1}. ${paso.trabajo || "Trabajo recomendado"}`,
+      paso.prioridad ? `Prioridad: ${paso.prioridad}` : "",
+      paso.requiereRepuesto ? "Requiere repuesto" : "No requiere repuesto",
+      paso.observacion ? `Observación: ${paso.observacion}` : "",
+    ]),
+  );
+}
+
+function formatearRepuestosSenior(diagnostico: DiagnosticoIASenior): string[] {
+  const repuestos = diagnostico.repuestosSugeridos || [];
+
+  return repuestos.map((repuesto) =>
+    [
+      `${repuesto.cantidad || 1} x ${repuesto.nombre || "Repuesto sugerido"}`,
+      repuesto.prioridad ? `Prioridad: ${repuesto.prioridad}` : "",
+      repuesto.motivo ? `Motivo: ${repuesto.motivo}` : "",
+    ]
+      .filter(Boolean)
+      .join(" | "),
+  );
+}
+
+function criticidadDesdeDiagnosticoSenior(
+  diagnostico: DiagnosticoIASenior,
+): "baja" | "media" | "alta" | "critica" {
+  const nivel = textoSeguro(diagnostico.resumenEjecutivo?.nivelRiesgo)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  const clasificacion = textoSeguro(diagnostico.riesgo?.clasificacion)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  if (nivel === "critico") return "critica";
+  if (nivel === "alto" || clasificacion === "no apto") return "alta";
+  if (nivel === "medio" || clasificacion === "apto con observaciones") {
+    return "media";
+  }
+
+  return "baja";
+}
+
+function requiereRetiroDesdeDiagnosticoSenior(
+  diagnostico: DiagnosticoIASenior,
+): boolean {
+  const clasificacion = textoSeguro(diagnostico.riesgo?.clasificacion)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  const nivel = textoSeguro(diagnostico.resumenEjecutivo?.nivelRiesgo)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  return clasificacion === "no apto" || nivel === "critico" || nivel === "alto";
+}
+
+function convertirDiagnosticoIASeniorAFormatoMJ(
+  diagnostico: DiagnosticoIASenior,
+  tipoEquipo: TipoEquipoChecklist,
+  checklist: ChecklistEquipo,
+  itemsMalosActuales: Array<{
+    item: ChecklistItem;
+    respuesta: RespuestaChecklist;
+  }>,
+): DiagnosticoGeneradoMJ {
+  const resumen = diagnostico.resumenEjecutivo;
+  const procedimiento = formatearProcedimientoSenior(diagnostico);
+  const repuestos = formatearRepuestosSenior(diagnostico);
+
+  const resumenTexto = unirLineas([
+    resumen?.equipoLlegado ? `Equipo: ${resumen.equipoLlegado}` : "",
+    resumen?.estadoGeneral ? `Estado general: ${resumen.estadoGeneral}` : "",
+    resumen?.nivelRiesgo ? `Nivel de riesgo: ${resumen.nivelRiesgo}` : "",
+    resumen?.conclusion ? `Conclusión: ${resumen.conclusion}` : "",
+    diagnostico.riesgo?.clasificacion
+      ? `Clasificación: ${diagnostico.riesgo.clasificacion}`
+      : "",
+    diagnostico.riesgo?.justificacion
+      ? `Justificación riesgo: ${diagnostico.riesgo.justificacion}`
+      : "",
+    diagnostico.horasEstimadas
+      ? `Horas estimadas IA: ${
+          diagnostico.horasEstimadas.minimo ?? "-"
+        } a ${diagnostico.horasEstimadas.maximo ?? "-"} h`
+      : "",
+    diagnostico.observacionesCliente
+      ? `Observación cliente: ${diagnostico.observacionesCliente}`
+      : "",
+  ]);
+
+  const causasTexto = formatearCausasSenior(diagnostico);
+
+  const diagnosticoTecnico = unirLineas([
+    "Hallazgos técnicos:",
+    formatearHallazgosSenior(diagnostico),
+    causasTexto ? "\nCausa probable:" : "",
+    causasTexto,
+    diagnostico.riesgo?.clasificacion ? "\nRiesgo:" : "",
+    diagnostico.riesgo?.clasificacion
+      ? `${diagnostico.riesgo.clasificacion}. ${
+          diagnostico.riesgo.justificacion || ""
+        }`
+      : "",
+    diagnostico.advertencias?.length ? "\nAdvertencias:" : "",
+    diagnostico.advertencias?.length
+      ? diagnostico.advertencias.map((item) => `- ${item}`).join("\n")
+      : "",
+  ]);
+
+  return {
+    tipoEquipo,
+    nombreEquipo: checklist.nombre,
+    resumen: resumenTexto || diagnostico.observacionesCliente || diagnosticoTecnico,
+    diagnosticoTecnico,
+    procedimientoRecomendado: procedimiento as any,
+    repuestosSugeridos: repuestos as any,
+    criticidad: criticidadDesdeDiagnosticoSenior(diagnostico),
+    requiereRetiroServicio: requiereRetiroDesdeDiagnosticoSenior(diagnostico),
+    itemsMalos: itemsMalosActuales as any,
+  };
+}
+
+function convertirResultadoAnteriorAFormatoMJ(
+  resultadoIA: any,
+  tipoEquipo: TipoEquipoChecklist,
+  checklist: ChecklistEquipo,
+  itemsMalosActuales: Array<{
+    item: ChecklistItem;
+    respuesta: RespuestaChecklist;
+  }>,
+): DiagnosticoGeneradoMJ {
+  const hallazgosIA =
+    resultadoIA.hallazgos ||
+    resultadoIA.diagnosticoTecnico ||
+    "Diagnóstico generado por IA sin hallazgos estructurados.";
+
+  const trabajosIA = Array.isArray(resultadoIA.trabajosRequeridos)
+    ? resultadoIA.trabajosRequeridos
+    : Array.isArray(resultadoIA.procedimientoRecomendado)
+      ? resultadoIA.procedimientoRecomendado
+      : [];
+
+  const repuestosIA = Array.isArray(resultadoIA.repuestosSugeridos)
+    ? resultadoIA.repuestosSugeridos
+    : [];
+
+  const criticidadIA =
+    resultadoIA.criticidad === "critica" ||
+    resultadoIA.criticidad === "alta" ||
+    resultadoIA.criticidad === "media" ||
+    resultadoIA.criticidad === "baja"
+      ? resultadoIA.criticidad
+      : "media";
+
+  const estadoFinalIA =
+    resultadoIA.estadoFinal === "no_apto"
+      ? "no_apto"
+      : resultadoIA.estadoFinal === "apto"
+        ? "apto"
+        : "observaciones";
+
+  return {
+    tipoEquipo,
+    nombreEquipo: checklist.nombre,
+    resumen: resultadoIA.resumenCliente || resultadoIA.resumen || hallazgosIA,
+    diagnosticoTecnico: hallazgosIA,
+    procedimientoRecomendado: trabajosIA as any,
+    repuestosSugeridos: repuestosIA as any,
+    criticidad: criticidadIA,
+    requiereRetiroServicio: estadoFinalIA === "no_apto",
+    itemsMalos: itemsMalosActuales as any,
+  };
+}
+
+function crearDiagnosticoDesdeRespuestaIA(
+  data: RespuestaDiagnosticoIA,
+  tipoEquipo: TipoEquipoChecklist,
+  checklist: ChecklistEquipo,
+  itemsMalosActuales: Array<{
+    item: ChecklistItem;
+    respuesta: RespuestaChecklist;
+  }>,
+): DiagnosticoGeneradoMJ {
+  if (data.diagnostico?.resumenEjecutivo || data.diagnostico?.hallazgosTecnicos) {
+    return convertirDiagnosticoIASeniorAFormatoMJ(
+      data.diagnostico,
+      tipoEquipo,
+      checklist,
+      itemsMalosActuales,
+    );
+  }
+
+  if (data.resultado) {
+    return convertirResultadoAnteriorAFormatoMJ(
+      data.resultado,
+      tipoEquipo,
+      checklist,
+      itemsMalosActuales,
+    );
+  }
+
+  if (data.diagnostico) {
+    return convertirResultadoAnteriorAFormatoMJ(
+      data.diagnostico,
+      tipoEquipo,
+      checklist,
+      itemsMalosActuales,
+    );
+  }
+
+  throw new Error("La IA no entregó diagnóstico utilizable.");
+}
+
+
 type ChecklistInteligenteProps = {
   tipoEquipoInicial?: string | null;
   equipoId?: string | null;
@@ -392,6 +722,63 @@ export default function ChecklistInteligente({
     setGenerandoIA(true);
     setUsoRespaldoLocal(false);
 
+    const checklistCompleto = {
+      totalItems,
+      itemsRespondidos,
+      secciones: checklist.sections.map((section) => ({
+        id: section.id,
+        titulo: section.titulo,
+        items: section.items.map((item) => {
+          const respuesta = respuestas[item.id] || crearRespuestaVacia();
+
+          return {
+            item: {
+              id: item.id,
+              label: item.label,
+              sistema: item.sistema || "",
+              afectaSeguridad: Boolean(item.afectaSeguridad),
+            },
+            respuesta: {
+              estado: respuesta.estado,
+              observacion: respuesta.observacion,
+              acciones: respuesta.acciones,
+              repuesto_nombre: respuesta.repuesto_nombre,
+              repuesto_cantidad: respuesta.repuesto_cantidad,
+              accion_otro: respuesta.accion_otro,
+              cantidad_fotos: respuesta.fotos?.length || 0,
+            },
+          };
+        }),
+      })),
+      itemsMalos: itemsMalos.map((registro) => ({
+        item: {
+          id: registro.item.id,
+          label: registro.item.label,
+          descripcion: "",
+          sistema: registro.item.sistema || "",
+          afectaSeguridad: Boolean(registro.item.afectaSeguridad),
+        },
+        respuesta: {
+          estado: registro.respuesta.estado,
+          observacion: registro.respuesta.observacion,
+          acciones: registro.respuesta.acciones,
+          repuesto_nombre: registro.respuesta.repuesto_nombre,
+          repuesto_cantidad: registro.respuesta.repuesto_cantidad,
+          accion_otro: registro.respuesta.accion_otro,
+          cantidad_fotos: registro.respuesta.fotos?.length || 0,
+        },
+      })),
+    };
+
+    const observacionesChecklist = itemsMalos
+      .map(
+        (registro) =>
+          `${registro.item.label}: ${
+            registro.respuesta.observacion || "Sin observación"
+          }`,
+      )
+      .join("\n");
+
     try {
       const response = await fetch("/api/diagnostico-ia", {
         method: "POST",
@@ -399,41 +786,18 @@ export default function ChecklistInteligente({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          ordenId: equipoId || null,
+          equipoId: equipoId || null,
           equipo: {
             tipoEquipo,
+            tipo: tipoEquipo,
             nombreChecklist: checklist.nombre,
             descripcionChecklist: checklist.descripcion,
           },
-          checklist: {
-            totalItems,
-            itemsRespondidos,
-            itemsMalos: itemsMalos.map((registro) => ({
-              item: {
-                id: registro.item.id,
-                label: registro.item.label,
-                descripcion: "",
-                sistema: registro.item.sistema || "",
-                afectaSeguridad: Boolean(registro.item.afectaSeguridad),
-              },
-              respuesta: {
-                estado: registro.respuesta.estado,
-                observacion: registro.respuesta.observacion,
-                acciones: registro.respuesta.acciones,
-                repuesto_nombre: registro.respuesta.repuesto_nombre,
-                repuesto_cantidad: registro.respuesta.repuesto_cantidad,
-                accion_otro: registro.respuesta.accion_otro,
-                cantidad_fotos: registro.respuesta.fotos?.length || 0,
-              },
-            })),
-          },
-          observaciones: itemsMalos
-            .map(
-              (registro) =>
-                `${registro.item.label}: ${
-                  registro.respuesta.observacion || "Sin observación"
-                }`,
-            )
-            .join("\n"),
+          checklist: checklistCompleto,
+          problemaReportado: "",
+          observacionesIngreso: observacionesChecklist,
+          observaciones: observacionesChecklist,
         }),
       });
 
@@ -441,45 +805,16 @@ export default function ChecklistInteligente({
         throw new Error("La IA no respondió correctamente");
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as RespuestaDiagnosticoIA;
 
       console.log("RESPUESTA IA:", data);
 
-const resultadoIA = data.resultado || {};
-const hallazgosIA =
-  resultadoIA.hallazgos ||
-  "Diagnóstico generado por IA sin hallazgos estructurados.";
-
-const trabajosIA = Array.isArray(resultadoIA.trabajosRequeridos)
-  ? resultadoIA.trabajosRequeridos
-  : [];
-
-const criticidadIA =
-  resultadoIA.criticidad === "critica" ||
-  resultadoIA.criticidad === "alta" ||
-  resultadoIA.criticidad === "media" ||
-  resultadoIA.criticidad === "baja"
-    ? resultadoIA.criticidad
-    : "media";
-
-const estadoFinalIA =
-  resultadoIA.estadoFinal === "no_apto"
-    ? "no_apto"
-    : resultadoIA.estadoFinal === "apto"
-    ? "apto"
-    : "observaciones";
-
-const diagnosticoIA: DiagnosticoGeneradoMJ = {
-  tipoEquipo,
-  nombreEquipo: checklist.nombre,
-  resumen: resultadoIA.resumenCliente || hallazgosIA,
-  diagnosticoTecnico: hallazgosIA,
-  procedimientoRecomendado: trabajosIA,
-  repuestosSugeridos: [],
-  criticidad: criticidadIA,
-  requiereRetiroServicio: estadoFinalIA === "no_apto",
-  itemsMalos: [],
-};
+      const diagnosticoIA = crearDiagnosticoDesdeRespuestaIA(
+        data,
+        tipoEquipo,
+        checklist,
+        itemsMalos,
+      );
 
       setDiagnosticoGenerado(diagnosticoIA);
 
