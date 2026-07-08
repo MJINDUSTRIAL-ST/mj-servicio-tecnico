@@ -9,10 +9,7 @@ import {
   TipoEquipoChecklist,
   getChecklistByTipo,
 } from "../lib/checklists";
-import {
-  DiagnosticoGeneradoMJ,
-  generarDiagnosticoMJ,
-} from "../lib/diagnosticoEngine";
+import { DiagnosticoGeneradoMJ } from "../lib/diagnosticoEngine";
 import { obtenerRepuestoSugerido } from "../lib/repuestosSugeridos";
 
 type AccionChecklist =
@@ -72,9 +69,9 @@ type DiagnosticoIASenior = {
     detalle?: string;
     supuesto?: string;
   };
- observacionesCliente?: string;
-textoTecnicoNatural?: string;
-confianzaDiagnostico?: string;
+  observacionesCliente?: string;
+  textoTecnicoNatural?: string;
+  confianzaDiagnostico?: string;
   conocimientoUtilizado?: Array<{
     casoId?: string;
     similitud?: number;
@@ -98,6 +95,349 @@ function textoSeguro(valor: unknown): string {
 
 function unirLineas(lineas: Array<string | null | undefined>): string {
   return lineas.map(textoSeguro).filter(Boolean).join("\n");
+}
+
+function normalizarTextoMJ(valor: unknown): string {
+  return textoSeguro(valor)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function nombreItemTecnico(registro: {
+  item: ChecklistItem;
+  respuesta: RespuestaChecklist;
+}) {
+  const item = registro.item as any;
+
+  return (
+    textoSeguro(item.label) ||
+    textoSeguro(item.nombre) ||
+    textoSeguro(item.titulo) ||
+    textoSeguro(item.name) ||
+    textoSeguro(item.id) ||
+    "ítem observado"
+  );
+}
+
+function observacionItemTecnico(registro: {
+  item: ChecklistItem;
+  respuesta: RespuestaChecklist;
+}) {
+  return textoSeguro(registro.respuesta.observacion);
+}
+
+function prioridadItemTecnico(registro: {
+  item: ChecklistItem;
+  respuesta: RespuestaChecklist;
+}) {
+  const item = registro.item as any;
+  const nombre = normalizarTextoMJ(nombreItemTecnico(registro));
+
+  if (
+    item.afectaSeguridad ||
+    nombre.includes("freno") ||
+    nombre.includes("gancho") ||
+    nombre.includes("cable") ||
+    nombre.includes("cadena") ||
+    nombre.includes("limitador") ||
+    nombre.includes("carcasa") ||
+    nombre.includes("estructura")
+  ) {
+    return "alta";
+  }
+
+  return "media";
+}
+
+function accionLegible(accion: AccionChecklist | string) {
+  if (accion === "repuesto") return "reemplazo";
+  if (accion === "reparacion") return "reparación";
+  if (accion === "ajuste") return "ajuste";
+  if (accion === "mantencion") return "mantención";
+  if (accion === "otro") return "acción técnica";
+  return textoSeguro(accion) || "revisión";
+}
+
+
+function descripcionFallaPorComponente(nombreOriginal: string, observacionOriginal: string) {
+  const nombre = normalizarTextoMJ(nombreOriginal);
+  const observacion = textoSeguro(observacionOriginal);
+
+  if (nombre.includes("cable")) {
+    return `El ${nombreOriginal.toLowerCase()} está dañado y debe ser reemplazado de inmediato para evitar fallas estructurales que comprometan la integridad de la carga y la seguridad del personal.`;
+  }
+
+  if (nombre.includes("botonera")) {
+    return observacion
+      ? `La ${nombreOriginal.toLowerCase()} presenta ${observacion.toLowerCase()}, lo cual puede provocar desconexiones accidentales o fallos en el control remoto, generando riesgos operativos.`
+      : `La ${nombreOriginal.toLowerCase()} presenta una condición deficiente, lo cual puede provocar fallos de control durante la operación.`;
+  }
+
+  if (nombre.includes("freno")) {
+    return `El ${nombreOriginal.toLowerCase()} no funciona adecuadamente, afectando la capacidad de detener la carga, lo que puede ocasionar accidentes graves.`;
+  }
+
+  if (nombre.includes("enchufe") || nombre.includes("alimentador")) {
+    return `Se recomienda además reemplazar el ${nombreOriginal.toLowerCase()} para garantizar una conexión eléctrica segura y confiable.`;
+  }
+
+  if (nombre.includes("carcasa") || nombre.includes("estructura")) {
+    return observacion
+      ? `Se detectan daños en la ${nombreOriginal.toLowerCase()} (${observacion.toLowerCase()}), por lo que se recomienda su reparación para evitar daños mayores.`
+      : `Se detectan daños en la ${nombreOriginal.toLowerCase()}, por lo que se recomienda su reparación para evitar daños mayores.`;
+  }
+
+  if (nombre.includes("limpieza") || nombre.includes("suciedad")) {
+    return `Se requiere una limpieza integral para mantener condiciones óptimas de trabajo.`;
+  }
+
+  if (observacion) {
+    return `El componente ${nombreOriginal.toLowerCase()} presenta la siguiente observación: ${observacion}.`;
+  }
+
+  return `El componente ${nombreOriginal.toLowerCase()} presenta una condición deficiente y debe ser corregido antes de liberar el equipo.`;
+}
+
+function procedimientoPorComponente(nombreOriginal: string, accion: AccionChecklist | string) {
+  const nombre = normalizarTextoMJ(nombreOriginal);
+
+  if (nombre.includes("cable")) {
+    return "Reemplazo del cable de acero por uno nuevo certificado.";
+  }
+
+  if (nombre.includes("botonera")) {
+    return "Ajuste y aseguramiento de los tornillos en la botonera colgante.";
+  }
+
+  if (nombre.includes("freno")) {
+    return "Mantenimiento y reparación del freno magnético para restaurar su función.";
+  }
+
+  if (nombre.includes("enchufe") || nombre.includes("alimentador")) {
+    return "Cambio del enchufe alimentador por uno nuevo adecuado.";
+  }
+
+  if (nombre.includes("carcasa") || nombre.includes("estructura")) {
+    return "Reparación de golpes en la carcasa para evitar daños mayores.";
+  }
+
+  if (nombre.includes("limpieza") || nombre.includes("suciedad")) {
+    return "Limpieza general del equipo para mejorar condiciones de trabajo.";
+  }
+
+  if (accion === "repuesto") {
+    return `Reemplazo de ${nombreOriginal.toLowerCase()} por componente nuevo compatible.`;
+  }
+
+  if (accion === "reparacion") {
+    return `Reparación de ${nombreOriginal.toLowerCase()} y validación posterior de funcionamiento.`;
+  }
+
+  if (accion === "ajuste") {
+    return `Ajuste de ${nombreOriginal.toLowerCase()} y verificación posterior.`;
+  }
+
+  if (accion === "mantencion") {
+    return `Mantención de ${nombreOriginal.toLowerCase()} y prueba funcional posterior.`;
+  }
+
+  return `Revisión y corrección de ${nombreOriginal.toLowerCase()} según condición detectada.`;
+}
+
+function crearDiagnosticoVisibleTecnicoDesdeChecklist(
+  tipoEquipo: TipoEquipoChecklist,
+  checklist: ChecklistEquipo,
+  itemsMalosActuales: Array<{
+    item: ChecklistItem;
+    respuesta: RespuestaChecklist;
+  }>,
+  diagnosticoSenior?: DiagnosticoIASenior | null,
+): DiagnosticoGeneradoMJ {
+  const nombreEquipo = (checklist.nombre || tipoEquipo || "equipo").toLowerCase();
+  const itemsConFalla = itemsMalosActuales.filter(
+    (registro) => registro.respuesta.estado === "malo",
+  );
+
+  if (!itemsConFalla.length) {
+    const textoSinFallas =
+      textoSeguro(diagnosticoSenior?.textoTecnicoNatural) ||
+      `El ${nombreEquipo} no presenta deficiencias críticas registradas en el checklist. Se recomienda realizar una prueba funcional final antes de liberar el equipo.`;
+
+    return {
+      tipoEquipo,
+      nombreEquipo: checklist.nombre,
+      resumen: textoSinFallas,
+      diagnosticoTecnico: textoSinFallas,
+      procedimientoRecomendado: [
+        "Realizar prueba funcional final del equipo antes de liberar.",
+      ] as any,
+      repuestosSugeridos: [] as any,
+      criticidad: "baja",
+      requiereRetiroServicio: false,
+      itemsMalos: itemsMalosActuales as any,
+    };
+  }
+
+  const criticos = itemsConFalla.filter(
+    (registro) => prioridadItemTecnico(registro) === "alta",
+  );
+  const noCriticos = itemsConFalla.filter(
+    (registro) => prioridadItemTecnico(registro) !== "alta",
+  );
+
+  const frasesCriticas = criticos.map((registro) =>
+    descripcionFallaPorComponente(
+      nombreItemTecnico(registro),
+      observacionItemTecnico(registro),
+    ),
+  );
+
+  const frasesNoCriticas = noCriticos.map((registro) =>
+    descripcionFallaPorComponente(
+      nombreItemTecnico(registro),
+      observacionItemTecnico(registro),
+    ),
+  );
+
+  const inicio = criticos.length
+    ? `El ${nombreEquipo} presenta varias deficiencias críticas en componentes esenciales para su operación segura.`
+    : `El ${nombreEquipo} presenta observaciones técnicas que deben corregirse antes de su liberación.`;
+
+  const cierre = criticos.length
+    ? "Estas condiciones requieren atención inmediata para mantener la operatividad segura del equipo."
+    : "Estas condiciones deben ser corregidas y validadas mediante prueba funcional antes de liberar el equipo.";
+
+  const diagnosticoTecnico = unirLineas([
+    inicio,
+    ...frasesCriticas,
+    ...frasesNoCriticas,
+    cierre,
+  ]).replace(/\n/g, " ");
+
+  const procedimientos = itemsConFalla.map((registro) => {
+    const acciones = registro.respuesta.acciones || [];
+    const accionPrincipal = acciones[0] || "revisión técnica";
+
+    return procedimientoPorComponente(
+      nombreItemTecnico(registro),
+      accionPrincipal,
+    );
+  });
+
+  const procedimientosUnicos = Array.from(new Set(procedimientos));
+  const repuestos = crearRepuestosTecnicoNatural(itemsConFalla);
+  const criticidad = criticos.length ? "alta" : "media";
+
+  return {
+    tipoEquipo,
+    nombreEquipo: checklist.nombre,
+    resumen: diagnosticoTecnico,
+    diagnosticoTecnico,
+    procedimientoRecomendado: procedimientosUnicos as any,
+    repuestosSugeridos: repuestos as any,
+    criticidad,
+    requiereRetiroServicio: criticos.length > 0,
+    itemsMalos: itemsMalosActuales as any,
+  };
+}
+
+function crearHallazgoTecnicoNatural(
+  tipoEquipo: TipoEquipoChecklist,
+  checklist: ChecklistEquipo,
+  itemsMalosActuales: Array<{
+    item: ChecklistItem;
+    respuesta: RespuestaChecklist;
+  }>,
+  diagnostico: DiagnosticoIASenior,
+) {
+  const equipo = (checklist.nombre || tipoEquipo || "equipo").toLowerCase();
+
+  if (!itemsMalosActuales.length) {
+    return (
+      textoSeguro(diagnostico.textoTecnicoNatural) ||
+      `El ${equipo} no presenta observaciones críticas registradas en el checklist. Se recomienda realizar validación funcional final antes de liberar el equipo.`
+    );
+  }
+
+  const componentes = itemsMalosActuales.map(nombreItemTecnico);
+  const componentesTexto = componentes.join(", ");
+
+  const observacionesTexto = itemsMalosActuales
+    .map((registro) => {
+      const nombre = nombreItemTecnico(registro);
+      const observacion = observacionItemTecnico(registro);
+      return observacion ? `${nombre}: ${observacion}` : nombre;
+    })
+    .join("; ");
+
+  const hayRiesgoAlto = itemsMalosActuales.some(
+    (registro) => prioridadItemTecnico(registro) === "alta",
+  );
+
+  const cierre = hayRiesgoAlto
+    ? "Estas condiciones pueden comprometer la operación segura del equipo, por lo que no se recomienda liberarlo hasta realizar las correcciones y una prueba funcional posterior."
+    : "Se recomienda corregir las observaciones indicadas y validar el funcionamiento antes de liberar el equipo.";
+
+  return unirLineas([
+    `El ${equipo} presenta observaciones técnicas en los siguientes componentes: ${componentesTexto}.`,
+    observacionesTexto ? `Durante la revisión se detectó: ${observacionesTexto}.` : "",
+    cierre,
+  ]);
+}
+
+function crearProcedimientoTecnicoNatural(
+  itemsMalosActuales: Array<{
+    item: ChecklistItem;
+    respuesta: RespuestaChecklist;
+  }>,
+) {
+  if (!itemsMalosActuales.length) {
+    return ["Realizar prueba funcional final del equipo antes de liberar."];
+  }
+
+  const trabajos = itemsMalosActuales.map((registro, index) => {
+    const nombre = nombreItemTecnico(registro);
+    const acciones = registro.respuesta.acciones || [];
+    const accionesTexto = acciones.length
+      ? acciones.map(accionLegible).join(" / ")
+      : "revisión técnica";
+    const observacion = observacionItemTecnico(registro);
+    const prioridad = prioridadItemTecnico(registro);
+
+    return unirLineas([
+      `${index + 1}. Realizar ${accionesTexto} en ${nombre}.`,
+      `Prioridad: ${prioridad}`,
+      acciones.includes("repuesto") ? "Requiere repuesto" : "No requiere repuesto obligatorio",
+      observacion ? `Observación: ${observacion}` : "",
+    ]);
+  });
+
+  trabajos.push("Realizar prueba funcional y validación de seguridad antes de liberar el equipo.");
+
+  return trabajos;
+}
+
+function crearRepuestosTecnicoNatural(
+  itemsMalosActuales: Array<{
+    item: ChecklistItem;
+    respuesta: RespuestaChecklist;
+  }>,
+) {
+  return itemsMalosActuales
+    .filter((registro) => registro.respuesta.acciones?.includes("repuesto"))
+    .map((registro) => {
+      const cantidad = textoSeguro(registro.respuesta.repuesto_cantidad) || "1";
+      const nombre =
+        textoSeguro(registro.respuesta.repuesto_nombre) ||
+        nombreItemTecnico(registro);
+      const motivo =
+        observacionItemTecnico(registro) ||
+        `${nombreItemTecnico(registro)} marcado como malo en checklist.`;
+      const prioridad = prioridadItemTecnico(registro);
+
+      return `${cantidad} x ${nombre} | Prioridad: ${prioridad} | Motivo: ${motivo}`;
+    });
 }
 
 function formatearHallazgosSenior(diagnostico: DiagnosticoIASenior): string {
@@ -212,61 +552,12 @@ function convertirDiagnosticoIASeniorAFormatoMJ(
     respuesta: RespuestaChecklist;
   }>,
 ): DiagnosticoGeneradoMJ {
-  const resumen = diagnostico.resumenEjecutivo;
-  const procedimiento = formatearProcedimientoSenior(diagnostico);
-  const repuestos = formatearRepuestosSenior(diagnostico);
-
-  const resumenTexto = unirLineas([
-    resumen?.equipoLlegado ? `Equipo: ${resumen.equipoLlegado}` : "",
-    resumen?.estadoGeneral ? `Estado general: ${resumen.estadoGeneral}` : "",
-    resumen?.nivelRiesgo ? `Nivel de riesgo: ${resumen.nivelRiesgo}` : "",
-    resumen?.conclusion ? `Conclusión: ${resumen.conclusion}` : "",
-    diagnostico.riesgo?.clasificacion
-      ? `Clasificación: ${diagnostico.riesgo.clasificacion}`
-      : "",
-    diagnostico.riesgo?.justificacion
-      ? `Justificación riesgo: ${diagnostico.riesgo.justificacion}`
-      : "",
-    diagnostico.horasEstimadas
-      ? `Horas estimadas IA: ${
-          diagnostico.horasEstimadas.minimo ?? "-"
-        } a ${diagnostico.horasEstimadas.maximo ?? "-"} h`
-      : "",
-    diagnostico.observacionesCliente
-      ? `Observación cliente: ${diagnostico.observacionesCliente}`
-      : "",
-  ]);
-
-  const causasTexto = formatearCausasSenior(diagnostico);
-
-  const diagnosticoTecnico = unirLineas([
-    "Hallazgos técnicos:",
-    formatearHallazgosSenior(diagnostico),
-    causasTexto ? "\nCausa probable:" : "",
-    causasTexto,
-    diagnostico.riesgo?.clasificacion ? "\nRiesgo:" : "",
-    diagnostico.riesgo?.clasificacion
-      ? `${diagnostico.riesgo.clasificacion}. ${
-          diagnostico.riesgo.justificacion || ""
-        }`
-      : "",
-    diagnostico.advertencias?.length ? "\nAdvertencias:" : "",
-    diagnostico.advertencias?.length
-      ? diagnostico.advertencias.map((item) => `- ${item}`).join("\n")
-      : "",
-  ]);
-
-  return {
+  return crearDiagnosticoVisibleTecnicoDesdeChecklist(
     tipoEquipo,
-    nombreEquipo: checklist.nombre,
-    resumen: resumenTexto || diagnostico.observacionesCliente || diagnosticoTecnico,
-    diagnosticoTecnico,
-    procedimientoRecomendado: procedimiento as any,
-    repuestosSugeridos: repuestos as any,
-    criticidad: criticidadDesdeDiagnosticoSenior(diagnostico),
-    requiereRetiroServicio: requiereRetiroDesdeDiagnosticoSenior(diagnostico),
-    itemsMalos: itemsMalosActuales as any,
-  };
+    checklist,
+    itemsMalosActuales,
+    diagnostico,
+  );
 }
 
 function convertirResultadoAnteriorAFormatoMJ(
@@ -278,6 +569,15 @@ function convertirResultadoAnteriorAFormatoMJ(
     respuesta: RespuestaChecklist;
   }>,
 ): DiagnosticoGeneradoMJ {
+  if (itemsMalosActuales.length > 0) {
+    return crearDiagnosticoVisibleTecnicoDesdeChecklist(
+      tipoEquipo,
+      checklist,
+      itemsMalosActuales,
+      null,
+    );
+  }
+
   const hallazgosIA =
     resultadoIA.hallazgos ||
     resultadoIA.diagnosticoTecnico ||
@@ -375,6 +675,8 @@ type ChecklistInteligenteProps = {
       respuesta: RespuestaChecklist;
     }>;
     diagnostico: DiagnosticoGeneradoMJ;
+    diagnosticoIASenior?: DiagnosticoIASenior | null;
+    fuenteIA?: string;
   }) => void;
 };
 
@@ -833,15 +1135,18 @@ export default function ChecklistInteligente({
         respuestas,
         itemsMalos,
         diagnostico: diagnosticoIA,
+        diagnosticoIASenior: data.diagnostico || null,
+        fuenteIA: data.fuente || "openai",
       });
     } catch (error) {
       console.error("Error IA, usando respaldo local:", error);
 
-      const diagnosticoLocal = generarDiagnosticoMJ({
+      const diagnosticoLocal = crearDiagnosticoVisibleTecnicoDesdeChecklist(
         tipoEquipo,
         checklist,
-        respuestas,
-      });
+        itemsMalos,
+        null,
+      );
 
       setUsoRespaldoLocal(true);
       setDiagnosticoGenerado(diagnosticoLocal);
