@@ -314,34 +314,42 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
   }, [ordenId]);
 
   async function cargarDatos() {
-    const { data: ordenParaInforme } = await supabase
+    const { data: ordenParaInforme, error: errorOrdenInforme } = await supabase
       .from("ordenes")
-      .select("id,codigo,cliente,cliente_email,created_at")
+      .select("*")
       .eq("id", ordenId)
       .maybeSingle();
 
-    setOrdenInforme(ordenParaInforme || null);
+    if (errorOrdenInforme) {
+      console.error("Error cargando datos de cliente para informe:", errorOrdenInforme);
+    }
 
-    const { data: hijos } = await supabase
+    setOrdenInforme((ordenParaInforme || null) as OrdenInforme | null);
+
+    const { data: hijos, error: errorHijos } = await supabase
       .from("ordenes")
-      .select(
-        "id,codigo,equipo,marca,modelo,numero_serie,capacidad,diagnostico_ia_json,diagnostico_ia_fuente,diagnostico_ia_generado_en",
-      )
+      .select("*")
       .eq("orden_padre_id", ordenId)
       .order("codigo", { ascending: true });
 
-    let equiposBase: EquipoRevision[] = hijos || [];
+    if (errorHijos) {
+      console.error("Error cargando equipos hijos para revisión:", errorHijos);
+    }
+
+    let equiposBase: EquipoRevision[] = (hijos || []) as EquipoRevision[];
 
     if (!equiposBase.length) {
-      const { data: orden } = await supabase
+      const { data: orden, error: errorOrden } = await supabase
         .from("ordenes")
-        .select(
-          "id,codigo,equipo,marca,modelo,numero_serie,capacidad,diagnostico_ia_json,diagnostico_ia_fuente,diagnostico_ia_generado_en",
-        )
+        .select("*")
         .eq("id", ordenId)
-        .single();
+        .maybeSingle();
 
-      if (orden) equiposBase = [orden];
+      if (errorOrden) {
+        console.error("Error cargando orden para revisión:", errorOrden);
+      }
+
+      if (orden) equiposBase = [orden as EquipoRevision];
     }
 
     setEquipos(equiposBase);
