@@ -945,16 +945,25 @@ export default function CotizacionInterna({
       </html>
     `;
 
-    const ventana = window.open("", "_blank", "noopener,noreferrer");
+    const nombreArchivo = `cotizacion-interna-${ordenInfo?.codigo || ordenId}.html`
+      .replace(/[^a-zA-Z0-9-_ñÑáéíóúÁÉÍÓÚ.]/g, "-")
+      .replace(/-+/g, "-");
 
-    if (!ventana) {
-      alert("No se pudo abrir la cotización interna. Revisa si el navegador bloqueó la ventana emergente.");
-      return;
-    }
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
 
-    ventana.document.open();
-    ventana.document.write(html);
-    ventana.document.close();
+    link.href = url;
+    link.download = nombreArchivo;
+    link.style.display = "none";
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 1000);
   }
 
   if (loading) {
