@@ -254,6 +254,44 @@ function construirDiagnosticoAprobadoJson(
     diagnostico_ia_original: actual.diagnosticoIA,
   };
 }
+function calcularEstadoFinalEquipo(actual: RevisionPorEquipo) {
+  const texto = [
+    actual.hallazgosDiagnostico,
+    actual.procedimiento,
+    actual.repuestos,
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  const tieneRiesgoCritico =
+    texto.includes("crítica") ||
+    texto.includes("crítico") ||
+    texto.includes("critico") ||
+    texto.includes("críticas") ||
+    texto.includes("no se recomienda liberar") ||
+    texto.includes("no apto") ||
+    texto.includes("freno") ||
+    texto.includes("cable de acero") ||
+    texto.includes("gancho") ||
+    texto.includes("botonera") ||
+    texto.includes("eléctrica") ||
+    texto.includes("electrica") ||
+    texto.includes("seguridad");
+
+  const tieneTrabajosPendientes =
+    actual.procedimiento.trim().length > 0 ||
+    actual.repuestos.trim().length > 0;
+
+  if (tieneRiesgoCritico) {
+    return "no_apto";
+  }
+
+  if (tieneTrabajosPendientes) {
+    return "observaciones";
+  }
+
+  return "apto";
+}
 
 export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
   const [equipos, setEquipos] = useState<EquipoRevision[]>([]);
@@ -754,12 +792,7 @@ if (errorOrden) {
                               actual.procedimiento,
                               actual.repuestos,
                             ),
-                            estadoFinal:
-                              actual.estado === "Aprobado"
-                                ? "apto"
-                                : actual.estado === "Rechazado"
-                                  ? "no_apto"
-                                  : "observaciones",
+                            estadoFinal: calcularEstadoFinalEquipo(actual),
                             fotos: [],
                           },
                         ],
