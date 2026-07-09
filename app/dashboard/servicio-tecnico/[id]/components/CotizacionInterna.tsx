@@ -631,7 +631,7 @@ export default function CotizacionInterna({
     cargarDatos();
   }
 
-  function descargarCotizacionInterna() {
+  function imprimirCotizacionInterna() {
     const filas = items
       .map((item) => {
         const equipo = equipos.find((registro) => registro.id === item.equipoId);
@@ -853,7 +853,7 @@ export default function CotizacionInterna({
           </style>
         </head>
         <body>
-          <div class="printbar">Imprimir / Guardar PDF</div>
+          <div class="printbar">Cotización interna MJ Industrial</div>
 
           <main class="page">
             <div class="header">
@@ -945,25 +945,39 @@ export default function CotizacionInterna({
       </html>
     `;
 
-    const nombreArchivo = `cotizacion-interna-${ordenInfo?.codigo || ordenId}.html`
-      .replace(/[^a-zA-Z0-9-_ñÑáéíóúÁÉÍÓÚ.]/g, "-")
-      .replace(/-+/g, "-");
+    const iframe = document.createElement("iframe");
 
-    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
 
-    link.href = url;
-    link.download = nombreArchivo;
-    link.style.display = "none";
+    document.body.appendChild(iframe);
 
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const iframeDocument = iframe.contentWindow?.document;
+
+    if (!iframeDocument || !iframe.contentWindow) {
+      document.body.removeChild(iframe);
+      alert("No se pudo preparar la cotización interna para imprimir.");
+      return;
+    }
+
+    iframeDocument.open();
+    iframeDocument.write(html);
+    iframeDocument.close();
 
     setTimeout(() => {
-      URL.revokeObjectURL(url);
-    }, 1000);
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    }, 500);
+
+    setTimeout(() => {
+      if (document.body.contains(iframe)) {
+        document.body.removeChild(iframe);
+      }
+    }, 30000);
   }
 
   if (loading) {
@@ -1007,10 +1021,10 @@ export default function CotizacionInterna({
 
           <button
             type="button"
-            onClick={descargarCotizacionInterna}
+            onClick={imprimirCotizacionInterna}
             className="secondaryTop"
           >
-            Descargar interna
+            Imprimir / Guardar PDF
           </button>
 
           <button
