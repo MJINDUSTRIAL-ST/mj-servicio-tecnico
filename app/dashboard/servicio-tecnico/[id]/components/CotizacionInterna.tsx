@@ -18,6 +18,14 @@ type Equipo = {
   numero_serie?: string | null;
 };
 
+type OrdenInfo = {
+  id: string;
+  codigo?: string | null;
+  cliente?: string | null;
+  cliente_email?: string | null;
+  created_at?: string | null;
+};
+
 type TipoItem =
   | "repuesto"
   | "trabajo"
@@ -44,6 +52,12 @@ type RevisionDb = {
   repuestos_aprobados?: string | null;
 };
 
+type CotizacionInternaGuardada = {
+  items?: ItemCotizacion[];
+  incluirIva?: boolean;
+  updated_at?: string;
+};
+
 function crearId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -58,12 +72,23 @@ function formatearMoneda(valor: number) {
   return `$${Math.round(valor || 0).toLocaleString("es-CL")}`;
 }
 
+function etiquetaTipo(tipo: TipoItem) {
+  if (tipo === "repuesto") return "Repuesto";
+  if (tipo === "trabajo") return "Trabajo";
+  if (tipo === "reparacion") return "Reparación";
+  if (tipo === "ajuste") return "Ajuste";
+  if (tipo === "mantencion") return "Mantención";
+  if (tipo === "mano_obra") return "Mano de obra";
+  return "Otro";
+}
+
 function normalizarTipo(accion: string): TipoItem {
   if (accion === "repuesto") return "repuesto";
   if (accion === "reparacion") return "reparacion";
   if (accion === "ajuste") return "ajuste";
   if (accion === "mantencion") return "mantencion";
   if (accion === "mantenimiento") return "mantencion";
+  if (accion === "mano_obra") return "mano_obra";
   if (accion === "trabajo") return "trabajo";
   return "otro";
 }
@@ -92,6 +117,22 @@ function parsearCantidadDescripcion(linea: string) {
     cantidad: 1,
     descripcion: limpia,
   };
+}
+
+function limpiarDescripcionRepuesto(linea: string) {
+  return linea
+    .replace(/\|\s*Prioridad:.*$/i, "")
+    .replace(/\|\s*Motivo:.*$/i, "")
+    .trim();
+}
+
+function limpiarDescripcionTrabajo(linea: string) {
+  return linea
+    .replace(/^\d+\.\s*/, "")
+    .replace(/^[-•]\s*/, "")
+    .replace(/\|\s*Prioridad:.*$/i, "")
+    .replace(/\|\s*Motivo:.*$/i, "")
+    .trim();
 }
 
 function crearItemsDesdeChecklist(equipoId: string) {
@@ -127,8 +168,8 @@ function crearItemsDesdeChecklist(equipoId: string) {
           tipo === "repuesto"
             ? respuesta.repuesto_nombre || nombreItem
             : tipo === "otro"
-            ? respuesta.accion_otro || nombreItem
-            : nombreItem,
+              ? respuesta.accion_otro || nombreItem
+              : nombreItem,
         cantidad:
           tipo === "repuesto"
             ? Number(respuesta.repuesto_cantidad || 1)
@@ -143,12 +184,12 @@ function crearItemsDesdeChecklist(equipoId: string) {
 
 function crearItemsDesdeRevisionTexto(
   equipoId: string,
-  revision?: RevisionDb | null
+  revision?: RevisionDb | null,
 ) {
   const items: ItemCotizacion[] = [];
 
   parsearLineas(revision?.repuestos_aprobados).forEach((linea) => {
-    const parsed = parsearCantidadDescripcion(linea);
+    const parsed = parsearCantidadDescripcion(limpiarDescripcionRepuesto(linea));
 
     items.push({
       id: crearId(),
@@ -161,7 +202,7 @@ function crearItemsDesdeRevisionTexto(
   });
 
   parsearLineas(revision?.procedimiento_aprobado).forEach((linea) => {
-    const texto = linea.replace(/^[-•]\s*/, "").trim();
+    const texto = limpiarDescripcionTrabajo(linea);
 
     if (!texto) return;
     if (texto.toLowerCase().includes("repuestos sugeridos")) return;
@@ -188,6 +229,14 @@ function crearItemsDesdeRevisionTexto(
     ) {
       tipo = "mantencion";
       descripcion = texto.split("-").slice(1).join("-").trim() || texto;
+    } else if (lower.includes("mantención") || lower.includes("mantencion")) {
+      tipo = "mantencion";
+    } else if (lower.includes("ajuste") || lower.includes("aseguramiento")) {
+      tipo = "ajuste";
+    } else if (lower.includes("reparación") || lower.includes("reparacion")) {
+      tipo = "reparacion";
+    } else if (lower.includes("reemplazo") || lower.includes("cambio")) {
+      tipo = "trabajo";
     }
 
     items.push({
@@ -203,15 +252,12 @@ function crearItemsDesdeRevisionTexto(
   return items;
 }
 
-function cargarCotizacionGuardada(ordenId: string) {
+function cargarCotizacionGuardadaLocal(ordenId: string) {
   try {
     const raw = localStorage.getItem(`cotizacion-interna-${ordenId}`);
     if (!raw) return null;
 
-    const parsed = JSON.parse(raw) as {
-      items?: ItemCotizacion[];
-      incluirIva?: boolean;
-    };
+    const parsed = JSON.parse(raw) as CotizacionInternaGuardada;
 
     if (!Array.isArray(parsed.items)) return null;
 
@@ -221,24 +267,66 @@ function cargarCotizacionGuardada(ordenId: string) {
   }
 }
 
+function sanitizarTexto(valor: unknown) {
+  return String(valor ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function fechaActualCL() {
+  return new Date().toLocaleDateString("es-CL");
+}
+
 export default function CotizacionInterna({
   ordenId,
   onEstadoActualizado,
 }: Props) {
+  const [ordenInfo, setOrdenInfo] = useState<OrdenInfo | null>(null);
   const [equipos, setEquipos] = useState<Equipo[]>([]);
   const [items, setItems] = useState<ItemCotizacion[]>([]);
   const [loading, setLoading] = useState(false);
+  const [guardando, setGuardando] = useState(false);
   const [guardadoOk, setGuardadoOk] = useState(() => {
-  if (typeof window === "undefined") return false;
-  if (!ordenId) return false;
+    if (typeof window === "undefined") return false;
+    if (!ordenId) return false;
 
-  return !!localStorage.getItem(`cotizacion-interna-${ordenId}`);
-});
+    return !!localStorage.getItem(`cotizacion-interna-${ordenId}`);
+  });
   const [incluirIva, setIncluirIva] = useState(true);
 
   useEffect(() => {
     cargarDatos();
   }, [ordenId]);
+
+  async function cargarCotizacionGuardadaSupabase() {
+    if (!ordenId) return null;
+
+    try {
+      const { data, error } = await supabase
+        .from("cotizaciones_internas")
+        .select("items,incluir_iva,updated_at")
+        .eq("orden_id", ordenId)
+        .maybeSingle();
+
+      if (error) {
+        console.warn("No se pudo leer cotización interna desde Supabase:", error);
+        return null;
+      }
+
+      if (!data || !Array.isArray(data.items)) return null;
+
+      return {
+        items: data.items as ItemCotizacion[],
+        incluirIva: data.incluir_iva ?? true,
+        updated_at: data.updated_at || undefined,
+      };
+    } catch (error) {
+      console.warn("Tabla cotizaciones_internas no disponible todavía:", error);
+      return null;
+    }
+  }
 
   async function cargarDatos() {
     if (!ordenId) {
@@ -265,6 +353,14 @@ export default function CotizacionInterna({
     setLoading(true);
 
     try {
+      const { data: ordenBase } = await supabase
+        .from("ordenes")
+        .select("*")
+        .eq("id", ordenId)
+        .maybeSingle();
+
+      setOrdenInfo((ordenBase as OrdenInfo) || null);
+
       const { data: hijos } = await supabase
         .from("ordenes")
         .select("id,codigo,equipo,marca,modelo,numero_serie")
@@ -283,11 +379,23 @@ export default function CotizacionInterna({
         if (orden) equiposBase = [orden];
       }
 
-      const guardada = cargarCotizacionGuardada(ordenId);
-      if (guardada?.items?.length) {
+      const guardadaSupabase = await cargarCotizacionGuardadaSupabase();
+
+      if (guardadaSupabase?.items?.length) {
         setEquipos(equiposBase);
-        setItems(guardada.items);
-        setIncluirIva(guardada.incluirIva ?? true);
+        setItems(guardadaSupabase.items);
+        setIncluirIva(guardadaSupabase.incluirIva ?? true);
+        setGuardadoOk(true);
+        setLoading(false);
+        return;
+      }
+
+      const guardadaLocal = cargarCotizacionGuardadaLocal(ordenId);
+      if (guardadaLocal?.items?.length) {
+        setEquipos(equiposBase);
+        setItems(guardadaLocal.items);
+        setIncluirIva(guardadaLocal.incluirIva ?? true);
+        setGuardadoOk(true);
         setLoading(false);
         return;
       }
@@ -300,7 +408,7 @@ export default function CotizacionInterna({
         const { data: revisionDb } = await supabase
           .from("revisiones_jefe")
           .select(
-            "orden_id,aprobado,horas_hombre,procedimiento_aprobado,repuestos_aprobados"
+            "orden_id,aprobado,horas_hombre,procedimiento_aprobado,repuestos_aprobados",
           )
           .eq("orden_id", equipo.id)
           .maybeSingle();
@@ -355,7 +463,7 @@ export default function CotizacionInterna({
         }
 
         const itemsEquipo = nuevosItems.filter(
-          (item) => item.equipoId === equipo.id
+          (item) => item.equipoId === equipo.id,
         );
 
         if (!itemsEquipo.length) {
@@ -372,8 +480,9 @@ export default function CotizacionInterna({
 
       setEquipos(equiposBase);
       setItems(nuevosItems);
-    } catch (e: any) {
-      alert(e.message || "No se pudo cargar la cotización interna");
+    } catch (e: unknown) {
+      const mensaje = e instanceof Error ? e.message : "No se pudo cargar la cotización interna";
+      alert(mensaje);
     } finally {
       setLoading(false);
     }
@@ -391,16 +500,18 @@ export default function CotizacionInterna({
         unitario: 0,
       },
     ]);
+    setGuardadoOk(false);
   }
 
   function eliminarItem(itemId: string) {
     setItems((prev) => prev.filter((item) => item.id !== itemId));
+    setGuardadoOk(false);
   }
 
   function actualizarItem(
     itemId: string,
     campo: keyof ItemCotizacion,
-    valor: string | number
+    valor: string | number,
   ) {
     setItems((prev) =>
       prev.map((item) => {
@@ -417,8 +528,9 @@ export default function CotizacionInterna({
           ...item,
           [campo]: valor,
         };
-      })
+      }),
     );
+    setGuardadoOk(false);
   }
 
   const totalNeto = useMemo(() => {
@@ -439,11 +551,11 @@ export default function CotizacionInterna({
   }
 
   async function guardarLocal() {
-  if (!ordenId) return;
+    if (!ordenId) return;
 
-  localStorage.setItem(
-    `cotizacion-interna-${ordenId}`,
-    JSON.stringify({
+    setGuardando(true);
+
+    const payload = {
       ordenId,
       items,
       incluirIva,
@@ -451,39 +563,398 @@ export default function CotizacionInterna({
       iva,
       totalFinal,
       updated_at: new Date().toISOString(),
-    })
-  );
+    };
 
-  const { error } = await supabase
-    .from("ordenes")
-    .update({ estado: "trabajo" })
-    .eq("id", ordenId);
+    localStorage.setItem(`cotizacion-interna-${ordenId}`, JSON.stringify(payload));
+
+    try {
+      const { error: errorCotizacion } = await supabase
+        .from("cotizaciones_internas")
+        .upsert(
+          {
+            orden_id: ordenId,
+            items,
+            incluir_iva: incluirIva,
+            total_neto: totalNeto,
+            iva,
+            total_final: totalFinal,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "orden_id" },
+        );
+
+      if (errorCotizacion) {
+        console.warn(
+          "No se pudo guardar en cotizaciones_internas. Se guardó localmente:",
+          errorCotizacion,
+        );
+      }
+    } catch (error) {
+      console.warn(
+        "Tabla cotizaciones_internas no disponible. Se guardó localmente:",
+        error,
+      );
+    }
+
+    const { error } = await supabase
+      .from("ordenes")
+      .update({ estado: "trabajo" })
+      .eq("id", ordenId);
 
     await supabase
-  .from("ordenes")
-  .update({ estado: "trabajo" })
-  .eq("orden_padre_id", ordenId);
+      .from("ordenes")
+      .update({ estado: "trabajo" })
+      .eq("orden_padre_id", ordenId);
 
-  if (error) {
-    alert("No se pudo actualizar la OT a Trabajo");
-    return;
+    setGuardando(false);
+
+    if (error) {
+      alert("No se pudo actualizar la OT a Trabajo");
+      return;
+    }
+
+    setGuardadoOk(true);
+    onEstadoActualizado?.("trabajo");
   }
 
-  setGuardadoOk(true);
-  console.log("guardadoOk = true");
-  onEstadoActualizado?.("trabajo");
-}
   function regenerarDesdeFlujo() {
     if (!ordenId) return;
 
     const confirmar = window.confirm(
-      "Esto volverá a cargar la cotización desde el checklist/revisión y perderá cambios no guardados en esta pantalla. ¿Continuar?"
+      "Esto volverá a cargar la cotización desde la revisión aprobada y perderá cambios no guardados en esta pantalla. ¿Continuar?",
     );
 
     if (!confirmar) return;
 
     localStorage.removeItem(`cotizacion-interna-${ordenId}`);
+    setGuardadoOk(false);
     cargarDatos();
+  }
+
+  function descargarCotizacionInterna() {
+    const filas = items
+      .map((item) => {
+        const equipo = equipos.find((registro) => registro.id === item.equipoId);
+        const totalItem = Number(item.cantidad || 0) * Number(item.unitario || 0);
+
+        return `
+          <tr>
+            <td>${sanitizarTexto(equipo?.codigo || equipo?.equipo || "-")}</td>
+            <td>${sanitizarTexto(etiquetaTipo(item.tipo))}</td>
+            <td>${sanitizarTexto(item.descripcion)}</td>
+            <td class="right">${sanitizarTexto(item.cantidad)}</td>
+            <td class="right">${sanitizarTexto(formatearMoneda(item.unitario))}</td>
+            <td class="right">${sanitizarTexto(formatearMoneda(totalItem))}</td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Cotización interna ${sanitizarTexto(ordenInfo?.codigo || "")}</title>
+          <style>
+            * {
+              box-sizing: border-box;
+            }
+
+            body {
+              margin: 0;
+              background: #eef2f7;
+              color: #0f172a;
+              font-family: Arial, sans-serif;
+              font-size: 12px;
+            }
+
+            .printbar {
+              position: sticky;
+              top: 0;
+              background: #1d4ed8;
+              color: white;
+              padding: 10px;
+              text-align: center;
+              font-weight: 800;
+            }
+
+            .page {
+              width: 900px;
+              margin: 24px auto;
+              background: white;
+              padding: 34px;
+              border-radius: 18px;
+              box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+            }
+
+            .header {
+              display: flex;
+              justify-content: space-between;
+              gap: 24px;
+              border-bottom: 3px solid #1d4ed8;
+              padding-bottom: 18px;
+              margin-bottom: 18px;
+            }
+
+            .logo {
+              width: 230px;
+              height: auto;
+              display: block;
+              object-fit: contain;
+            }
+
+            h1 {
+              margin: 14px 0 0;
+              color: #1e3a8a;
+              font-size: 24px;
+              letter-spacing: 0.04em;
+              text-transform: uppercase;
+            }
+
+            .meta {
+              text-align: right;
+              line-height: 1.5;
+              color: #334155;
+            }
+
+            .badge {
+              display: inline-block;
+              margin-bottom: 8px;
+              padding: 6px 10px;
+              border-radius: 999px;
+              background: #fef3c7;
+              color: #92400e;
+              font-weight: 900;
+              font-size: 11px;
+            }
+
+            .grid {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 10px;
+              margin: 18px 0;
+            }
+
+            .box {
+              border: 1px solid #e2e8f0;
+              border-radius: 12px;
+              padding: 10px;
+              background: #f8fafc;
+            }
+
+            .label {
+              display: block;
+              color: #64748b;
+              font-size: 9px;
+              font-weight: 900;
+              text-transform: uppercase;
+              margin-bottom: 4px;
+            }
+
+            .value {
+              font-size: 12px;
+              font-weight: 800;
+              color: #0f172a;
+            }
+
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 20px;
+            }
+
+            th {
+              background: #eff6ff;
+              color: #1e3a8a;
+              text-align: left;
+              padding: 9px;
+              font-size: 10px;
+              text-transform: uppercase;
+              border-bottom: 1px solid #bfdbfe;
+            }
+
+            td {
+              padding: 9px;
+              border-bottom: 1px solid #e2e8f0;
+              vertical-align: top;
+            }
+
+            .right {
+              text-align: right;
+              white-space: nowrap;
+            }
+
+            .totals {
+              width: 340px;
+              margin-left: auto;
+              margin-top: 22px;
+              border: 1px solid #e2e8f0;
+              border-radius: 14px;
+              overflow: hidden;
+            }
+
+            .totals div {
+              display: flex;
+              justify-content: space-between;
+              padding: 10px 14px;
+              border-bottom: 1px solid #e2e8f0;
+            }
+
+            .totals div:last-child {
+              border-bottom: 0;
+              background: #0f172a;
+              color: white;
+              font-size: 15px;
+              font-weight: 900;
+            }
+
+            .note {
+              margin-top: 22px;
+              padding: 12px;
+              border-radius: 12px;
+              background: #fff7ed;
+              color: #9a3412;
+              font-weight: 800;
+              line-height: 1.45;
+            }
+
+            .firmas {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 80px;
+              margin-top: 54px;
+              text-align: center;
+              color: #334155;
+              font-weight: 800;
+            }
+
+            .firma {
+              border-top: 1px solid #334155;
+              padding-top: 8px;
+            }
+
+            @media print {
+              body {
+                background: white;
+              }
+
+              .printbar {
+                display: none;
+              }
+
+              .page {
+                width: auto;
+                margin: 0;
+                box-shadow: none;
+                border-radius: 0;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="printbar">Imprimir / Guardar PDF</div>
+
+          <main class="page">
+            <div class="header">
+              <div>
+                <img class="logo" src="/logo-informe.png" alt="MJ Industrial" />
+                <h1>Cotización interna</h1>
+              </div>
+
+              <div class="meta">
+                <div class="badge">USO INTERNO MJ INDUSTRIAL</div>
+                <div><strong>OT:</strong> ${sanitizarTexto(ordenInfo?.codigo || ordenId)}</div>
+                <div><strong>Fecha:</strong> ${fechaActualCL()}</div>
+                <div><strong>Estado:</strong> Base interna para vendedor</div>
+              </div>
+            </div>
+
+            <section class="grid">
+              <div class="box">
+                <span class="label">Cliente</span>
+                <span class="value">${sanitizarTexto(ordenInfo?.cliente || "-")}</span>
+              </div>
+
+              <div class="box">
+                <span class="label">Contacto</span>
+                <span class="value">${sanitizarTexto(ordenInfo?.cliente_email || "-")}</span>
+              </div>
+
+              <div class="box">
+                <span class="label">Fecha ingreso</span>
+                <span class="value">${
+                  ordenInfo?.created_at
+                    ? sanitizarTexto(
+                        new Date(ordenInfo.created_at).toLocaleDateString("es-CL"),
+                      )
+                    : "-"
+                }</span>
+              </div>
+
+              <div class="box">
+                <span class="label">Total interno</span>
+                <span class="value">${sanitizarTexto(formatearMoneda(totalFinal))}</span>
+              </div>
+            </section>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>Equipo</th>
+                  <th>Tipo</th>
+                  <th>Descripción</th>
+                  <th class="right">Cant.</th>
+                  <th class="right">Valor unit.</th>
+                  <th class="right">Total</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                ${filas}
+              </tbody>
+            </table>
+
+            <section class="totals">
+              <div>
+                <span>Neto interno</span>
+                <strong>${sanitizarTexto(formatearMoneda(totalNeto))}</strong>
+              </div>
+
+              <div>
+                <span>IVA</span>
+                <strong>${sanitizarTexto(formatearMoneda(iva))}</strong>
+              </div>
+
+              <div>
+                <span>Total interno</span>
+                <strong>${sanitizarTexto(formatearMoneda(totalFinal))}</strong>
+              </div>
+            </section>
+
+            <div class="note">
+              Documento interno. No entregar directamente al cliente. El vendedor debe usar esta base para preparar la cotización comercial final.
+            </div>
+
+            <section class="firmas">
+              <div class="firma">Servicio Técnico MJ Industrial</div>
+              <div class="firma">Vendedor / Responsable comercial</div>
+            </section>
+          </main>
+        </body>
+      </html>
+    `;
+
+    const ventana = window.open("", "_blank", "noopener,noreferrer");
+
+    if (!ventana) {
+      alert("No se pudo abrir la cotización interna. Revisa si el navegador bloqueó la ventana emergente.");
+      return;
+    }
+
+    ventana.document.open();
+    ventana.document.write(html);
+    ventana.document.close();
   }
 
   if (loading) {
@@ -517,15 +988,34 @@ export default function CotizacionInterna({
         </div>
 
         <div className="headerActions">
-          
+          <button
+            type="button"
+            onClick={regenerarDesdeFlujo}
+            className="secondaryTop"
+          >
+            Regenerar desde revisión
+          </button>
 
           <button
-  type="button"
-  onClick={guardarLocal}
-  className={guardadoOk ? "guardado" : ""}
->
-  {guardadoOk ? "✓ Cotización guardada" : "Guardar cotización"}
-</button>
+            type="button"
+            onClick={descargarCotizacionInterna}
+            className="secondaryTop"
+          >
+            Descargar interna
+          </button>
+
+          <button
+            type="button"
+            onClick={guardarLocal}
+            disabled={guardando}
+            className={guardadoOk ? "guardado" : ""}
+          >
+            {guardando
+              ? "Guardando..."
+              : guardadoOk
+                ? "✓ Cotización guardada"
+                : "Guardar cotización"}
+          </button>
         </div>
       </div>
 
@@ -534,7 +1024,10 @@ export default function CotizacionInterna({
           <input
             type="checkbox"
             checked={incluirIva}
-            onChange={(event) => setIncluirIva(event.target.checked)}
+            onChange={(event) => {
+              setIncluirIva(event.target.checked);
+              setGuardadoOk(false);
+            }}
           />
           Incluir IVA 19%
         </label>
@@ -543,7 +1036,7 @@ export default function CotizacionInterna({
       <div className="equipos">
         {equipos.map((equipo, index) => {
           const itemsEquipo = items.filter(
-            (item) => item.equipoId === equipo.id
+            (item) => item.equipoId === equipo.id,
           );
           const subtotal = subtotalEquipo(equipo.id);
 
@@ -595,7 +1088,7 @@ export default function CotizacionInterna({
                                 actualizarItem(
                                   item.id,
                                   "tipo",
-                                  event.target.value as TipoItem
+                                  event.target.value as TipoItem,
                                 )
                               }
                             >
@@ -616,7 +1109,7 @@ export default function CotizacionInterna({
                                 actualizarItem(
                                   item.id,
                                   "descripcion",
-                                  event.target.value
+                                  event.target.value,
                                 )
                               }
                               placeholder="Descripción del ítem"
@@ -632,7 +1125,7 @@ export default function CotizacionInterna({
                                 actualizarItem(
                                   item.id,
                                   "cantidad",
-                                  event.target.value
+                                  event.target.value,
                                 )
                               }
                             />
@@ -647,7 +1140,7 @@ export default function CotizacionInterna({
                                 actualizarItem(
                                   item.id,
                                   "unitario",
-                                  event.target.value
+                                  event.target.value,
                                 )
                               }
                             />
@@ -790,6 +1283,16 @@ export default function CotizacionInterna({
           cursor: pointer;
           font-weight: 800;
           white-space: nowrap;
+        }
+
+        button:disabled {
+          cursor: not-allowed;
+          opacity: 0.65;
+        }
+
+        button.guardado {
+          background: #16a34a;
+          color: white;
         }
 
         .secondaryTop {
@@ -998,11 +1501,6 @@ export default function CotizacionInterna({
           .totales {
             max-width: none;
           }
-
-          button.guardado {
-  background: #16a34a;
-  color: white;
-}
         }
       `}</style>
     </section>
