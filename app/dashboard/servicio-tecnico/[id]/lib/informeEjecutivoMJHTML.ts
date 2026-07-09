@@ -57,11 +57,11 @@ function fotosHTML(fotos?: FotoInformeMJ[]) {
           .slice(0, 6)
           .map(
             (foto) => `
-              <a href="${foto.url}" target="_blank" class="foto">
+              <a href="${foto.url}" target="_blank" rel="noopener noreferrer" class="foto">
                 <img src="${foto.url}" />
                 <span>${foto.nombre}</span>
               </a>
-            `
+            `,
           )
           .join("")}
       </div>
@@ -103,7 +103,7 @@ function equipoHTML(equipo: EquipoInformeMJ, index: number) {
               <ul>
                 ${equipo.trabajosRequeridos
                   .filter(Boolean)
-                  .slice(0, 8)
+                  .slice(0, 12)
                   .map((item) => `<li>${item}</li>`)
                   .join("")}
               </ul>
@@ -120,14 +120,16 @@ function equipoHTML(equipo: EquipoInformeMJ, index: number) {
 export function descargarInformeEjecutivoMJ(data: InformeEjecutivoMJData) {
   const totalEquipos = data.equipos.length;
   const noAptos = data.equipos.filter(
-    (equipo) => equipo.estadoFinal === "no_apto"
+    (equipo) => equipo.estadoFinal === "no_apto",
   ).length;
   const conObs = data.equipos.filter(
-    (equipo) => equipo.estadoFinal === "observaciones"
+    (equipo) => equipo.estadoFinal === "observaciones",
   ).length;
   const aptos = data.equipos.filter(
-    (equipo) => equipo.estadoFinal === "apto"
+    (equipo) => equipo.estadoFinal === "apto",
   ).length;
+
+  const logoUrl = `${window.location.origin}/logo-informe.png`;
 
   const html = `
 <!DOCTYPE html>
@@ -137,12 +139,18 @@ export function descargarInformeEjecutivoMJ(data: InformeEjecutivoMJData) {
   <title>Informe Técnico ${data.ot}</title>
 
   <style>
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       margin: 0;
       background: #eef2f7;
       color: #0f172a;
       font-family: Arial, sans-serif;
       line-height: 1.45;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
 
     .printButton {
@@ -173,26 +181,35 @@ export function descargarInformeEjecutivoMJ(data: InformeEjecutivoMJData) {
       border-bottom: 4px solid #1e3a8a;
       padding-bottom: 22px;
       margin-bottom: 24px;
+      align-items: flex-start;
     }
 
-    .logo {
-      font-size: 24px;
-      font-weight: 900;
-      color: #0f172a;
-      letter-spacing: .5px;
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .logoImg {
+      width: 270px;
+      max-width: 100%;
+      height: auto;
+      display: block;
+      object-fit: contain;
     }
 
     .titulo {
-      margin-top: 10px;
       font-size: 30px;
       font-weight: 900;
       color: #1e3a8a;
+      letter-spacing: .4px;
     }
 
     .meta {
       text-align: right;
       font-size: 13px;
       color: #334155;
+      min-width: 210px;
     }
 
     .meta strong {
@@ -438,6 +455,10 @@ export function descargarInformeEjecutivoMJ(data: InformeEjecutivoMJData) {
         padding: 24px;
       }
 
+      .logoImg {
+        width: 230px;
+      }
+
       .equipo {
         page-break-inside: avoid;
       }
@@ -452,8 +473,8 @@ export function descargarInformeEjecutivoMJ(data: InformeEjecutivoMJData) {
 
   <main class="page">
     <header class="header">
-      <div>
-        <div class="logo">MJ INDUSTRIAL</div>
+      <div class="brand">
+        <img class="logoImg" src="${logoUrl}" alt="MJ Industrial" />
         <div class="titulo">INFORME TÉCNICO</div>
       </div>
 
@@ -530,7 +551,9 @@ export function descargarInformeEjecutivoMJ(data: InformeEjecutivoMJData) {
   const ventana = window.open("", "_blank");
 
   if (!ventana) {
-    alert("No se pudo abrir el informe. Revisa si el navegador bloqueó ventanas emergentes.");
+    alert(
+      "No se pudo abrir el informe. Revisa si el navegador bloqueó ventanas emergentes.",
+    );
     return;
   }
 
