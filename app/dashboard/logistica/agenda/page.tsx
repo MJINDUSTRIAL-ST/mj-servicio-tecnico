@@ -1,8 +1,1413 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../../../lib/supabase";
+
+type TipoLogistica = "retiro" | "despacho";
+
+type EstadoLogistica =
+  | "solicitado"
+  | "agendado"
+  | "en_ruta"
+  | "realizado"
+  | "cancelado";
+
+type EventoLogistica = {
+  id: string;
+  tipo: TipoLogistica;
+  estado: EstadoLogistica;
+  fecha: string;
+  hora: string | null;
+  cliente: string | null;
+  contacto: string | null;
+  telefono: string | null;
+  email: string | null;
+  direccion: string | null;
+  comuna: string | null;
+  region: string | null;
+  observacion: string | null;
+  orden_id: string | null;
+  codigo_ot: string | null;
+  origen: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+type FormularioLogistica = {
+  id: string | null;
+  tipo: TipoLogistica;
+  estado: EstadoLogistica;
+  fecha: string;
+  hora: string;
+  cliente: string;
+  contacto: string;
+  telefono: string;
+  email: string;
+  direccion: string;
+  comuna: string;
+  region: string;
+  observacion: string;
+  codigo_ot: string;
+  origen: "manual" | "servicio_tecnico" | "venta";
+};
+
+const ESTADOS: EstadoLogistica[] = [
+  "solicitado",
+  "agendado",
+  "en_ruta",
+  "realizado",
+  "cancelado",
+];
+
+function fechaHoyISO() {
+  const hoy = new Date();
+  const year = hoy.getFullYear();
+  const month = String(hoy.getMonth() + 1).padStart(2, "0");
+  const day = String(hoy.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function inicioMes(fecha: Date) {
+  return new Date(fecha.getFullYear(), fecha.getMonth(), 1);
+}
+
+function finMes(fecha: Date) {
+  return new Date(fecha.getFullYear(), fecha.getMonth() + 1, 0);
+}
+
+function fechaISO(fecha: Date) {
+  const year = fecha.getFullYear();
+  const month = String(fecha.getMonth() + 1).padStart(2, "0");
+  const day = String(fecha.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function nombreMes(fecha: Date) {
+  return fecha.toLocaleDateString("es-CL", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function nombreDiaCorto(fecha: string) {
+  return new Date(`${fecha}T12:00:00`).toLocaleDateString("es-CL", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+  });
+}
+
+function formatearHora(hora?: string | null) {
+  if (!hora) return "Sin hora";
+  return hora.slice(0, 5);
+}
+
+function etiquetaTipo(tipo: TipoLogistica) {
+  return tipo === "retiro" ? "Retiro" : "Despacho";
+}
+
+function etiquetaEstado(estado: EstadoLogistica) {
+  if (estado === "solicitado") return "Solicitado";
+  if (estado === "agendado") return "Agendado";
+  if (estado === "en_ruta") return "En ruta";
+  if (estado === "realizado") return "Realizado";
+  return "Cancelado";
+}
+
+function claseTipo(tipo: TipoLogistica) {
+  return tipo === "retiro" ? "tipoRetiro" : "tipoDespacho";
+}
+
+function claseEstado(estado: EstadoLogistica) {
+  if (estado === "solicitado") return "estadoSolicitado";
+  if (estado === "agendado") return "estadoAgendado";
+  if (estado === "en_ruta") return "estadoRuta";
+  if (estado === "realizado") return "estadoRealizado";
+  return "estadoCancelado";
+}
+
+function formularioVacio(fechaBase?: string): FormularioLogistica {
+  return {
+    id: null,
+    tipo: "retiro",
+    estado: "solicitado",
+    fecha: fechaBase || fechaHoyISO(),
+    hora: "",
+    cliente: "",
+    contacto: "",
+    telefono: "",
+    email: "",
+    direccion: "",
+    comuna: "",
+    region: "Región Metropolitana",
+    observacion: "",
+    codigo_ot: "",
+    origen: "manual",
+  };
+}
+
+function convertirEventoAFormulario(evento: EventoLogistica): FormularioLogistica {
+  return {
+    id: evento.id,
+    tipo: evento.tipo,
+    estado: evento.estado,
+    fecha: evento.fecha,
+    hora: evento.hora ? evento.hora.slice(0, 5) : "",
+    cliente: evento.cliente || "",
+    contacto: evento.contacto || "",
+    telefono: evento.telefono || "",
+    email: evento.email || "",
+    direccion: evento.direccion || "",
+    comuna: evento.comuna || "",
+    region: evento.region || "",
+    observacion: evento.observacion || "",
+    codigo_ot: evento.codigo_ot || "",
+    origen:
+      evento.origen === "servicio_tecnico" ||
+      evento.origen === "venta" ||
+      evento.origen === "manual"
+        ? evento.origen
+        : "manual",
+  };
+}
+
+function construirDiasCalendario(fechaActual: Date) {
+  const inicio = inicioMes(fechaActual);
+  const fin = finMes(fechaActual);
+
+  const dias: Date[] = [];
+  const primerDiaSemana = inicio.getDay() === 0 ? 6 : inicio.getDay() - 1;
+  const totalDiasMes = fin.getDate();
+
+  for (let i = primerDiaSemana; i > 0; i -= 1) {
+    dias.push(new Date(inicio.getFullYear(), inicio.getMonth(), 1 - i));
+  }
+
+  for (let dia = 1; dia <= totalDiasMes; dia += 1) {
+    dias.push(new Date(inicio.getFullYear(), inicio.getMonth(), dia));
+  }
+
+  while (dias.length % 7 !== 0) {
+    const ultimo = dias[dias.length - 1];
+    dias.push(
+      new Date(ultimo.getFullYear(), ultimo.getMonth(), ultimo.getDate() + 1),
+    );
+  }
+
+  return dias;
+}
+
 export default function AgendaOperativaPage() {
+  const [eventos, setEventos] = useState<EventoLogistica[]>([]);
+  const [fechaActual, setFechaActual] = useState(() => new Date());
+  const [fechaSeleccionada, setFechaSeleccionada] = useState(fechaHoyISO());
+  const [formulario, setFormulario] = useState<FormularioLogistica>(() =>
+    formularioVacio(fechaHoyISO()),
+  );
+  const [mostrarFormulario, setMostrarFormulario] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [guardando, setGuardando] = useState(false);
+  const [filtroEstado, setFiltroEstado] = useState<EstadoLogistica | "todos">(
+    "todos",
+  );
+  const [filtroTipo, setFiltroTipo] = useState<TipoLogistica | "todos">("todos");
+
+  useEffect(() => {
+    cargarEventos();
+  }, [fechaActual]);
+
+  async function cargarEventos() {
+    setLoading(true);
+
+    const desde = fechaISO(
+      new Date(fechaActual.getFullYear(), fechaActual.getMonth(), 1),
+    );
+    const hasta = fechaISO(
+      new Date(fechaActual.getFullYear(), fechaActual.getMonth() + 1, 0),
+    );
+
+    const { data, error } = await supabase
+      .from("agenda_logistica")
+      .select("*")
+      .gte("fecha", desde)
+      .lte("fecha", hasta)
+      .order("fecha", { ascending: true })
+      .order("hora", { ascending: true });
+
+    if (error) {
+      console.error("Error cargando agenda logística:", error);
+      alert("No se pudo cargar la agenda logística.");
+      setLoading(false);
+      return;
+    }
+
+    setEventos((data || []) as EventoLogistica[]);
+    setLoading(false);
+  }
+
+  function abrirNuevo(fecha?: string) {
+    const fechaBase = fecha || fechaSeleccionada || fechaHoyISO();
+    setFormulario(formularioVacio(fechaBase));
+    setMostrarFormulario(true);
+  }
+
+  function abrirEditar(evento: EventoLogistica) {
+    setFormulario(convertirEventoAFormulario(evento));
+    setMostrarFormulario(true);
+  }
+
+  async function guardarEvento() {
+    if (!formulario.fecha) {
+      alert("Debes ingresar una fecha.");
+      return;
+    }
+
+    if (!formulario.cliente.trim()) {
+      alert("Debes ingresar el cliente.");
+      return;
+    }
+
+    if (!formulario.direccion.trim()) {
+      alert("Debes ingresar la dirección.");
+      return;
+    }
+
+    setGuardando(true);
+
+    const payload = {
+      tipo: formulario.tipo,
+      estado: formulario.estado,
+      fecha: formulario.fecha,
+      hora: formulario.hora || null,
+      cliente: formulario.cliente.trim(),
+      contacto: formulario.contacto.trim() || null,
+      telefono: formulario.telefono.trim() || null,
+      email: formulario.email.trim() || null,
+      direccion: formulario.direccion.trim(),
+      comuna: formulario.comuna.trim() || null,
+      region: formulario.region.trim() || null,
+      observacion: formulario.observacion.trim() || null,
+      codigo_ot: formulario.codigo_ot.trim() || null,
+      origen: formulario.origen,
+      updated_at: new Date().toISOString(),
+    };
+
+    const query = formulario.id
+      ? supabase
+          .from("agenda_logistica")
+          .update(payload)
+          .eq("id", formulario.id)
+      : supabase.from("agenda_logistica").insert(payload);
+
+    const { error } = await query;
+
+    setGuardando(false);
+
+    if (error) {
+      console.error("Error guardando agenda logística:", error);
+      alert(error.message || "No se pudo guardar el evento.");
+      return;
+    }
+
+    setMostrarFormulario(false);
+    await cargarEventos();
+  }
+
+  async function cambiarEstado(evento: EventoLogistica, estado: EstadoLogistica) {
+    const { error } = await supabase
+      .from("agenda_logistica")
+      .update({
+        estado,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", evento.id);
+
+    if (error) {
+      alert(error.message || "No se pudo actualizar el estado.");
+      return;
+    }
+
+    await cargarEventos();
+  }
+
+  async function eliminarEvento(evento: EventoLogistica) {
+    const confirmar = window.confirm(
+      `¿Eliminar ${etiquetaTipo(evento.tipo).toLowerCase()} de ${
+        evento.cliente || "cliente"
+      }?`,
+    );
+
+    if (!confirmar) return;
+
+    const { error } = await supabase
+      .from("agenda_logistica")
+      .delete()
+      .eq("id", evento.id);
+
+    if (error) {
+      alert(error.message || "No se pudo eliminar el evento.");
+      return;
+    }
+
+    await cargarEventos();
+  }
+
+  const diasCalendario = useMemo(
+    () => construirDiasCalendario(fechaActual),
+    [fechaActual],
+  );
+
+  const eventosFiltrados = useMemo(() => {
+    return eventos.filter((evento) => {
+      const coincideEstado =
+        filtroEstado === "todos" || evento.estado === filtroEstado;
+      const coincideTipo = filtroTipo === "todos" || evento.tipo === filtroTipo;
+
+      return coincideEstado && coincideTipo;
+    });
+  }, [eventos, filtroEstado, filtroTipo]);
+
+  const eventosPorFecha = useMemo(() => {
+    const mapa: Record<string, EventoLogistica[]> = {};
+
+    eventosFiltrados.forEach((evento) => {
+      if (!mapa[evento.fecha]) mapa[evento.fecha] = [];
+      mapa[evento.fecha].push(evento);
+    });
+
+    return mapa;
+  }, [eventosFiltrados]);
+
+  const eventosDiaSeleccionado = eventosFiltrados.filter(
+    (evento) => evento.fecha === fechaSeleccionada,
+  );
+
+  const resumen = useMemo(() => {
+    return {
+      total: eventos.length,
+      retiros: eventos.filter((evento) => evento.tipo === "retiro").length,
+      despachos: eventos.filter((evento) => evento.tipo === "despacho").length,
+      pendientes: eventos.filter(
+        (evento) =>
+          evento.estado === "solicitado" || evento.estado === "agendado",
+      ).length,
+      realizados: eventos.filter((evento) => evento.estado === "realizado")
+        .length,
+    };
+  }, [eventos]);
+
   return (
-    <main style={{ padding: 32 }}>
-      <h1>📅 Agenda Operativa</h1>
-      <p>Próximamente: retiros, despachos y entregas en una sola agenda.</p>
+    <main className="page">
+      <header className="header">
+        <div>
+          <p className="breadcrumb">Logística</p>
+          <h1>Agenda Operativa</h1>
+          <p className="subtitle">
+            Calendario de retiros, despachos y solicitudes operativas de MJ
+            Industrial.
+          </p>
+        </div>
+
+        <button type="button" onClick={() => abrirNuevo()} className="primary">
+          + Agregar despacho / retiro
+        </button>
+      </header>
+
+      <section className="stats">
+        <div>
+          <span>Total mes</span>
+          <strong>{resumen.total}</strong>
+        </div>
+
+        <div>
+          <span>Retiros</span>
+          <strong>{resumen.retiros}</strong>
+        </div>
+
+        <div>
+          <span>Despachos</span>
+          <strong>{resumen.despachos}</strong>
+        </div>
+
+        <div>
+          <span>Pendientes</span>
+          <strong>{resumen.pendientes}</strong>
+        </div>
+
+        <div>
+          <span>Realizados</span>
+          <strong>{resumen.realizados}</strong>
+        </div>
+      </section>
+
+      <section className="toolbar">
+        <div className="monthControls">
+          <button
+            type="button"
+            onClick={() =>
+              setFechaActual(
+                new Date(
+                  fechaActual.getFullYear(),
+                  fechaActual.getMonth() - 1,
+                  1,
+                ),
+              )
+            }
+          >
+            ← Mes anterior
+          </button>
+
+          <strong>{nombreMes(fechaActual)}</strong>
+
+          <button
+            type="button"
+            onClick={() =>
+              setFechaActual(
+                new Date(
+                  fechaActual.getFullYear(),
+                  fechaActual.getMonth() + 1,
+                  1,
+                ),
+              )
+            }
+          >
+            Mes siguiente →
+          </button>
+        </div>
+
+        <div className="filters">
+          <select
+            value={filtroTipo}
+            onChange={(event) =>
+              setFiltroTipo(event.target.value as TipoLogistica | "todos")
+            }
+          >
+            <option value="todos">Todos los tipos</option>
+            <option value="retiro">Retiros</option>
+            <option value="despacho">Despachos</option>
+          </select>
+
+          <select
+            value={filtroEstado}
+            onChange={(event) =>
+              setFiltroEstado(event.target.value as EstadoLogistica | "todos")
+            }
+          >
+            <option value="todos">Todos los estados</option>
+            {ESTADOS.map((estado) => (
+              <option key={estado} value={estado}>
+                {etiquetaEstado(estado)}
+              </option>
+            ))}
+          </select>
+        </div>
+      </section>
+
+      <section className="layout">
+        <div className="calendarCard">
+          <div className="weekdays">
+            <span>Lun</span>
+            <span>Mar</span>
+            <span>Mié</span>
+            <span>Jue</span>
+            <span>Vie</span>
+            <span>Sáb</span>
+            <span>Dom</span>
+          </div>
+
+          <div className="calendar">
+            {diasCalendario.map((dia) => {
+              const iso = fechaISO(dia);
+              const eventosDia = eventosPorFecha[iso] || [];
+              const esMesActual = dia.getMonth() === fechaActual.getMonth();
+              const seleccionado = iso === fechaSeleccionada;
+              const esHoy = iso === fechaHoyISO();
+
+              return (
+                <button
+                  type="button"
+                  key={iso}
+                  onClick={() => setFechaSeleccionada(iso)}
+                  onDoubleClick={() => abrirNuevo(iso)}
+                  className={[
+                    "day",
+                    !esMesActual ? "muted" : "",
+                    seleccionado ? "selected" : "",
+                    esHoy ? "today" : "",
+                  ].join(" ")}
+                >
+                  <div className="dayTop">
+                    <strong>{dia.getDate()}</strong>
+                    {eventosDia.length > 0 && <span>{eventosDia.length}</span>}
+                  </div>
+
+                  <div className="eventDots">
+                    {eventosDia.slice(0, 3).map((evento) => (
+                      <div
+                        key={evento.id}
+                        className={`miniEvent ${claseTipo(evento.tipo)} ${claseEstado(
+                          evento.estado,
+                        )}`}
+                      >
+                        {formatearHora(evento.hora)} ·{" "}
+                        {evento.tipo === "retiro" ? "Retiro" : "Despacho"}
+                      </div>
+                    ))}
+
+                    {eventosDia.length > 3 && (
+                      <small>+ {eventosDia.length - 3} más</small>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <aside className="sideCard">
+          <div className="sideHeader">
+            <div>
+              <span>Día seleccionado</span>
+              <h2>{nombreDiaCorto(fechaSeleccionada)}</h2>
+            </div>
+
+            <button type="button" onClick={() => abrirNuevo(fechaSeleccionada)}>
+              + Agregar
+            </button>
+          </div>
+
+          {loading && <p className="empty">Cargando agenda...</p>}
+
+          {!loading && eventosDiaSeleccionado.length === 0 && (
+            <p className="empty">No hay retiros ni despachos para este día.</p>
+          )}
+
+          <div className="eventList">
+            {eventosDiaSeleccionado.map((evento) => (
+              <article key={evento.id} className="eventCard">
+                <div className="eventHeader">
+                  <div>
+                    <span className={`pill ${claseTipo(evento.tipo)}`}>
+                      {etiquetaTipo(evento.tipo)}
+                    </span>
+                    <span className={`pill ${claseEstado(evento.estado)}`}>
+                      {etiquetaEstado(evento.estado)}
+                    </span>
+                  </div>
+
+                  <strong>{formatearHora(evento.hora)}</strong>
+                </div>
+
+                <h3>{evento.cliente || "Sin cliente"}</h3>
+
+                {evento.codigo_ot && <p className="ot">OT: {evento.codigo_ot}</p>}
+
+                <p>
+                  {[evento.direccion, evento.comuna]
+                    .filter(Boolean)
+                    .join(", ") || "Sin dirección"}
+                </p>
+
+                {(evento.contacto || evento.telefono) && (
+                  <p>
+                    Contacto: {[evento.contacto, evento.telefono]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                )}
+
+                {evento.observacion && (
+                  <p className="observacion">{evento.observacion}</p>
+                )}
+
+                <div className="eventActions">
+                  <button type="button" onClick={() => abrirEditar(evento)}>
+                    Editar
+                  </button>
+
+                  {evento.estado !== "agendado" && (
+                    <button
+                      type="button"
+                      onClick={() => cambiarEstado(evento, "agendado")}
+                    >
+                      Agendado
+                    </button>
+                  )}
+
+                  {evento.estado !== "en_ruta" && (
+                    <button
+                      type="button"
+                      onClick={() => cambiarEstado(evento, "en_ruta")}
+                    >
+                      En ruta
+                    </button>
+                  )}
+
+                  {evento.estado !== "realizado" && (
+                    <button
+                      type="button"
+                      onClick={() => cambiarEstado(evento, "realizado")}
+                    >
+                      Realizado
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => eliminarEvento(evento)}
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </aside>
+      </section>
+
+      {mostrarFormulario && (
+        <div className="modalOverlay">
+          <div className="modal">
+            <div className="modalHeader">
+              <div>
+                <p>{formulario.id ? "Editar agenda" : "Nuevo registro"}</p>
+                <h2>Despacho / retiro</h2>
+              </div>
+
+              <button
+                type="button"
+                className="close"
+                onClick={() => setMostrarFormulario(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="formGrid">
+              <label>
+                Tipo
+                <select
+                  value={formulario.tipo}
+                  onChange={(event) =>
+                    setFormulario((prev) => ({
+                      ...prev,
+                      tipo: event.target.value as TipoLogistica,
+                    }))
+                  }
+                >
+                  <option value="retiro">Retiro</option>
+                  <option value="despacho">Despacho</option>
+                </select>
+              </label>
+
+              <label>
+                Estado
+                <select
+                  value={formulario.estado}
+                  onChange={(event) =>
+                    setFormulario((prev) => ({
+                      ...prev,
+                      estado: event.target.value as EstadoLogistica,
+                    }))
+                  }
+                >
+                  {ESTADOS.map((estado) => (
+                    <option key={estado} value={estado}>
+                      {etiquetaEstado(estado)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Fecha
+                <input
+                  type="date"
+                  value={formulario.fecha}
+                  onChange={(event) =>
+                    setFormulario((prev) => ({
+                      ...prev,
+                      fecha: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+
+              <label>
+                Hora
+                <input
+                  type="time"
+                  value={formulario.hora}
+                  onChange={(event) =>
+                    setFormulario((prev) => ({
+                      ...prev,
+                      hora: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+
+              <label>
+                Cliente
+                <input
+                  value={formulario.cliente}
+                  onChange={(event) =>
+                    setFormulario((prev) => ({
+                      ...prev,
+                      cliente: event.target.value,
+                    }))
+                  }
+                  placeholder="Nombre cliente o empresa"
+                />
+              </label>
+
+              <label>
+                Contacto
+                <input
+                  value={formulario.contacto}
+                  onChange={(event) =>
+                    setFormulario((prev) => ({
+                      ...prev,
+                      contacto: event.target.value,
+                    }))
+                  }
+                  placeholder="Persona de contacto"
+                />
+              </label>
+
+              <label>
+                Teléfono
+                <input
+                  value={formulario.telefono}
+                  onChange={(event) =>
+                    setFormulario((prev) => ({
+                      ...prev,
+                      telefono: event.target.value,
+                    }))
+                  }
+                  placeholder="+56 9..."
+                />
+              </label>
+
+              <label>
+                Email
+                <input
+                  value={formulario.email}
+                  onChange={(event) =>
+                    setFormulario((prev) => ({
+                      ...prev,
+                      email: event.target.value,
+                    }))
+                  }
+                  placeholder="correo@empresa.cl"
+                />
+              </label>
+
+              <label className="span2">
+                Dirección
+                <input
+                  value={formulario.direccion}
+                  onChange={(event) =>
+                    setFormulario((prev) => ({
+                      ...prev,
+                      direccion: event.target.value,
+                    }))
+                  }
+                  placeholder="Dirección completa"
+                />
+              </label>
+
+              <label>
+                Comuna
+                <input
+                  value={formulario.comuna}
+                  onChange={(event) =>
+                    setFormulario((prev) => ({
+                      ...prev,
+                      comuna: event.target.value,
+                    }))
+                  }
+                  placeholder="Comuna"
+                />
+              </label>
+
+              <label>
+                Región
+                <input
+                  value={formulario.region}
+                  onChange={(event) =>
+                    setFormulario((prev) => ({
+                      ...prev,
+                      region: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+
+              <label>
+                OT asociada
+                <input
+                  value={formulario.codigo_ot}
+                  onChange={(event) =>
+                    setFormulario((prev) => ({
+                      ...prev,
+                      codigo_ot: event.target.value,
+                    }))
+                  }
+                  placeholder="OT-035"
+                />
+              </label>
+
+              <label>
+                Origen
+                <select
+                  value={formulario.origen}
+                  onChange={(event) =>
+                    setFormulario((prev) => ({
+                      ...prev,
+                      origen: event.target.value as
+                        | "manual"
+                        | "servicio_tecnico"
+                        | "venta",
+                    }))
+                  }
+                >
+                  <option value="manual">Manual</option>
+                  <option value="venta">Venta</option>
+                  <option value="servicio_tecnico">Servicio técnico</option>
+                </select>
+              </label>
+
+              <label className="span2">
+                Observación
+                <textarea
+                  value={formulario.observacion}
+                  onChange={(event) =>
+                    setFormulario((prev) => ({
+                      ...prev,
+                      observacion: event.target.value,
+                    }))
+                  }
+                  rows={4}
+                  placeholder="Detalle operativo, horario, condiciones de retiro/despacho, etc."
+                />
+              </label>
+            </div>
+
+            <div className="modalActions">
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setMostrarFormulario(false)}
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={guardarEvento}
+                disabled={guardando}
+                className="primary"
+              >
+                {guardando ? "Guardando..." : "Guardar en agenda"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style jsx>{`
+        .page {
+          padding: 32px;
+          background: #f8fafc;
+          min-height: 100vh;
+        }
+
+        .header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 18px;
+          margin-bottom: 22px;
+        }
+
+        .breadcrumb {
+          margin: 0;
+          color: #64748b;
+          font-size: 13px;
+          font-weight: 800;
+        }
+
+        h1 {
+          margin: 4px 0;
+          font-size: 32px;
+          color: #0f172a;
+        }
+
+        .subtitle {
+          margin: 0;
+          color: #64748b;
+          font-size: 15px;
+        }
+
+        .primary {
+          border: none;
+          background: #2563eb;
+          color: white;
+          padding: 12px 16px;
+          border-radius: 12px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .stats {
+          display: grid;
+          grid-template-columns: repeat(5, 1fr);
+          gap: 12px;
+          margin-bottom: 18px;
+        }
+
+        .stats div {
+          background: white;
+          border: 1px solid #e2e8f0;
+          border-radius: 16px;
+          padding: 16px;
+        }
+
+        .stats span {
+          display: block;
+          color: #64748b;
+          font-size: 12px;
+          font-weight: 800;
+        }
+
+        .stats strong {
+          display: block;
+          margin-top: 6px;
+          font-size: 26px;
+          color: #0f172a;
+        }
+
+        .toolbar {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 16px;
+          margin-bottom: 18px;
+        }
+
+        .monthControls,
+        .filters {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .monthControls button,
+        .filters select {
+          border: 1px solid #cbd5e1;
+          background: white;
+          border-radius: 10px;
+          padding: 9px 12px;
+          font-weight: 800;
+          color: #334155;
+        }
+
+        .monthControls strong {
+          min-width: 180px;
+          text-align: center;
+          text-transform: capitalize;
+          color: #0f172a;
+        }
+
+        .layout {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 380px;
+          gap: 18px;
+          align-items: start;
+        }
+
+        .calendarCard,
+        .sideCard {
+          background: white;
+          border: 1px solid #e2e8f0;
+          border-radius: 20px;
+          padding: 16px;
+          box-shadow: 0 12px 26px rgba(15, 23, 42, 0.05);
+        }
+
+        .weekdays {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 8px;
+          margin-bottom: 8px;
+        }
+
+        .weekdays span {
+          color: #64748b;
+          font-size: 12px;
+          font-weight: 900;
+          text-align: center;
+          text-transform: uppercase;
+        }
+
+        .calendar {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 8px;
+        }
+
+        .day {
+          min-height: 120px;
+          border: 1px solid #e2e8f0;
+          border-radius: 14px;
+          background: #ffffff;
+          padding: 9px;
+          text-align: left;
+          cursor: pointer;
+          overflow: hidden;
+        }
+
+        .day.muted {
+          opacity: 0.45;
+          background: #f8fafc;
+        }
+
+        .day.selected {
+          border-color: #2563eb;
+          box-shadow: 0 0 0 2px #dbeafe;
+        }
+
+        .day.today {
+          background: #eff6ff;
+        }
+
+        .dayTop {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 8px;
+        }
+
+        .dayTop strong {
+          color: #0f172a;
+          font-size: 15px;
+        }
+
+        .dayTop span {
+          background: #0f172a;
+          color: white;
+          font-size: 11px;
+          font-weight: 900;
+          border-radius: 999px;
+          min-width: 22px;
+          padding: 3px 7px;
+          text-align: center;
+        }
+
+        .eventDots {
+          display: grid;
+          gap: 4px;
+        }
+
+        .miniEvent {
+          border-radius: 8px;
+          padding: 4px 6px;
+          font-size: 11px;
+          font-weight: 800;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .tipoRetiro {
+          background: #ecfeff;
+          color: #155e75;
+        }
+
+        .tipoDespacho {
+          background: #fef3c7;
+          color: #92400e;
+        }
+
+        .estadoSolicitado {
+          border: 1px solid #bfdbfe;
+        }
+
+        .estadoAgendado {
+          border: 1px solid #93c5fd;
+        }
+
+        .estadoRuta {
+          border: 1px solid #fbbf24;
+        }
+
+        .estadoRealizado {
+          border: 1px solid #86efac;
+        }
+
+        .estadoCancelado {
+          background: #fee2e2;
+          color: #991b1b;
+          border: 1px solid #fecaca;
+        }
+
+        .sideHeader {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 12px;
+          border-bottom: 1px solid #e2e8f0;
+          padding-bottom: 14px;
+          margin-bottom: 14px;
+        }
+
+        .sideHeader span {
+          color: #64748b;
+          font-size: 12px;
+          font-weight: 800;
+        }
+
+        .sideHeader h2 {
+          margin: 4px 0 0;
+          color: #0f172a;
+          text-transform: capitalize;
+        }
+
+        .sideHeader button,
+        .eventActions button {
+          border: none;
+          background: #e0f2fe;
+          color: #0369a1;
+          padding: 8px 10px;
+          border-radius: 10px;
+          font-size: 12px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .empty {
+          color: #94a3b8;
+          font-size: 14px;
+          text-align: center;
+          padding: 24px 0;
+        }
+
+        .eventList {
+          display: grid;
+          gap: 12px;
+        }
+
+        .eventCard {
+          border: 1px solid #e2e8f0;
+          border-radius: 16px;
+          padding: 14px;
+          background: #f8fafc;
+        }
+
+        .eventHeader {
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          margin-bottom: 8px;
+        }
+
+        .pill {
+          display: inline-flex;
+          align-items: center;
+          margin-right: 5px;
+          border-radius: 999px;
+          padding: 4px 8px;
+          font-size: 11px;
+          font-weight: 900;
+        }
+
+        .eventCard h3 {
+          margin: 0 0 5px;
+          color: #0f172a;
+        }
+
+        .eventCard p {
+          margin: 3px 0;
+          color: #475569;
+          font-size: 13px;
+          line-height: 1.35;
+        }
+
+        .ot {
+          font-weight: 900;
+          color: #1e3a8a !important;
+        }
+
+        .observacion {
+          margin-top: 8px !important;
+          padding: 8px;
+          background: white;
+          border-radius: 10px;
+          color: #334155 !important;
+        }
+
+        .eventActions {
+          display: flex;
+          gap: 6px;
+          flex-wrap: wrap;
+          margin-top: 10px;
+        }
+
+        .eventActions .danger {
+          background: #fee2e2;
+          color: #b91c1c;
+        }
+
+        .modalOverlay {
+          position: fixed;
+          inset: 0;
+          z-index: 50;
+          background: rgba(15, 23, 42, 0.55);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 24px;
+        }
+
+        .modal {
+          width: min(900px, 100%);
+          max-height: 92vh;
+          overflow: auto;
+          background: white;
+          border-radius: 22px;
+          padding: 22px;
+          box-shadow: 0 24px 80px rgba(15, 23, 42, 0.25);
+        }
+
+        .modalHeader {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          align-items: flex-start;
+          margin-bottom: 18px;
+        }
+
+        .modalHeader p {
+          margin: 0;
+          color: #64748b;
+          font-weight: 800;
+        }
+
+        .modalHeader h2 {
+          margin: 4px 0 0;
+          color: #0f172a;
+          font-size: 24px;
+        }
+
+        .close {
+          width: 38px;
+          height: 38px;
+          border: none;
+          border-radius: 999px;
+          background: #f1f5f9;
+          color: #334155;
+          font-size: 24px;
+          cursor: pointer;
+        }
+
+        .formGrid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 14px;
+        }
+
+        label {
+          display: grid;
+          gap: 6px;
+          color: #334155;
+          font-size: 13px;
+          font-weight: 900;
+        }
+
+        input,
+        select,
+        textarea {
+          width: 100%;
+          border: 1px solid #cbd5e1;
+          border-radius: 10px;
+          padding: 10px;
+          font-size: 14px;
+          outline: none;
+          font-family: inherit;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+          border-color: #2563eb;
+          box-shadow: 0 0 0 3px #dbeafe;
+        }
+
+        .span2 {
+          grid-column: span 2;
+        }
+
+        .modalActions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 10px;
+          margin-top: 20px;
+        }
+
+        .secondary {
+          border: none;
+          background: #f1f5f9;
+          color: #334155;
+          padding: 12px 16px;
+          border-radius: 12px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        @media (max-width: 1100px) {
+          .layout {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        @media (max-width: 800px) {
+          .page {
+            padding: 18px;
+          }
+
+          .header,
+          .toolbar {
+            flex-direction: column;
+            align-items: stretch;
+          }
+
+          .stats {
+            grid-template-columns: repeat(2, 1fr);
+          }
+
+          .calendar {
+            grid-template-columns: 1fr;
+          }
+
+          .weekdays {
+            display: none;
+          }
+
+          .day {
+            min-height: auto;
+          }
+
+          .formGrid {
+            grid-template-columns: 1fr;
+          }
+
+          .span2 {
+            grid-column: span 1;
+          }
+        }
+      `}</style>
     </main>
   );
 }
