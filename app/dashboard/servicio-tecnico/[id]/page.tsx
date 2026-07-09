@@ -189,6 +189,72 @@ function normalizarFotosIngreso(fotos?: string | string[] | null) {
   return [];
 }
 
+
+type EventoLogisticaOT = {
+  id: string;
+  tipo: "retiro" | "despacho";
+  estado: "solicitado" | "agendado" | "en_ruta" | "realizado" | "cancelado";
+  fecha: string;
+  hora: string | null;
+  cliente: string | null;
+  direccion: string | null;
+  comuna: string | null;
+  observacion: string | null;
+  codigo_ot: string | null;
+};
+
+type FormularioLogisticaListo = {
+  tipo: "retiro" | "despacho";
+  fecha: string;
+  hora: string;
+  direccion: string;
+  comuna: string;
+  observacion: string;
+};
+
+function fechaHoyISO() {
+  const hoy = new Date();
+  const year = hoy.getFullYear();
+  const month = String(hoy.getMonth() + 1).padStart(2, "0");
+  const day = String(hoy.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatearFechaCL(fecha?: string | null) {
+  if (!fecha) return "-";
+
+  try {
+    return new Date(`${fecha}T12:00:00`).toLocaleDateString("es-CL");
+  } catch {
+    return fecha;
+  }
+}
+
+function formatearHoraCL(hora?: string | null) {
+  if (!hora) return "Sin hora";
+  return hora.slice(0, 5);
+}
+
+function etiquetaEstadoLogistica(estado?: string | null) {
+  if (estado === "solicitado") return "Solicitado";
+  if (estado === "agendado") return "Agendado";
+  if (estado === "en_ruta") return "En ruta";
+  if (estado === "realizado") return "Realizado";
+  if (estado === "cancelado") return "Cancelado";
+  return "Pendiente";
+}
+
+function formularioLogisticaInicial(): FormularioLogisticaListo {
+  return {
+    tipo: "retiro",
+    fecha: fechaHoyISO(),
+    hora: "",
+    direccion: "Taller MJ Industrial",
+    comuna: "",
+    observacion: "Cliente retira equipo en taller MJ Industrial.",
+  };
+}
+
 function AvisoLote({ equipos }: { equipos: EquipoLote[] }) {
   return (
     <div className="avisoLote">
@@ -248,6 +314,12 @@ export default function DetalleOrdenPage() {
     | "trabajo"
     | "reportes"
   >("detalle");
+  const [eventoLogistica, setEventoLogistica] =
+    useState<EventoLogisticaOT | null>(null);
+  const [formularioLogistica, setFormularioLogistica] =
+    useState<FormularioLogisticaListo>(() => formularioLogisticaInicial());
+  const [creandoSolicitudLogistica, setCreandoSolicitudLogistica] =
+    useState(false);
 
   const fotosIngreso = useMemo(() => {
     return normalizarFotosIngreso(orden?.fotos_estado_inicial);
@@ -408,6 +480,18 @@ export default function DetalleOrdenPage() {
         ),
       }),
     );
+
+    const { data: eventoLogisticaData } = await supabase
+      .from("agenda_logistica")
+      .select(
+        "id,tipo,estado,fecha,hora,cliente,direccion,comuna,observacion,codigo_ot",
+      )
+      .eq("orden_id", id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    setEventoLogistica((eventoLogisticaData as EventoLogisticaOT) || null);
 
     setOrden(ordenData as Orden);
     setEquiposLote((equiposData || []) as EquipoLote[]);
@@ -597,6 +681,77 @@ setTab("diagnostico");
     await cargarDatos();
   }
 
+  async function crearSolicitudLogistica() {
+    if (!orden) return;
+
+    if (!formularioLogistica.fecha) {
+      alert("Debes seleccionar una fecha tentativa.");
+      return;
+    }
+
+    if (
+      formularioLogistica.tipo === "despacho" &&
+      !formularioLogistica.direccion.trim()
+    ) {
+      alert("Para despacho debes ingresar dirección.");
+      return;
+    }
+
+    setCreandoSolicitudLogistica(true);
+
+    const esRetiro = formularioLogistica.tipo === "retiro";
+    const ordenExtendida = orden as any;
+
+    const payload = {
+      tipo: formularioLogistica.tipo,
+      estado: "solicitado",
+      fecha: formularioLogistica.fecha,
+      hora: formularioLogistica.hora || null,
+      cliente: orden.cliente || null,
+      contacto:
+        ordenExtendida.contacto ||
+        ordenExtendida.nombre_contacto ||
+        orden.cliente ||
+        null,
+      telefono:
+        ordenExtendida.telefono ||
+        ordenExtendida.cliente_telefono ||
+        ordenExtendida.celular ||
+        null,
+      email: orden.cliente_email || null,
+      direccion: formularioLogistica.direccion.trim() || null,
+      comuna: formularioLogistica.comuna.trim() || null,
+      region: "Región Metropolitana",
+      observacion:
+        formularioLogistica.observacion.trim() ||
+        (esRetiro
+          ? "Cliente retira equipo en taller MJ Industrial."
+          : "Despacho solicitado desde Servicio Técnico."),
+      orden_id: orden.id,
+      codigo_ot: orden.codigo,
+      origen: "servicio_tecnico",
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from("agenda_logistica")
+      .insert(payload)
+      .select(
+        "id,tipo,estado,fecha,hora,cliente,direccion,comuna,observacion,codigo_ot",
+      )
+      .single();
+
+    setCreandoSolicitudLogistica(false);
+
+    if (error) {
+      alert(error.message || "No se pudo crear la solicitud logística.");
+      return;
+    }
+
+    setEventoLogistica((data as EventoLogisticaOT) || null);
+    alert("Solicitud creada en la agenda logística.");
+  }
+
   if (loading) {
     return (
       <main style={{ padding: 32, fontFamily: "Arial, sans-serif" }}>
@@ -738,7 +893,235 @@ setTab("diagnostico");
             />
           )}
 
-          {tab === "trabajo" && <TrabajoOT ordenId={orden.id} />}
+          {tab === "trabajo" &&
+            (estadoActual === "Listo" || estadoActual === "Entregado" ? (
+              <section className="listoCard">
+                <div className="listoHeader">
+                  <div>
+                    <span className="listoEyebrow">Etapa Listo</span>
+                    <h2>Coordinar entrega / despacho</h2>
+                    <p>
+                      El trabajo técnico ya terminó. Ahora se debe agendar el
+                      retiro en taller o el despacho al cliente. La OT pasará a
+                      Entregado solo cuando logística marque la solicitud como
+                      realizada.
+                    </p>
+                  </div>
+
+                  <span className="listoBadge">
+                    {eventoLogistica
+                      ? etiquetaEstadoLogistica(eventoLogistica.estado)
+                      : "Pendiente coordinación"}
+                  </span>
+                </div>
+
+                {eventoLogistica ? (
+                  <div className="eventoCreado">
+                    <h3>Solicitud logística creada</h3>
+                    <div className="eventoGrid">
+                      <div>
+                        <span>Tipo</span>
+                        <strong>
+                          {eventoLogistica.tipo === "retiro"
+                            ? "Cliente retira en taller"
+                            : "Despacho a cliente"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>Estado</span>
+                        <strong>
+                          {etiquetaEstadoLogistica(eventoLogistica.estado)}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span>Fecha</span>
+                        <strong>{formatearFechaCL(eventoLogistica.fecha)}</strong>
+                      </div>
+
+                      <div>
+                        <span>Hora</span>
+                        <strong>{formatearHoraCL(eventoLogistica.hora)}</strong>
+                      </div>
+                    </div>
+
+                    <p>
+                      {[eventoLogistica.direccion, eventoLogistica.comuna]
+                        .filter(Boolean)
+                        .join(", ") || "Sin dirección registrada"}
+                    </p>
+
+                    {eventoLogistica.observacion && (
+                      <p className="eventoObservacion">
+                        {eventoLogistica.observacion}
+                      </p>
+                    )}
+
+                    {eventoLogistica.estado !== "realizado" && (
+                      <p className="notaLogistica">
+                        Para cerrar la OT como entregada, logística debe marcar
+                        este retiro/despacho como realizado en la Agenda
+                        Operativa.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="formLogistica">
+                    <div className="tipoEntrega">
+                      <button
+                        type="button"
+                        className={
+                          formularioLogistica.tipo === "retiro" ? "activo" : ""
+                        }
+                        onClick={() =>
+                          setFormularioLogistica((prev) => ({
+                            ...prev,
+                            tipo: "retiro",
+                            direccion:
+                              prev.direccion || "Taller MJ Industrial",
+                            observacion:
+                              prev.observacion ||
+                              "Cliente retira equipo en taller MJ Industrial.",
+                          }))
+                        }
+                      >
+                        Cliente retira en taller
+                      </button>
+
+                      <button
+                        type="button"
+                        className={
+                          formularioLogistica.tipo === "despacho" ? "activo" : ""
+                        }
+                        onClick={() =>
+                          setFormularioLogistica((prev) => ({
+                            ...prev,
+                            tipo: "despacho",
+                            direccion:
+                              prev.direccion === "Taller MJ Industrial"
+                                ? ""
+                                : prev.direccion,
+                            observacion:
+                              prev.observacion ===
+                              "Cliente retira equipo en taller MJ Industrial."
+                                ? "Despacho solicitado desde Servicio Técnico."
+                                : prev.observacion,
+                          }))
+                        }
+                      >
+                        Solicitar despacho a cliente
+                      </button>
+                    </div>
+
+                    <div className="formGridLogistica">
+                      <label>
+                        Fecha tentativa
+                        <input
+                          type="date"
+                          value={formularioLogistica.fecha}
+                          onChange={(event) =>
+                            setFormularioLogistica((prev) => ({
+                              ...prev,
+                              fecha: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+
+                      <label>
+                        Hora tentativa
+                        <input
+                          type="time"
+                          value={formularioLogistica.hora}
+                          onChange={(event) =>
+                            setFormularioLogistica((prev) => ({
+                              ...prev,
+                              hora: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+
+                      <label>
+                        Dirección
+                        <input
+                          value={formularioLogistica.direccion}
+                          onChange={(event) =>
+                            setFormularioLogistica((prev) => ({
+                              ...prev,
+                              direccion: event.target.value,
+                            }))
+                          }
+                          placeholder={
+                            formularioLogistica.tipo === "retiro"
+                              ? "Taller MJ Industrial"
+                              : "Dirección de despacho"
+                          }
+                        />
+                      </label>
+
+                      <label>
+                        Comuna
+                        <input
+                          value={formularioLogistica.comuna}
+                          onChange={(event) =>
+                            setFormularioLogistica((prev) => ({
+                              ...prev,
+                              comuna: event.target.value,
+                            }))
+                          }
+                          placeholder="Comuna"
+                        />
+                      </label>
+
+                      <label className="span2">
+                        Observación logística
+                        <textarea
+                          value={formularioLogistica.observacion}
+                          onChange={(event) =>
+                            setFormularioLogistica((prev) => ({
+                              ...prev,
+                              observacion: event.target.value,
+                            }))
+                          }
+                          rows={4}
+                          placeholder="Indicar condiciones de retiro/despacho, contacto, horario, etc."
+                        />
+                      </label>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="crearLogistica"
+                      onClick={crearSolicitudLogistica}
+                      disabled={creandoSolicitudLogistica}
+                    >
+                      {creandoSolicitudLogistica
+                        ? "Creando solicitud..."
+                        : "Crear solicitud en Agenda Logística"}
+                    </button>
+                  </div>
+                )}
+              </section>
+            ) : (
+              <TrabajoOT
+                ordenId={orden.id}
+                onEstadoActualizado={(estado) => {
+                  setOrden((prev) => {
+                    if (!prev) return prev;
+                    return { ...prev, estado };
+                  });
+
+                  const estadoNormalizado = normalizarEstado(estado);
+
+                  if (estadoNormalizado === "Listo") {
+                    setTab("trabajo");
+                    cargarDatos();
+                  }
+                }}
+              />
+            ))}
 
           {tab === "reportes" && (
             <>
@@ -780,13 +1163,208 @@ setTab("diagnostico");
           margin-bottom: 18px;
         }
 
+        .listoCard {
+          background: white;
+          border: 1px solid #e2e8f0;
+          border-radius: 18px;
+          padding: 20px;
+          margin-bottom: 18px;
+        }
+
+        .listoHeader {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          align-items: flex-start;
+          margin-bottom: 18px;
+        }
+
+        .listoEyebrow {
+          display: block;
+          color: #2563eb;
+          font-size: 12px;
+          font-weight: 900;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          margin-bottom: 4px;
+        }
+
+        .listoHeader h2 {
+          margin: 0;
+          color: #0f172a;
+          font-size: 22px;
+        }
+
+        .listoHeader p {
+          margin: 8px 0 0;
+          color: #64748b;
+          font-size: 14px;
+          line-height: 1.45;
+          max-width: 680px;
+        }
+
+        .listoBadge {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 8px 12px;
+          border-radius: 999px;
+          background: #dcfce7;
+          color: #15803d;
+          font-size: 12px;
+          font-weight: 900;
+          white-space: nowrap;
+        }
+
+        .eventoCreado {
+          border: 1px solid #bbf7d0;
+          background: #f0fdf4;
+          border-radius: 16px;
+          padding: 16px;
+        }
+
+        .eventoCreado h3 {
+          margin: 0 0 12px;
+          color: #14532d;
+          font-size: 18px;
+        }
+
+        .eventoGrid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 10px;
+          margin-bottom: 12px;
+        }
+
+        .eventoGrid div {
+          background: white;
+          border: 1px solid #bbf7d0;
+          border-radius: 12px;
+          padding: 10px;
+        }
+
+        .eventoGrid span {
+          display: block;
+          color: #64748b;
+          font-size: 11px;
+          font-weight: 900;
+          text-transform: uppercase;
+          margin-bottom: 4px;
+        }
+
+        .eventoGrid strong {
+          display: block;
+          color: #0f172a;
+          font-size: 14px;
+        }
+
+        .eventoCreado p {
+          margin: 8px 0 0;
+          color: #334155;
+          font-size: 14px;
+          line-height: 1.45;
+        }
+
+        .eventoObservacion {
+          background: white;
+          border-radius: 10px;
+          padding: 10px;
+        }
+
+        .notaLogistica {
+          color: #166534 !important;
+          font-weight: 800;
+        }
+
+        .formLogistica {
+          display: grid;
+          gap: 16px;
+        }
+
+        .tipoEntrega {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+        }
+
+        .tipoEntrega button {
+          border: 1px solid #cbd5e1;
+          background: #f8fafc;
+          color: #334155;
+          border-radius: 14px;
+          padding: 14px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .tipoEntrega button.activo {
+          background: #2563eb;
+          border-color: #2563eb;
+          color: white;
+        }
+
+        .formGridLogistica {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px;
+        }
+
+        .formGridLogistica label {
+          display: grid;
+          gap: 6px;
+          color: #334155;
+          font-size: 13px;
+          font-weight: 900;
+        }
+
+        .formGridLogistica input,
+        .formGridLogistica textarea {
+          width: 100%;
+          border: 1px solid #cbd5e1;
+          border-radius: 10px;
+          padding: 10px;
+          font-size: 14px;
+          font-family: inherit;
+        }
+
+        .span2 {
+          grid-column: span 2;
+        }
+
+        .crearLogistica {
+          width: 100%;
+          border: none;
+          background: #16a34a;
+          color: white;
+          padding: 13px 16px;
+          border-radius: 12px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .crearLogistica:disabled {
+          opacity: 0.65;
+          cursor: not-allowed;
+        }
+
         @media (max-width: 900px) {
           .page {
             padding: 22px 14px 50px;
           }
 
-          .twoColumns {
+          .twoColumns,
+          .eventoGrid,
+          .tipoEntrega,
+          .formGridLogistica {
             grid-template-columns: 1fr;
+          }
+
+          .listoHeader {
+            flex-direction: column;
+          }
+
+          .span2 {
+            grid-column: span 1;
           }
         }
       `}</style>
