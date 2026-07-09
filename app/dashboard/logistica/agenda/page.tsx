@@ -426,25 +426,23 @@ export default function AgendaOperativaPage() {
   return (
     <main className="page">
       <header className="header">
-        <div>
-          <p className="breadcrumb">Logística</p>
-          <h1>Agenda Operativa</h1>
-          <p className="subtitle">
-            Calendario de retiros, despachos y solicitudes operativas de MJ
-            Industrial.
-          </p>
-        </div>
+  <div>
+    <Link href="/dashboard" className="backButton">
+      ← Volver al dashboard
+    </Link>
 
-        <div className="headerActions">
-  <Link href="/dashboard" className="backButton">
-    ← Volver al dashboard
-  </Link>
+    <p className="breadcrumb">Logística</p>
+    <h1>Agenda Operativa</h1>
+    <p className="subtitle">
+      Calendario de retiros, despachos y solicitudes operativas de MJ
+      Industrial.
+    </p>
+  </div>
 
   <button type="button" onClick={() => abrirNuevo()} className="primary">
     + Agregar despacho / retiro
   </button>
-</div>
-      </header>
+</header>
 
       <section className="stats">
         <div>
@@ -983,6 +981,40 @@ export default function AgendaOperativaPage() {
           color: #64748b;
           font-size: 15px;
         }
+
+        .headerActions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.backButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  text-decoration: none;
+  border: 1px solid #cbd5e1;
+  background: white;
+  color: #334155;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-weight: 900;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.primary {
+  border: none;
+  background: #2563eb;
+  color: white;
+  padding: 12px;
+  border-radius: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
 
         .primary {
           border: none;
