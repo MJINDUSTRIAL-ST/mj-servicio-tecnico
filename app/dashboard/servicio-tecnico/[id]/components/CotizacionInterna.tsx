@@ -632,20 +632,76 @@ export default function CotizacionInterna({
   }
 
   function imprimirCotizacionInterna() {
-    const filas = items
-      .map((item) => {
-        const equipo = equipos.find((registro) => registro.id === item.equipoId);
-        const totalItem = Number(item.cantidad || 0) * Number(item.unitario || 0);
+    const equiposHtml = equipos
+      .map((equipo, equipoIndex) => {
+        const itemsEquipo = items.filter((item) => item.equipoId === equipo.id);
+        const subtotal = subtotalEquipo(equipo.id);
+
+        const filasEquipo = itemsEquipo
+          .map((item) => {
+            const totalItem =
+              Number(item.cantidad || 0) * Number(item.unitario || 0);
+
+            return `
+              <tr>
+                <td>${sanitizarTexto(etiquetaTipo(item.tipo))}</td>
+                <td>${sanitizarTexto(item.descripcion)}</td>
+                <td class="right">${sanitizarTexto(item.cantidad)}</td>
+                <td class="right">${sanitizarTexto(formatearMoneda(item.unitario))}</td>
+                <td class="right strong">${sanitizarTexto(formatearMoneda(totalItem))}</td>
+              </tr>
+            `;
+          })
+          .join("");
 
         return `
-          <tr>
-            <td>${sanitizarTexto(equipo?.codigo || equipo?.equipo || "-")}</td>
-            <td>${sanitizarTexto(etiquetaTipo(item.tipo))}</td>
-            <td>${sanitizarTexto(item.descripcion)}</td>
-            <td class="right">${sanitizarTexto(item.cantidad)}</td>
-            <td class="right">${sanitizarTexto(formatearMoneda(item.unitario))}</td>
-            <td class="right">${sanitizarTexto(formatearMoneda(totalItem))}</td>
-          </tr>
+          <section class="equipo-card">
+            <div class="equipo-title">
+              <div>
+                <span class="eyebrow">Equipo ${equipoIndex + 1}</span>
+                <h2>${sanitizarTexto(equipo.equipo || "Equipo")}</h2>
+              </div>
+              <div class="subtotal-pill">
+                <span>Subtotal equipo</span>
+                <strong>${sanitizarTexto(formatearMoneda(subtotal))}</strong>
+              </div>
+            </div>
+
+            <div class="equipo-grid">
+              <div>
+                <span class="label">Código / Serie</span>
+                <strong>${sanitizarTexto(equipo.codigo || equipo.numero_serie || "-")}</strong>
+              </div>
+              <div>
+                <span class="label">Marca</span>
+                <strong>${sanitizarTexto(equipo.marca || "-")}</strong>
+              </div>
+              <div>
+                <span class="label">Modelo</span>
+                <strong>${sanitizarTexto(equipo.modelo || "-")}</strong>
+              </div>
+            </div>
+
+            <div class="section-title">Ítems internos valorizados</div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th>Descripción</th>
+                  <th class="right">Cant.</th>
+                  <th class="right">Valor unit.</th>
+                  <th class="right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${
+                  filasEquipo ||
+                  `<tr><td colspan="5">Sin ítems internos registrados.</td></tr>`
+                }
+              </tbody>
+            </table>
+          </section>
         `;
       })
       .join("");
@@ -657,6 +713,11 @@ export default function CotizacionInterna({
           <meta charset="utf-8" />
           <title>Cotización interna ${sanitizarTexto(ordenInfo?.codigo || "")}</title>
           <style>
+            @page {
+              size: A4;
+              margin: 12mm;
+            }
+
             * {
               box-sizing: border-box;
             }
@@ -672,6 +733,7 @@ export default function CotizacionInterna({
             .printbar {
               position: sticky;
               top: 0;
+              z-index: 10;
               background: #1d4ed8;
               color: white;
               padding: 10px;
@@ -680,20 +742,21 @@ export default function CotizacionInterna({
             }
 
             .page {
-              width: 900px;
+              width: 794px;
+              min-height: 1123px;
               margin: 24px auto;
               background: white;
               padding: 34px;
-              border-radius: 18px;
               box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
             }
 
             .header {
               display: flex;
               justify-content: space-between;
+              align-items: flex-start;
               gap: 24px;
-              border-bottom: 3px solid #1d4ed8;
-              padding-bottom: 18px;
+              border-bottom: 3px solid #1e3a8a;
+              padding-bottom: 16px;
               margin-bottom: 18px;
             }
 
@@ -702,20 +765,30 @@ export default function CotizacionInterna({
               height: auto;
               display: block;
               object-fit: contain;
+              margin-bottom: 12px;
             }
 
             h1 {
-              margin: 14px 0 0;
+              margin: 0;
               color: #1e3a8a;
-              font-size: 24px;
-              letter-spacing: 0.04em;
+              font-size: 25px;
+              letter-spacing: 0.07em;
               text-transform: uppercase;
+              line-height: 1.15;
+            }
+
+            h2 {
+              margin: 2px 0 0;
+              color: #1e3a8a;
+              font-size: 18px;
+              line-height: 1.15;
             }
 
             .meta {
               text-align: right;
               line-height: 1.5;
               color: #334155;
+              min-width: 210px;
             }
 
             .badge {
@@ -726,58 +799,148 @@ export default function CotizacionInterna({
               background: #fef3c7;
               color: #92400e;
               font-weight: 900;
-              font-size: 11px;
+              font-size: 10px;
+              letter-spacing: 0.03em;
             }
 
-            .grid {
+            .info-grid {
               display: grid;
               grid-template-columns: repeat(4, 1fr);
               gap: 10px;
-              margin: 18px 0;
+              margin: 18px 0 20px;
             }
 
-            .box {
+            .info-box,
+            .equipo-grid > div {
               border: 1px solid #e2e8f0;
-              border-radius: 12px;
-              padding: 10px;
+              border-radius: 10px;
+              padding: 9px;
               background: #f8fafc;
+              min-height: 48px;
             }
 
             .label {
               display: block;
               color: #64748b;
-              font-size: 9px;
+              font-size: 8px;
               font-weight: 900;
               text-transform: uppercase;
               margin-bottom: 4px;
+              letter-spacing: 0.05em;
             }
 
-            .value {
+            .value,
+            .info-box strong,
+            .equipo-grid strong {
+              display: block;
               font-size: 12px;
               font-weight: 800;
               color: #0f172a;
             }
 
+            .internal-note {
+              margin: 0 0 18px;
+              padding: 11px 12px;
+              border-radius: 12px;
+              background: #fff7ed;
+              color: #9a3412;
+              font-weight: 800;
+              line-height: 1.45;
+              border: 1px solid #fed7aa;
+            }
+
+            .equipo-card {
+              border: 1px solid #e2e8f0;
+              border-radius: 16px;
+              padding: 16px;
+              margin-top: 16px;
+              break-inside: avoid;
+              page-break-inside: avoid;
+            }
+
+            .equipo-title {
+              display: flex;
+              justify-content: space-between;
+              gap: 16px;
+              align-items: flex-start;
+              margin-bottom: 12px;
+            }
+
+            .eyebrow {
+              display: block;
+              color: #64748b;
+              font-size: 9px;
+              font-weight: 900;
+              text-transform: uppercase;
+              letter-spacing: 0.06em;
+              margin-bottom: 2px;
+            }
+
+            .subtotal-pill {
+              min-width: 150px;
+              border-radius: 999px;
+              background: #ecfeff;
+              color: #155e75;
+              padding: 7px 11px;
+              text-align: right;
+              border: 1px solid #a5f3fc;
+            }
+
+            .subtotal-pill span {
+              display: block;
+              font-size: 8px;
+              font-weight: 900;
+              text-transform: uppercase;
+            }
+
+            .subtotal-pill strong {
+              display: block;
+              font-size: 14px;
+              font-weight: 900;
+            }
+
+            .equipo-grid {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 8px;
+              margin-bottom: 14px;
+            }
+
+            .section-title {
+              margin: 10px 0 7px;
+              color: #1e3a8a;
+              font-weight: 900;
+              font-size: 13px;
+            }
+
             table {
               width: 100%;
               border-collapse: collapse;
-              margin-top: 20px;
+              overflow: hidden;
+              border: 1px solid #e2e8f0;
+              border-radius: 12px;
+              font-size: 11px;
             }
 
             th {
               background: #eff6ff;
               color: #1e3a8a;
               text-align: left;
-              padding: 9px;
-              font-size: 10px;
+              padding: 8px;
+              font-size: 9px;
               text-transform: uppercase;
               border-bottom: 1px solid #bfdbfe;
             }
 
             td {
-              padding: 9px;
+              padding: 8px;
               border-bottom: 1px solid #e2e8f0;
               vertical-align: top;
+              line-height: 1.35;
+            }
+
+            tr:last-child td {
+              border-bottom: 0;
             }
 
             .right {
@@ -785,19 +948,25 @@ export default function CotizacionInterna({
               white-space: nowrap;
             }
 
+            .strong {
+              font-weight: 900;
+            }
+
             .totals {
-              width: 340px;
+              width: 320px;
               margin-left: auto;
-              margin-top: 22px;
+              margin-top: 18px;
               border: 1px solid #e2e8f0;
               border-radius: 14px;
               overflow: hidden;
+              break-inside: avoid;
+              page-break-inside: avoid;
             }
 
             .totals div {
               display: flex;
               justify-content: space-between;
-              padding: 10px 14px;
+              padding: 9px 12px;
               border-bottom: 1px solid #e2e8f0;
             }
 
@@ -805,33 +974,32 @@ export default function CotizacionInterna({
               border-bottom: 0;
               background: #0f172a;
               color: white;
-              font-size: 15px;
+              font-size: 14px;
               font-weight: 900;
-            }
-
-            .note {
-              margin-top: 22px;
-              padding: 12px;
-              border-radius: 12px;
-              background: #fff7ed;
-              color: #9a3412;
-              font-weight: 800;
-              line-height: 1.45;
             }
 
             .firmas {
               display: grid;
               grid-template-columns: 1fr 1fr;
-              gap: 80px;
-              margin-top: 54px;
+              gap: 70px;
+              margin-top: 46px;
               text-align: center;
               color: #334155;
               font-weight: 800;
+              break-inside: avoid;
+              page-break-inside: avoid;
             }
 
             .firma {
               border-top: 1px solid #334155;
               padding-top: 8px;
+            }
+
+            .footer {
+              margin-top: 28px;
+              text-align: center;
+              color: #64748b;
+              font-size: 10px;
             }
 
             @media print {
@@ -845,15 +1013,21 @@ export default function CotizacionInterna({
 
               .page {
                 width: auto;
+                min-height: auto;
                 margin: 0;
+                padding: 0;
                 box-shadow: none;
-                border-radius: 0;
+              }
+
+              a[href]:after {
+                content: "";
               }
             }
           </style>
         </head>
+
         <body>
-          <div class="printbar">Cotización interna MJ Industrial</div>
+          <div class="printbar">Imprimir / Guardar PDF</div>
 
           <main class="page">
             <div class="header">
@@ -870,50 +1044,40 @@ export default function CotizacionInterna({
               </div>
             </div>
 
-            <section class="grid">
-              <div class="box">
+            <section class="info-grid">
+              <div class="info-box">
                 <span class="label">Cliente</span>
-                <span class="value">${sanitizarTexto(ordenInfo?.cliente || "-")}</span>
+                <strong>${sanitizarTexto(ordenInfo?.cliente || "-")}</strong>
               </div>
 
-              <div class="box">
+              <div class="info-box">
                 <span class="label">Contacto</span>
-                <span class="value">${sanitizarTexto(ordenInfo?.cliente_email || "-")}</span>
+                <strong>${sanitizarTexto(ordenInfo?.cliente_email || "-")}</strong>
               </div>
 
-              <div class="box">
+              <div class="info-box">
                 <span class="label">Fecha ingreso</span>
-                <span class="value">${
+                <strong>${
                   ordenInfo?.created_at
                     ? sanitizarTexto(
                         new Date(ordenInfo.created_at).toLocaleDateString("es-CL"),
                       )
                     : "-"
-                }</span>
+                }</strong>
               </div>
 
-              <div class="box">
+              <div class="info-box">
                 <span class="label">Total interno</span>
-                <span class="value">${sanitizarTexto(formatearMoneda(totalFinal))}</span>
+                <strong>${sanitizarTexto(formatearMoneda(totalFinal))}</strong>
               </div>
             </section>
 
-            <table>
-              <thead>
-                <tr>
-                  <th>Equipo</th>
-                  <th>Tipo</th>
-                  <th>Descripción</th>
-                  <th class="right">Cant.</th>
-                  <th class="right">Valor unit.</th>
-                  <th class="right">Total</th>
-                </tr>
-              </thead>
+            <div class="internal-note">
+              Documento interno para el área comercial. No entregar directamente al cliente.
+              El vendedor debe usar esta base para preparar la cotización comercial final.
+            </div>
 
-              <tbody>
-                ${filas}
-              </tbody>
-            </table>
+            ${equiposHtml}
 
             <section class="totals">
               <div>
@@ -932,14 +1096,14 @@ export default function CotizacionInterna({
               </div>
             </section>
 
-            <div class="note">
-              Documento interno. No entregar directamente al cliente. El vendedor debe usar esta base para preparar la cotización comercial final.
-            </div>
-
             <section class="firmas">
               <div class="firma">Servicio Técnico MJ Industrial</div>
               <div class="firma">Vendedor / Responsable comercial</div>
             </section>
+
+            <div class="footer">
+              MJ Industrial · www.mjindustrial.cl · Documento generado digitalmente
+            </div>
           </main>
         </body>
       </html>
@@ -979,7 +1143,6 @@ export default function CotizacionInterna({
       }
     }, 30000);
   }
-
   if (loading) {
     return (
       <section className="card">
