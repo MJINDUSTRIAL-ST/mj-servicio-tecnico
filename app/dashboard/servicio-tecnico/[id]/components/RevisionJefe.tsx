@@ -34,6 +34,14 @@ type DiagnosticoGuardado = {
   updated_at?: string | null;
 };
 
+type OrdenInforme = {
+  id: string;
+  codigo: string | null;
+  cliente: string | null;
+  cliente_email: string | null;
+  created_at: string | null;
+};
+
 type DiagnosticoIA = {
   resumenEjecutivo?: {
     equipoLlegado?: string;
@@ -254,6 +262,7 @@ function construirDiagnosticoAprobadoJson(
     diagnostico_ia_original: actual.diagnosticoIA,
   };
 }
+
 function calcularEstadoFinalEquipo(actual: RevisionPorEquipo) {
   const texto = [
     actual.hallazgosDiagnostico,
@@ -295,6 +304,7 @@ function calcularEstadoFinalEquipo(actual: RevisionPorEquipo) {
 
 export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
   const [equipos, setEquipos] = useState<EquipoRevision[]>([]);
+  const [ordenInforme, setOrdenInforme] = useState<OrdenInforme | null>(null);
   const [revisiones, setRevisiones] = useState<
     Record<string, RevisionPorEquipo>
   >({});
@@ -304,28 +314,32 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
   }, [ordenId]);
 
   async function cargarDatos() {
-    const { data: hijos, error: errorHijos } = await supabase
-  .from("ordenes")
-  .select("id,codigo,equipo,marca,modelo,numero_serie")
-  .eq("orden_padre_id", ordenId)
-  .order("codigo", { ascending: true });
+    const { data: ordenParaInforme } = await supabase
+      .from("ordenes")
+      .select("id,codigo,cliente,cliente_email,created_at")
+      .eq("id", ordenId)
+      .maybeSingle();
 
-if (errorHijos) {
-  console.error("Error cargando equipos hijos para revisión:", errorHijos);
-}
+    setOrdenInforme(ordenParaInforme || null);
+
+    const { data: hijos } = await supabase
+      .from("ordenes")
+      .select(
+        "id,codigo,equipo,marca,modelo,numero_serie,capacidad,diagnostico_ia_json,diagnostico_ia_fuente,diagnostico_ia_generado_en",
+      )
+      .eq("orden_padre_id", ordenId)
+      .order("codigo", { ascending: true });
 
     let equiposBase: EquipoRevision[] = hijos || [];
 
     if (!equiposBase.length) {
-      const { data: orden, error: errorOrden } = await supabase
-  .from("ordenes")
-  .select("id,codigo,equipo,marca,modelo,numero_serie")
-  .eq("id", ordenId)
-  .single();
-
-if (errorOrden) {
-  console.error("Error cargando orden para revisión:", errorOrden);
-}
+      const { data: orden } = await supabase
+        .from("ordenes")
+        .select(
+          "id,codigo,equipo,marca,modelo,numero_serie,capacidad,diagnostico_ia_json,diagnostico_ia_fuente,diagnostico_ia_generado_en",
+        )
+        .eq("id", ordenId)
+        .single();
 
       if (orden) equiposBase = [orden];
     }
@@ -769,14 +783,19 @@ if (errorOrden) {
                     type="button"
                     onClick={() => {
                       descargarInformeEjecutivoMJ({
-                        ot: "Informe técnico",
-                        cliente: "-",
-                        empresa: "-",
-                        contacto: "-",
-                        fechaIngreso: "-",
+                        ot: ordenInforme?.codigo || equipo.codigo || "Informe técnico",
+                        cliente: ordenInforme?.cliente || "-",
+                        empresa: ordenInforme?.cliente || "-",
+                        contacto: ordenInforme?.cliente_email || "-",
+                        fechaIngreso: ordenInforme?.created_at
+                          ? new Date(ordenInforme.created_at).toLocaleDateString("es-CL")
+                          : "-",
                         fechaEmision: new Date().toLocaleDateString("es-CL"),
                         tecnico: "-",
-                        estado: actual.estado || "Revisión técnica",
+                        estado:
+                          actual.estado === "Aprobado"
+                            ? "Diagnóstico aprobado"
+                            : actual.estado || "Revisión técnica",
                         equipos: [
                           {
                             titulo: `Equipo ${index + 1}`,
