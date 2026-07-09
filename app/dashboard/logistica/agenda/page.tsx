@@ -314,21 +314,47 @@ export default function AgendaOperativaPage() {
   }
 
   async function cambiarEstado(evento: EventoLogistica, estado: EstadoLogistica) {
-    const { error } = await supabase
-      .from("agenda_logistica")
-      .update({
-        estado,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", evento.id);
+  const { error } = await supabase
+    .from("agenda_logistica")
+    .update({
+      estado,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", evento.id);
 
-    if (error) {
-      alert(error.message || "No se pudo actualizar el estado.");
-      return;
-    }
-
-    await cargarEventos();
+  if (error) {
+    alert(error.message || "No se pudo actualizar el estado.");
+    return;
   }
+
+  if (estado === "realizado" && evento.origen === "servicio_tecnico") {
+    if (evento.orden_id) {
+      const { error: errorOrden } = await supabase
+        .from("ordenes")
+        .update({ estado: "entregado" })
+        .eq("id", evento.orden_id);
+
+      if (errorOrden) {
+        alert(
+          "El evento quedó como realizado, pero no se pudo marcar la OT como entregada.",
+        );
+      }
+    } else if (evento.codigo_ot) {
+      const { error: errorOrdenCodigo } = await supabase
+        .from("ordenes")
+        .update({ estado: "entregado" })
+        .eq("codigo", evento.codigo_ot);
+
+      if (errorOrdenCodigo) {
+        alert(
+          "El evento quedó como realizado, pero no se pudo marcar la OT como entregada.",
+        );
+      }
+    }
+  }
+
+  await cargarEventos();
+}
 
   async function eliminarEvento(evento: EventoLogistica) {
     const confirmar = window.confirm(
