@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../lib/supabase";
 
@@ -434,9 +435,15 @@ export default function AgendaOperativaPage() {
           </p>
         </div>
 
-        <button type="button" onClick={() => abrirNuevo()} className="primary">
-          + Agregar despacho / retiro
-        </button>
+        <div className="headerActions">
+  <Link href="/dashboard" className="backButton">
+    ← Volver al dashboard
+  </Link>
+
+  <button type="button" onClick={() => abrirNuevo()} className="primary">
+    + Agregar despacho / retiro
+  </button>
+</div>
       </header>
 
       <section className="stats">
