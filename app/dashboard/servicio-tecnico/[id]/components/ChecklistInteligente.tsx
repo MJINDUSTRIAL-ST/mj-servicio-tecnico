@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../../../../lib/supabase";
 import {
   CHECKLISTS,
   ChecklistEquipo,
@@ -701,6 +702,7 @@ type ChecklistInteligenteProps = {
     observacionesGenerales?: string;
     diagnosticoIASenior?: DiagnosticoIASenior | null;
     fuenteIA?: string;
+    tecnicoACargo?: string;
   }) => void;
 };
 
@@ -712,6 +714,15 @@ const ACCIONES: Array<{ value: AccionChecklist; label: string }> = [
   { value: "ajuste", label: "Ajuste" },
   { value: "mantencion", label: "Mantención" },
   { value: "otro", label: "Otro" },
+];
+
+const TECNICOS_MJ = [
+  "Gustavo Santana",
+  "Alvaro Quezada",
+  "Jonathan Fonseca",
+  "Sergio Gonzalez",
+  "Claudia Salazar",
+  "Andres Berdejo",
 ];
 
 function normalizarTipoEquipo(
@@ -826,6 +837,8 @@ export default function ChecklistInteligente({
   const [generandoIA, setGenerandoIA] = useState(false);
   const [usoRespaldoLocal, setUsoRespaldoLocal] = useState(false);
   const [otrasObservaciones, setOtrasObservaciones] = useState("");
+  const [tecnicoACargo, setTecnicoACargo] = useState("");
+  const [guardandoTecnico, setGuardandoTecnico] = useState(false);
 
   const totalItems =
     checklist?.sections.reduce(
@@ -858,6 +871,49 @@ export default function ChecklistInteligente({
   useEffect(() => {
     onProgreso?.(porcentajeAvance);
   }, [porcentajeAvance, onProgreso]);
+
+  useEffect(() => {
+    if (!equipoId) {
+      setTecnicoACargo("");
+      return;
+    }
+
+    let activo = true;
+
+    async function cargarTecnico() {
+      const tecnicoLocal = localStorage.getItem(`tecnico-a-cargo-${equipoId}`);
+
+      if (tecnicoLocal && activo) {
+        setTecnicoACargo(tecnicoLocal);
+      }
+
+      const { data, error } = await supabase
+        .from("ordenes")
+        .select("tecnico_a_cargo")
+        .eq("id", equipoId)
+        .maybeSingle();
+
+      if (!activo) return;
+
+      if (error) {
+        console.error("No se pudo cargar el técnico a cargo:", error);
+        return;
+      }
+
+      const tecnicoGuardado =
+        (data as { tecnico_a_cargo?: string | null } | null)?.tecnico_a_cargo ||
+        "";
+
+      setTecnicoACargo(tecnicoGuardado);
+      localStorage.setItem(`tecnico-a-cargo-${equipoId}`, tecnicoGuardado);
+    }
+
+    cargarTecnico();
+
+    return () => {
+      activo = false;
+    };
+  }, [equipoId]);
 
   useEffect(() => {
     const base = crearRespuestasVacias(
@@ -921,6 +977,27 @@ export default function ChecklistInteligente({
   function cambiarOtrasObservaciones(value: string) {
     setDiagnosticoGenerado(null);
     setOtrasObservaciones(value);
+  }
+
+  async function guardarTecnicoACargo(valor: string) {
+    setTecnicoACargo(valor);
+
+    if (!equipoId) return;
+
+    localStorage.setItem(`tecnico-a-cargo-${equipoId}`, valor);
+
+    setGuardandoTecnico(true);
+
+    const { error } = await supabase
+      .from("ordenes")
+      .update({ tecnico_a_cargo: valor || null })
+      .eq("id", equipoId);
+
+    if (error) {
+      console.error("No se pudo guardar el técnico a cargo:", error);
+    }
+
+    setGuardandoTecnico(false);
   }
 
   function cambiarEstado(itemId: string, estado: EstadoChecklist) {
@@ -1098,6 +1175,7 @@ export default function ChecklistInteligente({
           };
         }),
       })),
+      tecnicoACargo: textoSeguro(tecnicoACargo),
       otrasObservaciones: textoSeguro(otrasObservaciones),
       cantidadOtrasFotos: otrasFotosChecklist.length,
       itemsMalos: itemsMalos.map((registro) => ({
@@ -1140,6 +1218,8 @@ export default function ChecklistInteligente({
     ]);
 
     try {
+      await guardarTecnicoACargo(tecnicoACargo);
+
       const response = await fetch("/api/diagnostico-ia", {
         method: "POST",
         headers: {
@@ -1156,6 +1236,8 @@ export default function ChecklistInteligente({
           },
           checklist: checklistCompleto,
           problemaReportado: "",
+          tecnicoACargo,
+          tecnico_a_cargo: tecnicoACargo,
           observacionesIngreso: observacionesChecklist,
           observaciones: observacionesChecklist,
         }),
@@ -1198,6 +1280,7 @@ export default function ChecklistInteligente({
         observacionesGenerales: otrasObservaciones,
         diagnosticoIASenior: data.diagnostico || null,
         fuenteIA: data.fuente || "openai",
+        tecnicoACargo,
       });
     } catch (error) {
       console.error("Error IA, usando respaldo local:", error);
@@ -1230,6 +1313,7 @@ export default function ChecklistInteligente({
         itemsMalos,
         diagnostico: diagnosticoLocal,
         observacionesGenerales: otrasObservaciones,
+        tecnicoACargo,
       });
     } finally {
       setGenerandoIA(false);
@@ -1271,6 +1355,33 @@ export default function ChecklistInteligente({
         <div className="rounded-xl bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
           Avance {porcentajeAvance}%
         </div>
+      </div>
+
+      <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <label className="mb-2 block text-sm font-bold text-slate-700">
+          Técnico a cargo
+        </label>
+
+        <select
+          value={tecnicoACargo}
+          onChange={(event) => guardarTecnicoACargo(event.target.value)}
+          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+        >
+          <option value="">Seleccionar técnico</option>
+          {TECNICOS_MJ.map((tecnico) => (
+            <option key={tecnico} value={tecnico}>
+              {tecnico}
+            </option>
+          ))}
+        </select>
+
+        <p className="mt-2 text-xs font-semibold text-slate-500">
+          {guardandoTecnico
+            ? "Guardando técnico..."
+            : tecnicoACargo
+            ? "Este técnico quedará asociado al checklist, diagnóstico e informe."
+            : "Selecciona el técnico responsable antes de generar el diagnóstico."}
+        </p>
       </div>
 
       <div className="mb-5 rounded-xl bg-slate-50 p-4">

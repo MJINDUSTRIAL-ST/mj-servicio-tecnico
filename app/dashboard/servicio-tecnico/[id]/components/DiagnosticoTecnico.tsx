@@ -19,6 +19,7 @@ type EquipoDiagnostico = {
   marca?: string | null;
   modelo?: string | null;
   numero_serie?: string | null;
+  tecnico_a_cargo?: string | null;
 };
 
 type DiagnosticoPorEquipo = {
@@ -26,9 +27,19 @@ type DiagnosticoPorEquipo = {
   hallazgos: string;
   procedimiento: string;
   repuestos: string;
+  tecnicoACargo: string;
   guardando: boolean;
   guardadoOk: boolean;
 };
+
+const TECNICOS_MJ = [
+  "Gustavo Santana",
+  "Alvaro Quezada",
+  "Jonathan Fonseca",
+  "Sergio Gonzalez",
+  "Claudia Salazar",
+  "Andres Berdejo",
+];
 
 function identificadorEquipo(equipo: EquipoDiagnostico) {
   if (equipo.numero_serie) return `Serie: ${equipo.numero_serie}`;
@@ -42,6 +53,7 @@ function diagnosticoVacio(): DiagnosticoPorEquipo {
     hallazgos: "",
     procedimiento: "",
     repuestos: "",
+    tecnicoACargo: "",
     guardando: false,
     guardadoOk: false,
   };
@@ -109,7 +121,7 @@ export default function DiagnosticoTecnico({
   async function cargarDatos() {
     const { data: hijos } = await supabase
       .from("ordenes")
-      .select("id,codigo,equipo,marca,modelo,numero_serie")
+      .select("id,codigo,equipo,marca,modelo,numero_serie,tecnico_a_cargo")
       .eq("orden_padre_id", ordenId)
       .order("codigo", { ascending: true });
 
@@ -118,7 +130,7 @@ export default function DiagnosticoTecnico({
     if (!equiposBase.length) {
       const { data: orden } = await supabase
         .from("ordenes")
-        .select("id,codigo,equipo,marca,modelo,numero_serie")
+        .select("id,codigo,equipo,marca,modelo,numero_serie,tecnico_a_cargo")
         .eq("id", ordenId)
         .single();
 
@@ -158,6 +170,7 @@ export default function DiagnosticoTecnico({
           diagnosticoTrabajo?.procedimiento ||
           procedimientoBase,
         repuestos: repuestosDetectados,
+        tecnicoACargo: equipo.tecnico_a_cargo || "",
         guardando: false,
         guardadoOk: false,
       };
@@ -178,6 +191,25 @@ export default function DiagnosticoTecnico({
         [campo]: valor,
       },
     }));
+  }
+
+  async function actualizarTecnicoACargo(equipoId: string, valor: string) {
+    setDiagnosticos((prev) => ({
+      ...prev,
+      [equipoId]: {
+        ...(prev[equipoId] || diagnosticoVacio()),
+        tecnicoACargo: valor,
+      },
+    }));
+
+    const { error } = await supabase
+      .from("ordenes")
+      .update({ tecnico_a_cargo: valor || null })
+      .eq("id", equipoId);
+
+    if (error) {
+      console.error("No se pudo guardar el técnico a cargo:", error);
+    }
   }
 
   async function guardar(equipoId: string) {
@@ -238,7 +270,10 @@ export default function DiagnosticoTecnico({
 
       await supabase
         .from("ordenes")
-        .update({ estado: "revision" })
+        .update({
+          estado: "revision",
+          tecnico_a_cargo: actual.tecnicoACargo || null,
+        })
         .eq("id", equipoId);
 
       const todosConDiagnostico = equipos.every((equipo) => {
@@ -341,6 +376,31 @@ export default function DiagnosticoTecnico({
             </div>
 
             <div className="space-y-4">
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-700">
+                  Técnico a cargo
+                </label>
+
+                <select
+                  value={actual.tecnicoACargo}
+                  onChange={(event) =>
+                    actualizarTecnicoACargo(equipo.id, event.target.value)
+                  }
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                >
+                  <option value="">Seleccionar técnico</option>
+                  {TECNICOS_MJ.map((tecnico) => (
+                    <option key={tecnico} value={tecnico}>
+                      {tecnico}
+                    </option>
+                  ))}
+                </select>
+
+                <p className="mt-2 text-xs font-semibold text-slate-500">
+                  Este técnico quedará asociado al diagnóstico y al informe técnico.
+                </p>
+              </div>
+
               <div>
                 <label className="mb-2 block text-sm font-bold text-slate-700">
                   Hallazgos del diagnóstico
