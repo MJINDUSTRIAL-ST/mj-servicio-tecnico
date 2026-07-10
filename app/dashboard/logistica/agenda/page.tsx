@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../lib/supabase";
 
-type TipoLogistica = "retiro" | "despacho";
+type TipoLogistica = "retiro" | "despacho" | "retiro_taller";
 
 type EstadoLogistica =
   | "solicitado"
@@ -12,6 +12,8 @@ type EstadoLogistica =
   | "en_ruta"
   | "realizado"
   | "cancelado";
+
+type OrigenLogistica = "manual" | "servicio_tecnico" | "venta";
 
 type EventoLogistica = {
   id: string;
@@ -29,7 +31,7 @@ type EventoLogistica = {
   observacion: string | null;
   orden_id: string | null;
   codigo_ot: string | null;
-  origen: string | null;
+  origen: OrigenLogistica | string | null;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -49,7 +51,8 @@ type FormularioLogistica = {
   region: string;
   observacion: string;
   codigo_ot: string;
-  origen: "manual" | "servicio_tecnico" | "venta";
+  orden_id: string;
+  origen: OrigenLogistica;
 };
 
 const ESTADOS: EstadoLogistica[] = [
@@ -60,20 +63,16 @@ const ESTADOS: EstadoLogistica[] = [
   "cancelado",
 ];
 
+const TIPOS: TipoLogistica[] = ["retiro", "despacho", "retiro_taller"];
+
+const DIRECCION_TALLER_MJ = "Taller MJ Industrial";
+
 function fechaHoyISO() {
   const hoy = new Date();
   const year = hoy.getFullYear();
   const month = String(hoy.getMonth() + 1).padStart(2, "0");
   const day = String(hoy.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function inicioMes(fecha: Date) {
-  return new Date(fecha.getFullYear(), fecha.getMonth(), 1);
-}
-
-function finMes(fecha: Date) {
-  return new Date(fecha.getFullYear(), fecha.getMonth() + 1, 0);
 }
 
 function fechaISO(fecha: Date) {
@@ -92,9 +91,10 @@ function nombreMes(fecha: Date) {
 
 function nombreDiaCorto(fecha: string) {
   return new Date(`${fecha}T12:00:00`).toLocaleDateString("es-CL", {
-    weekday: "short",
+    weekday: "long",
     day: "2-digit",
-    month: "2-digit",
+    month: "long",
+    year: "numeric",
   });
 }
 
@@ -104,7 +104,9 @@ function formatearHora(hora?: string | null) {
 }
 
 function etiquetaTipo(tipo: TipoLogistica) {
-  return tipo === "retiro" ? "Retiro" : "Despacho";
+  if (tipo === "retiro") return "Retiro";
+  if (tipo === "despacho") return "Despacho";
+  return "Retiro en taller";
 }
 
 function etiquetaEstado(estado: EstadoLogistica) {
@@ -115,8 +117,16 @@ function etiquetaEstado(estado: EstadoLogistica) {
   return "Cancelado";
 }
 
+function etiquetaOrigen(origen?: string | null) {
+  if (origen === "servicio_tecnico") return "Servicio técnico";
+  if (origen === "venta") return "Venta";
+  return "Manual";
+}
+
 function claseTipo(tipo: TipoLogistica) {
-  return tipo === "retiro" ? "tipoRetiro" : "tipoDespacho";
+  if (tipo === "retiro") return "tipoRetiro";
+  if (tipo === "despacho") return "tipoDespacho";
+  return "tipoTaller";
 }
 
 function claseEstado(estado: EstadoLogistica) {
@@ -143,6 +153,7 @@ function formularioVacio(fechaBase?: string): FormularioLogistica {
     region: "Región Metropolitana",
     observacion: "",
     codigo_ot: "",
+    orden_id: "",
     origen: "manual",
   };
 }
@@ -150,8 +161,13 @@ function formularioVacio(fechaBase?: string): FormularioLogistica {
 function convertirEventoAFormulario(evento: EventoLogistica): FormularioLogistica {
   return {
     id: evento.id,
-    tipo: evento.tipo,
-    estado: evento.estado,
+    tipo:
+      evento.tipo === "retiro" ||
+      evento.tipo === "despacho" ||
+      evento.tipo === "retiro_taller"
+        ? evento.tipo
+        : "retiro",
+    estado: ESTADOS.includes(evento.estado) ? evento.estado : "solicitado",
     fecha: evento.fecha,
     hora: evento.hora ? evento.hora.slice(0, 5) : "",
     cliente: evento.cliente || "",
@@ -160,9 +176,10 @@ function convertirEventoAFormulario(evento: EventoLogistica): FormularioLogistic
     email: evento.email || "",
     direccion: evento.direccion || "",
     comuna: evento.comuna || "",
-    region: evento.region || "",
+    region: evento.region || "Región Metropolitana",
     observacion: evento.observacion || "",
     codigo_ot: evento.codigo_ot || "",
+    orden_id: evento.orden_id || "",
     origen:
       evento.origen === "servicio_tecnico" ||
       evento.origen === "venta" ||
@@ -173,18 +190,17 @@ function convertirEventoAFormulario(evento: EventoLogistica): FormularioLogistic
 }
 
 function construirDiasCalendario(fechaActual: Date) {
-  const inicio = inicioMes(fechaActual);
-  const fin = finMes(fechaActual);
+  const inicio = new Date(fechaActual.getFullYear(), fechaActual.getMonth(), 1);
+  const fin = new Date(fechaActual.getFullYear(), fechaActual.getMonth() + 1, 0);
 
   const dias: Date[] = [];
   const primerDiaSemana = inicio.getDay() === 0 ? 6 : inicio.getDay() - 1;
-  const totalDiasMes = fin.getDate();
 
   for (let i = primerDiaSemana; i > 0; i -= 1) {
     dias.push(new Date(inicio.getFullYear(), inicio.getMonth(), 1 - i));
   }
 
-  for (let dia = 1; dia <= totalDiasMes; dia += 1) {
+  for (let dia = 1; dia <= fin.getDate(); dia += 1) {
     dias.push(new Date(inicio.getFullYear(), inicio.getMonth(), dia));
   }
 
@@ -196,6 +212,20 @@ function construirDiasCalendario(fechaActual: Date) {
   }
 
   return dias;
+}
+
+function ordenarEventos(eventos: EventoLogistica[]) {
+  return [...eventos].sort((a, b) => {
+    const horaA = a.hora || "99:99";
+    const horaB = b.hora || "99:99";
+    return horaA.localeCompare(horaB);
+  });
+}
+
+function validarUUID(valor: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    valor,
+  );
 }
 
 export default function AgendaOperativaPage() {
@@ -215,6 +245,7 @@ export default function AgendaOperativaPage() {
 
   useEffect(() => {
     cargarEventos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fechaActual]);
 
   async function cargarEventos() {
@@ -237,7 +268,8 @@ export default function AgendaOperativaPage() {
 
     if (error) {
       console.error("Error cargando agenda logística:", error);
-      alert("No se pudo cargar la agenda logística.");
+      alert(error.message || "No se pudo cargar la agenda logística.");
+      setEventos([]);
       setLoading(false);
       return;
     }
@@ -246,15 +278,36 @@ export default function AgendaOperativaPage() {
     setLoading(false);
   }
 
-  function abrirNuevo(fecha?: string) {
+  function abrirNuevo(fecha?: string, tipo?: TipoLogistica) {
     const fechaBase = fecha || fechaSeleccionada || fechaHoyISO();
-    setFormulario(formularioVacio(fechaBase));
+    setFormulario({
+      ...formularioVacio(fechaBase),
+      tipo: tipo || "retiro",
+      direccion: tipo === "retiro_taller" ? DIRECCION_TALLER_MJ : "",
+      comuna: tipo === "retiro_taller" ? "Taller MJ" : "",
+    });
     setMostrarFormulario(true);
   }
 
   function abrirEditar(evento: EventoLogistica) {
     setFormulario(convertirEventoAFormulario(evento));
     setMostrarFormulario(true);
+  }
+
+  function actualizarFormulario(campo: keyof FormularioLogistica, valor: string) {
+    setFormulario((prev) => {
+      const nuevo = {
+        ...prev,
+        [campo]: valor,
+      };
+
+      if (campo === "tipo" && valor === "retiro_taller") {
+        nuevo.direccion = nuevo.direccion || DIRECCION_TALLER_MJ;
+        nuevo.comuna = nuevo.comuna || "Taller MJ";
+      }
+
+      return nuevo;
+    });
   }
 
   async function guardarEvento() {
@@ -268,12 +321,14 @@ export default function AgendaOperativaPage() {
       return;
     }
 
-    if (!formulario.direccion.trim()) {
+    if (formulario.tipo !== "retiro_taller" && !formulario.direccion.trim()) {
       alert("Debes ingresar la dirección.");
       return;
     }
 
     setGuardando(true);
+
+    const ordenIdLimpio = formulario.orden_id.trim();
 
     const payload = {
       tipo: formulario.tipo,
@@ -284,11 +339,15 @@ export default function AgendaOperativaPage() {
       contacto: formulario.contacto.trim() || null,
       telefono: formulario.telefono.trim() || null,
       email: formulario.email.trim() || null,
-      direccion: formulario.direccion.trim(),
+      direccion:
+        formulario.tipo === "retiro_taller"
+          ? formulario.direccion.trim() || DIRECCION_TALLER_MJ
+          : formulario.direccion.trim(),
       comuna: formulario.comuna.trim() || null,
       region: formulario.region.trim() || null,
       observacion: formulario.observacion.trim() || null,
       codigo_ot: formulario.codigo_ot.trim() || null,
+      orden_id: validarUUID(ordenIdLimpio) ? ordenIdLimpio : null,
       origen: formulario.origen,
       updated_at: new Date().toISOString(),
     };
@@ -315,47 +374,47 @@ export default function AgendaOperativaPage() {
   }
 
   async function cambiarEstado(evento: EventoLogistica, estado: EstadoLogistica) {
-  const { error } = await supabase
-    .from("agenda_logistica")
-    .update({
-      estado,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", evento.id);
+    const { error } = await supabase
+      .from("agenda_logistica")
+      .update({
+        estado,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", evento.id);
 
-  if (error) {
-    alert(error.message || "No se pudo actualizar el estado.");
-    return;
-  }
+    if (error) {
+      alert(error.message || "No se pudo actualizar el estado.");
+      return;
+    }
 
-  if (estado === "realizado" && evento.origen === "servicio_tecnico") {
-    if (evento.orden_id) {
-      const { error: errorOrden } = await supabase
-        .from("ordenes")
-        .update({ estado: "entregado" })
-        .eq("id", evento.orden_id);
+    if (estado === "realizado" && evento.origen === "servicio_tecnico") {
+      if (evento.orden_id) {
+        const { error: errorOrden } = await supabase
+          .from("ordenes")
+          .update({ estado: "entregado" })
+          .eq("id", evento.orden_id);
 
-      if (errorOrden) {
-        alert(
-          "El evento quedó como realizado, pero no se pudo marcar la OT como entregada.",
-        );
-      }
-    } else if (evento.codigo_ot) {
-      const { error: errorOrdenCodigo } = await supabase
-        .from("ordenes")
-        .update({ estado: "entregado" })
-        .eq("codigo", evento.codigo_ot);
+        if (errorOrden) {
+          alert(
+            "El evento quedó como realizado, pero no se pudo marcar la OT como entregada.",
+          );
+        }
+      } else if (evento.codigo_ot) {
+        const { error: errorOrdenCodigo } = await supabase
+          .from("ordenes")
+          .update({ estado: "entregado" })
+          .eq("codigo", evento.codigo_ot);
 
-      if (errorOrdenCodigo) {
-        alert(
-          "El evento quedó como realizado, pero no se pudo marcar la OT como entregada.",
-        );
+        if (errorOrdenCodigo) {
+          alert(
+            "El evento quedó como realizado, pero no se pudo marcar la OT como entregada.",
+          );
+        }
       }
     }
-  }
 
-  await cargarEventos();
-}
+    await cargarEventos();
+  }
 
   async function eliminarEvento(evento: EventoLogistica) {
     const confirmar = window.confirm(
@@ -397,7 +456,7 @@ export default function AgendaOperativaPage() {
   const eventosPorFecha = useMemo(() => {
     const mapa: Record<string, EventoLogistica[]> = {};
 
-    eventosFiltrados.forEach((evento) => {
+    ordenarEventos(eventosFiltrados).forEach((evento) => {
       if (!mapa[evento.fecha]) mapa[evento.fecha] = [];
       mapa[evento.fecha].push(evento);
     });
@@ -405,8 +464,8 @@ export default function AgendaOperativaPage() {
     return mapa;
   }, [eventosFiltrados]);
 
-  const eventosDiaSeleccionado = eventosFiltrados.filter(
-    (evento) => evento.fecha === fechaSeleccionada,
+  const eventosDiaSeleccionado = ordenarEventos(
+    eventosFiltrados.filter((evento) => evento.fecha === fechaSeleccionada),
   );
 
   const resumen = useMemo(() => {
@@ -414,9 +473,12 @@ export default function AgendaOperativaPage() {
       total: eventos.length,
       retiros: eventos.filter((evento) => evento.tipo === "retiro").length,
       despachos: eventos.filter((evento) => evento.tipo === "despacho").length,
+      taller: eventos.filter((evento) => evento.tipo === "retiro_taller").length,
       pendientes: eventos.filter(
         (evento) =>
-          evento.estado === "solicitado" || evento.estado === "agendado",
+          evento.estado === "solicitado" ||
+          evento.estado === "agendado" ||
+          evento.estado === "en_ruta",
       ).length,
       realizados: eventos.filter((evento) => evento.estado === "realizado")
         .length,
@@ -425,24 +487,30 @@ export default function AgendaOperativaPage() {
 
   return (
     <main className="page">
+      <Link href="/dashboard" className="backButton">
+        ← Volver al dashboard
+      </Link>
+
       <header className="header">
-  <div>
-    <Link href="/dashboard" className="backButton">
-      ← Volver al dashboard
-    </Link>
+        <div>
+          <p className="breadcrumb">Logística</p>
+          <h1>Agenda Operativa</h1>
+          <p className="subtitle">
+            Calendario de retiros, despachos y retiros en taller para preparar
+            equipos antes de la entrega.
+          </p>
+        </div>
 
-    <p className="breadcrumb">Logística</p>
-    <h1>Agenda Operativa</h1>
-    <p className="subtitle">
-      Calendario de retiros, despachos y solicitudes operativas de MJ
-      Industrial.
-    </p>
-  </div>
-
-  <button type="button" onClick={() => abrirNuevo()} className="primary">
-    + Agregar despacho / retiro
-  </button>
-</header>
+        <div className="headerActions">
+          <button
+            type="button"
+            onClick={() => abrirNuevo(undefined, "retiro")}
+            className="primary"
+          >
+            + Agregar despacho / retiro
+          </button>
+        </div>
+      </header>
 
       <section className="stats">
         <div>
@@ -458,6 +526,11 @@ export default function AgendaOperativaPage() {
         <div>
           <span>Despachos</span>
           <strong>{resumen.despachos}</strong>
+        </div>
+
+        <div>
+          <span>Retiro taller</span>
+          <strong>{resumen.taller}</strong>
         </div>
 
         <div>
@@ -488,6 +561,17 @@ export default function AgendaOperativaPage() {
             ← Mes anterior
           </button>
 
+          <button
+            type="button"
+            onClick={() => {
+              const hoy = new Date();
+              setFechaActual(hoy);
+              setFechaSeleccionada(fechaHoyISO());
+            }}
+          >
+            Hoy
+          </button>
+
           <strong>{nombreMes(fechaActual)}</strong>
 
           <button
@@ -514,8 +598,11 @@ export default function AgendaOperativaPage() {
             }
           >
             <option value="todos">Todos los tipos</option>
-            <option value="retiro">Retiros</option>
-            <option value="despacho">Despachos</option>
+            {TIPOS.map((tipo) => (
+              <option key={tipo} value={tipo}>
+                {etiquetaTipo(tipo)}
+              </option>
+            ))}
           </select>
 
           <select
@@ -532,6 +619,24 @@ export default function AgendaOperativaPage() {
             ))}
           </select>
         </div>
+      </section>
+
+      <section className="quickActions">
+        <button type="button" onClick={() => abrirNuevo(fechaSeleccionada, "retiro")}>
+          + Retiro cliente
+        </button>
+        <button
+          type="button"
+          onClick={() => abrirNuevo(fechaSeleccionada, "despacho")}
+        >
+          + Despacho
+        </button>
+        <button
+          type="button"
+          onClick={() => abrirNuevo(fechaSeleccionada, "retiro_taller")}
+        >
+          + Retiro en taller
+        </button>
       </section>
 
       <section className="layout">
@@ -573,20 +678,19 @@ export default function AgendaOperativaPage() {
                   </div>
 
                   <div className="eventDots">
-                    {eventosDia.slice(0, 3).map((evento) => (
+                    {eventosDia.slice(0, 4).map((evento) => (
                       <div
                         key={evento.id}
                         className={`miniEvent ${claseTipo(evento.tipo)} ${claseEstado(
                           evento.estado,
                         )}`}
                       >
-                        {formatearHora(evento.hora)} ·{" "}
-                        {evento.tipo === "retiro" ? "Retiro" : "Despacho"}
+                        {formatearHora(evento.hora)} · {etiquetaTipo(evento.tipo)}
                       </div>
                     ))}
 
-                    {eventosDia.length > 3 && (
-                      <small>+ {eventosDia.length - 3} más</small>
+                    {eventosDia.length > 4 && (
+                      <small>+ {eventosDia.length - 4} más</small>
                     )}
                   </div>
                 </button>
@@ -617,7 +721,7 @@ export default function AgendaOperativaPage() {
             {eventosDiaSeleccionado.map((evento) => (
               <article key={evento.id} className="eventCard">
                 <div className="eventHeader">
-                  <div>
+                  <div className="pillGroup">
                     <span className={`pill ${claseTipo(evento.tipo)}`}>
                       {etiquetaTipo(evento.tipo)}
                     </span>
@@ -630,6 +734,8 @@ export default function AgendaOperativaPage() {
                 </div>
 
                 <h3>{evento.cliente || "Sin cliente"}</h3>
+
+                <p className="origen">{etiquetaOrigen(evento.origen)}</p>
 
                 {evento.codigo_ot && <p className="ot">OT: {evento.codigo_ot}</p>}
 
@@ -647,6 +753,8 @@ export default function AgendaOperativaPage() {
                   </p>
                 )}
 
+                {evento.email && <p>Email: {evento.email}</p>}
+
                 {evento.observacion && (
                   <p className="observacion">{evento.observacion}</p>
                 )}
@@ -655,6 +763,15 @@ export default function AgendaOperativaPage() {
                   <button type="button" onClick={() => abrirEditar(evento)}>
                     Editar
                   </button>
+
+                  {evento.orden_id && (
+                    <Link
+                      href={`/dashboard/servicio-tecnico/${evento.orden_id}`}
+                      className="linkButton"
+                    >
+                      Ver OT
+                    </Link>
+                  )}
 
                   {evento.estado !== "agendado" && (
                     <button
@@ -677,9 +794,20 @@ export default function AgendaOperativaPage() {
                   {evento.estado !== "realizado" && (
                     <button
                       type="button"
+                      className="success"
                       onClick={() => cambiarEstado(evento, "realizado")}
                     >
                       Realizado
+                    </button>
+                  )}
+
+                  {evento.estado !== "cancelado" && (
+                    <button
+                      type="button"
+                      className="warning"
+                      onClick={() => cambiarEstado(evento, "cancelado")}
+                    >
+                      Cancelar
                     </button>
                   )}
 
@@ -721,14 +849,14 @@ export default function AgendaOperativaPage() {
                 <select
                   value={formulario.tipo}
                   onChange={(event) =>
-                    setFormulario((prev) => ({
-                      ...prev,
-                      tipo: event.target.value as TipoLogistica,
-                    }))
+                    actualizarFormulario("tipo", event.target.value)
                   }
                 >
-                  <option value="retiro">Retiro</option>
-                  <option value="despacho">Despacho</option>
+                  {TIPOS.map((tipo) => (
+                    <option key={tipo} value={tipo}>
+                      {etiquetaTipo(tipo)}
+                    </option>
+                  ))}
                 </select>
               </label>
 
@@ -737,10 +865,7 @@ export default function AgendaOperativaPage() {
                 <select
                   value={formulario.estado}
                   onChange={(event) =>
-                    setFormulario((prev) => ({
-                      ...prev,
-                      estado: event.target.value as EstadoLogistica,
-                    }))
+                    actualizarFormulario("estado", event.target.value)
                   }
                 >
                   {ESTADOS.map((estado) => (
@@ -757,10 +882,7 @@ export default function AgendaOperativaPage() {
                   type="date"
                   value={formulario.fecha}
                   onChange={(event) =>
-                    setFormulario((prev) => ({
-                      ...prev,
-                      fecha: event.target.value,
-                    }))
+                    actualizarFormulario("fecha", event.target.value)
                   }
                 />
               </label>
@@ -771,10 +893,7 @@ export default function AgendaOperativaPage() {
                   type="time"
                   value={formulario.hora}
                   onChange={(event) =>
-                    setFormulario((prev) => ({
-                      ...prev,
-                      hora: event.target.value,
-                    }))
+                    actualizarFormulario("hora", event.target.value)
                   }
                 />
               </label>
@@ -784,10 +903,7 @@ export default function AgendaOperativaPage() {
                 <input
                   value={formulario.cliente}
                   onChange={(event) =>
-                    setFormulario((prev) => ({
-                      ...prev,
-                      cliente: event.target.value,
-                    }))
+                    actualizarFormulario("cliente", event.target.value)
                   }
                   placeholder="Nombre cliente o empresa"
                 />
@@ -798,10 +914,7 @@ export default function AgendaOperativaPage() {
                 <input
                   value={formulario.contacto}
                   onChange={(event) =>
-                    setFormulario((prev) => ({
-                      ...prev,
-                      contacto: event.target.value,
-                    }))
+                    actualizarFormulario("contacto", event.target.value)
                   }
                   placeholder="Persona de contacto"
                 />
@@ -812,10 +925,7 @@ export default function AgendaOperativaPage() {
                 <input
                   value={formulario.telefono}
                   onChange={(event) =>
-                    setFormulario((prev) => ({
-                      ...prev,
-                      telefono: event.target.value,
-                    }))
+                    actualizarFormulario("telefono", event.target.value)
                   }
                   placeholder="+56 9..."
                 />
@@ -826,10 +936,7 @@ export default function AgendaOperativaPage() {
                 <input
                   value={formulario.email}
                   onChange={(event) =>
-                    setFormulario((prev) => ({
-                      ...prev,
-                      email: event.target.value,
-                    }))
+                    actualizarFormulario("email", event.target.value)
                   }
                   placeholder="correo@empresa.cl"
                 />
@@ -840,12 +947,13 @@ export default function AgendaOperativaPage() {
                 <input
                   value={formulario.direccion}
                   onChange={(event) =>
-                    setFormulario((prev) => ({
-                      ...prev,
-                      direccion: event.target.value,
-                    }))
+                    actualizarFormulario("direccion", event.target.value)
                   }
-                  placeholder="Dirección completa"
+                  placeholder={
+                    formulario.tipo === "retiro_taller"
+                      ? DIRECCION_TALLER_MJ
+                      : "Dirección completa"
+                  }
                 />
               </label>
 
@@ -854,10 +962,7 @@ export default function AgendaOperativaPage() {
                 <input
                   value={formulario.comuna}
                   onChange={(event) =>
-                    setFormulario((prev) => ({
-                      ...prev,
-                      comuna: event.target.value,
-                    }))
+                    actualizarFormulario("comuna", event.target.value)
                   }
                   placeholder="Comuna"
                 />
@@ -868,10 +973,7 @@ export default function AgendaOperativaPage() {
                 <input
                   value={formulario.region}
                   onChange={(event) =>
-                    setFormulario((prev) => ({
-                      ...prev,
-                      region: event.target.value,
-                    }))
+                    actualizarFormulario("region", event.target.value)
                   }
                 />
               </label>
@@ -881,12 +983,20 @@ export default function AgendaOperativaPage() {
                 <input
                   value={formulario.codigo_ot}
                   onChange={(event) =>
-                    setFormulario((prev) => ({
-                      ...prev,
-                      codigo_ot: event.target.value,
-                    }))
+                    actualizarFormulario("codigo_ot", event.target.value)
                   }
                   placeholder="OT-035"
+                />
+              </label>
+
+              <label>
+                ID OT interno
+                <input
+                  value={formulario.orden_id}
+                  onChange={(event) =>
+                    actualizarFormulario("orden_id", event.target.value)
+                  }
+                  placeholder="Opcional"
                 />
               </label>
 
@@ -895,13 +1005,7 @@ export default function AgendaOperativaPage() {
                 <select
                   value={formulario.origen}
                   onChange={(event) =>
-                    setFormulario((prev) => ({
-                      ...prev,
-                      origen: event.target.value as
-                        | "manual"
-                        | "servicio_tecnico"
-                        | "venta",
-                    }))
+                    actualizarFormulario("origen", event.target.value)
                   }
                 >
                   <option value="manual">Manual</option>
@@ -915,13 +1019,10 @@ export default function AgendaOperativaPage() {
                 <textarea
                   value={formulario.observacion}
                   onChange={(event) =>
-                    setFormulario((prev) => ({
-                      ...prev,
-                      observacion: event.target.value,
-                    }))
+                    actualizarFormulario("observacion", event.target.value)
                   }
                   rows={4}
-                  placeholder="Detalle operativo, horario, condiciones de retiro/despacho, etc."
+                  placeholder="Detalle operativo, horario, quién retira, condiciones de despacho, preparación del equipo, etc."
                 />
               </label>
             </div>
@@ -950,9 +1051,25 @@ export default function AgendaOperativaPage() {
 
       <style jsx>{`
         .page {
-          padding: 32px;
+          padding: 28px;
           background: #f8fafc;
           min-height: 100vh;
+        }
+
+        .backButton {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: fit-content;
+          text-decoration: none;
+          color: #334155;
+          font-weight: 900;
+          font-size: 13px;
+          margin-bottom: 16px;
+        }
+
+        .backButton:hover {
+          color: #2563eb;
         }
 
         .header {
@@ -960,7 +1077,7 @@ export default function AgendaOperativaPage() {
           justify-content: space-between;
           align-items: flex-start;
           gap: 18px;
-          margin-bottom: 22px;
+          margin-bottom: 20px;
         }
 
         .breadcrumb {
@@ -980,41 +1097,16 @@ export default function AgendaOperativaPage() {
           margin: 0;
           color: #64748b;
           font-size: 15px;
+          line-height: 1.35;
         }
 
         .headerActions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.backButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: fit-content;
-  text-decoration: none;
-  border: 1px solid #cbd5e1;
-  background: white;
-  color: #334155;
-  padding: 8px 12px;
-  border-radius: 10px;
-  font-weight: 900;
-  font-size: 13px;
-  margin-bottom: 12px;
-}
-
-.primary {
-  border: none;
-  background: #2563eb;
-  color: white;
-  padding: 12px;
-  border-radius: 12px;
-  font-weight: 900;
-  cursor: pointer;
-}
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
 
         .primary {
           border: none;
@@ -1026,9 +1118,14 @@ export default function AgendaOperativaPage() {
           cursor: pointer;
         }
 
+        .primary:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+
         .stats {
           display: grid;
-          grid-template-columns: repeat(5, 1fr);
+          grid-template-columns: repeat(6, 1fr);
           gap: 12px;
           margin-bottom: 18px;
         }
@@ -1059,24 +1156,38 @@ export default function AgendaOperativaPage() {
           justify-content: space-between;
           align-items: center;
           gap: 16px;
-          margin-bottom: 18px;
+          margin-bottom: 12px;
         }
 
         .monthControls,
-        .filters {
+        .filters,
+        .quickActions {
           display: flex;
           align-items: center;
           gap: 10px;
+          flex-wrap: wrap;
         }
 
         .monthControls button,
-        .filters select {
+        .filters select,
+        .quickActions button {
           border: 1px solid #cbd5e1;
           background: white;
           border-radius: 10px;
           padding: 9px 12px;
           font-weight: 800;
           color: #334155;
+          cursor: pointer;
+        }
+
+        .quickActions {
+          margin-bottom: 18px;
+        }
+
+        .quickActions button:hover,
+        .monthControls button:hover {
+          border-color: #2563eb;
+          color: #2563eb;
         }
 
         .monthControls strong {
@@ -1088,7 +1199,7 @@ export default function AgendaOperativaPage() {
 
         .layout {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) 380px;
+          grid-template-columns: minmax(0, 1fr) 390px;
           gap: 18px;
           align-items: start;
         }
@@ -1124,7 +1235,7 @@ export default function AgendaOperativaPage() {
         }
 
         .day {
-          min-height: 120px;
+          min-height: 124px;
           border: 1px solid #e2e8f0;
           border-radius: 14px;
           background: #ffffff;
@@ -1196,6 +1307,11 @@ export default function AgendaOperativaPage() {
           color: #92400e;
         }
 
+        .tipoTaller {
+          background: #ede9fe;
+          color: #5b21b6;
+        }
+
         .estadoSolicitado {
           border: 1px solid #bfdbfe;
         }
@@ -1238,10 +1354,12 @@ export default function AgendaOperativaPage() {
           margin: 4px 0 0;
           color: #0f172a;
           text-transform: capitalize;
+          font-size: 18px;
         }
 
         .sideHeader button,
-        .eventActions button {
+        .eventActions button,
+        .linkButton {
           border: none;
           background: #e0f2fe;
           color: #0369a1;
@@ -1250,6 +1368,7 @@ export default function AgendaOperativaPage() {
           font-size: 12px;
           font-weight: 900;
           cursor: pointer;
+          text-decoration: none;
         }
 
         .empty {
@@ -1278,10 +1397,15 @@ export default function AgendaOperativaPage() {
           margin-bottom: 8px;
         }
 
+        .pillGroup {
+          display: flex;
+          gap: 5px;
+          flex-wrap: wrap;
+        }
+
         .pill {
           display: inline-flex;
           align-items: center;
-          margin-right: 5px;
           border-radius: 999px;
           padding: 4px 8px;
           font-size: 11px;
@@ -1298,6 +1422,12 @@ export default function AgendaOperativaPage() {
           color: #475569;
           font-size: 13px;
           line-height: 1.35;
+        }
+
+        .origen {
+          font-weight: 900;
+          color: #64748b !important;
+          font-size: 12px !important;
         }
 
         .ot {
@@ -1320,6 +1450,16 @@ export default function AgendaOperativaPage() {
           margin-top: 10px;
         }
 
+        .eventActions .success {
+          background: #dcfce7;
+          color: #166534;
+        }
+
+        .eventActions .warning {
+          background: #fef3c7;
+          color: #92400e;
+        }
+
         .eventActions .danger {
           background: #fee2e2;
           color: #b91c1c;
@@ -1337,7 +1477,7 @@ export default function AgendaOperativaPage() {
         }
 
         .modal {
-          width: min(900px, 100%);
+          width: min(920px, 100%);
           max-height: 92vh;
           overflow: auto;
           background: white;
@@ -1401,6 +1541,7 @@ export default function AgendaOperativaPage() {
           font-size: 14px;
           outline: none;
           font-family: inherit;
+          box-sizing: border-box;
         }
 
         input:focus,
@@ -1431,9 +1572,13 @@ export default function AgendaOperativaPage() {
           cursor: pointer;
         }
 
-        @media (max-width: 1100px) {
+        @media (max-width: 1180px) {
           .layout {
             grid-template-columns: 1fr;
+          }
+
+          .stats {
+            grid-template-columns: repeat(3, 1fr);
           }
         }
 
