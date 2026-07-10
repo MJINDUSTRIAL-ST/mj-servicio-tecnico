@@ -704,6 +704,8 @@ type ChecklistInteligenteProps = {
   }) => void;
 };
 
+const OTRAS_FOTOS_CHECKLIST_ID = "otras_fotos_checklist";
+
 const ACCIONES: Array<{ value: AccionChecklist; label: string }> = [
   { value: "repuesto", label: "Repuesto" },
   { value: "reparacion", label: "Reparación" },
@@ -850,6 +852,8 @@ export default function ChecklistInteligente({
 
   const porcentajeAvance =
     totalItems > 0 ? Math.round((itemsRespondidos / totalItems) * 100) : 0;
+
+  const otrasFotosChecklist = respuestas[OTRAS_FOTOS_CHECKLIST_ID]?.fotos ?? [];
 
   useEffect(() => {
     onProgreso?.(porcentajeAvance);
@@ -1095,6 +1099,7 @@ export default function ChecklistInteligente({
         }),
       })),
       otrasObservaciones: textoSeguro(otrasObservaciones),
+      cantidadOtrasFotos: otrasFotosChecklist.length,
       itemsMalos: itemsMalos.map((registro) => ({
         item: {
           id: registro.item.id,
@@ -1128,6 +1133,9 @@ export default function ChecklistInteligente({
       observacionesPorItem,
       otrasObservaciones
         ? `Otras observaciones generales: ${otrasObservaciones}`
+        : "",
+      otrasFotosChecklist.length > 0
+        ? `Otras fotos del checklist adjuntas: ${otrasFotosChecklist.length}`
         : "",
     ]);
 
@@ -1572,6 +1580,48 @@ export default function ChecklistInteligente({
           placeholder="Ej: equipo llega con golpes visibles no asociados a un ítem específico, cliente informa ruido intermitente, faltan accesorios, condiciones especiales de operación, etc."
           className="min-h-[110px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
         />
+
+        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+          <label className="mb-2 block text-sm font-bold text-slate-900">
+            Otras fotos del checklist
+          </label>
+
+          <p className="mb-3 text-sm text-slate-500">
+            Adjunta fotos generales que no correspondan a un componente específico.
+            También quedarán guardadas para el informe técnico y el reporte final.
+          </p>
+
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={(event) =>
+              agregarFotos(OTRAS_FOTOS_CHECKLIST_ID, event.target.files)
+            }
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+          />
+
+          {otrasFotosChecklist.length > 0 && (
+            <div className="mt-3 space-y-2">
+              {otrasFotosChecklist.map((foto, index) => (
+                <div
+                  key={`${foto.name}-${index}`}
+                  className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm"
+                >
+                  <span className="truncate text-slate-700">{foto.name}</span>
+
+                  <button
+                    type="button"
+                    onClick={() => eliminarFoto(OTRAS_FOTOS_CHECKLIST_ID, index)}
+                    className="ml-3 text-xs font-bold text-red-600"
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mt-6 flex flex-col gap-3 rounded-xl bg-slate-50 p-4 md:flex-row md:items-center md:justify-between">

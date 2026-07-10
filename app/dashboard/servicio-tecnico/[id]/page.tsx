@@ -293,13 +293,20 @@ async function guardarChecklistTecnicoEnSupabase(payload: any) {
 
   const itemsPorId: Record<string, any> = {};
 
-  (checklist?.secciones || []).forEach((seccion: any) => {
+  const seccionesChecklist = checklist?.sections || checklist?.secciones || [];
+
+  seccionesChecklist.forEach((seccion: any) => {
     (seccion?.items || []).forEach((item: any) => {
       if (item?.id) {
         itemsPorId[item.id] = item;
       }
     });
   });
+
+  itemsPorId.otras_fotos_checklist = {
+    id: "otras_fotos_checklist",
+    label: "Otras fotos del checklist",
+  };
 
   const fotosInsertar: any[] = [];
 
@@ -453,6 +460,27 @@ function AvisoLote({ equipos }: { equipos: EquipoLote[] }) {
           font-size: 14px;
           line-height: 1.5;
         }
+        .ingresoActions {
+          display: flex;
+          justify-content: flex-end;
+          margin-top: 16px;
+        }
+
+        .guardarIngreso {
+          border: none;
+          background: #2563eb;
+          color: white;
+          padding: 12px 18px;
+          border-radius: 12px;
+          font-weight: 900;
+          cursor: pointer;
+          box-shadow: 0 8px 18px rgba(37, 99, 235, 0.18);
+        }
+
+        .guardarIngreso:hover {
+          background: #1d4ed8;
+        }
+
       `}</style>
     </div>
   );
@@ -717,6 +745,28 @@ export default function DetalleOrdenPage() {
     const confirmar = window.confirm("¿Eliminar esta foto?");
     if (!confirmar) return;
     await eliminarFotoDb(foto);
+  }
+
+  async function guardarIngresoYAvanzar() {
+    if (!orden) return;
+
+    const { error: errorEstado } = await supabase
+      .from("ordenes")
+      .update({ estado: "Checklist" })
+      .eq("id", orden.id);
+
+    if (errorEstado) {
+      alert(errorEstado.message || "No se pudo guardar el ingreso.");
+      return;
+    }
+
+    setOrden((prev) => {
+      if (!prev) return prev;
+      return { ...prev, estado: "Checklist" };
+    });
+
+    setTab("checklist");
+    await cargarDatos();
   }
 
   async function generarPDF() {
@@ -1017,6 +1067,16 @@ setTab("diagnostico");
                   />
 
                   <ChecklistIngreso ordenId={orden.id} />
+
+                  <div className="ingresoActions">
+                    <button
+                      type="button"
+                      className="guardarIngreso"
+                      onClick={guardarIngresoYAvanzar}
+                    >
+                      Guardar ingreso y avanzar a Checklist
+                    </button>
+                  </div>
                 </>
               )}
             </>
@@ -1550,6 +1610,27 @@ setTab("diagnostico");
             grid-column: span 1;
           }
         }
+        .ingresoActions {
+          display: flex;
+          justify-content: flex-end;
+          margin-top: 16px;
+        }
+
+        .guardarIngreso {
+          border: none;
+          background: #2563eb;
+          color: white;
+          padding: 12px 18px;
+          border-radius: 12px;
+          font-weight: 900;
+          cursor: pointer;
+          box-shadow: 0 8px 18px rgba(37, 99, 235, 0.18);
+        }
+
+        .guardarIngreso:hover {
+          background: #1d4ed8;
+        }
+
       `}</style>
     </>
   );
