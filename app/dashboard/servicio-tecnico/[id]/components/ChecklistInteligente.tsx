@@ -661,6 +661,29 @@ function crearDiagnosticoDesdeRespuestaIA(
 }
 
 
+
+function incorporarObservacionesGenerales(
+  diagnostico: DiagnosticoGeneradoMJ,
+  observacionesGenerales: string,
+): DiagnosticoGeneradoMJ {
+  const observaciones = textoSeguro(observacionesGenerales);
+
+  if (!observaciones) {
+    return diagnostico;
+  }
+
+  const textoObservaciones = `Observaciones generales del técnico: ${observaciones}`;
+
+  return {
+    ...diagnostico,
+    resumen: unirLineas([diagnostico.resumen, textoObservaciones]).replace(/\n/g, " "),
+    diagnosticoTecnico: unirLineas([
+      diagnostico.diagnosticoTecnico || diagnostico.resumen,
+      textoObservaciones,
+    ]).replace(/\n/g, " "),
+  };
+}
+
 type ChecklistInteligenteProps = {
   tipoEquipoInicial?: string | null;
   equipoId?: string | null;
@@ -675,6 +698,7 @@ type ChecklistInteligenteProps = {
       respuesta: RespuestaChecklist;
     }>;
     diagnostico: DiagnosticoGeneradoMJ;
+    observacionesGenerales?: string;
     diagnosticoIASenior?: DiagnosticoIASenior | null;
     fuenteIA?: string;
   }) => void;
@@ -799,6 +823,7 @@ export default function ChecklistInteligente({
     useState<DiagnosticoGeneradoMJ | null>(null);
   const [generandoIA, setGenerandoIA] = useState(false);
   const [usoRespaldoLocal, setUsoRespaldoLocal] = useState(false);
+  const [otrasObservaciones, setOtrasObservaciones] = useState("");
 
   const totalItems =
     checklist?.sections.reduce(
@@ -837,12 +862,18 @@ export default function ChecklistInteligente({
 
     if (!equipoId) {
       setRespuestas(base);
+      setOtrasObservaciones("");
       setCargadoStorage(true);
       return;
     }
 
     try {
       const guardado = localStorage.getItem(`checklist-${equipoId}`);
+      const observacionesGuardadas = localStorage.getItem(
+        `checklist-observaciones-${equipoId}`,
+      );
+
+      setOtrasObservaciones(observacionesGuardadas || "");
 
       if (!guardado) {
         setRespuestas(base);
@@ -876,7 +907,17 @@ export default function ChecklistInteligente({
       `checklist-${equipoId}`,
       JSON.stringify(serializarRespuestas(respuestas)),
     );
-  }, [equipoId, respuestas, cargadoStorage]);
+
+    localStorage.setItem(
+      `checklist-observaciones-${equipoId}`,
+      otrasObservaciones,
+    );
+  }, [equipoId, respuestas, otrasObservaciones, cargadoStorage]);
+
+  function cambiarOtrasObservaciones(value: string) {
+    setDiagnosticoGenerado(null);
+    setOtrasObservaciones(value);
+  }
 
   function cambiarEstado(itemId: string, estado: EstadoChecklist) {
     setDiagnosticoGenerado(null);
@@ -1053,6 +1094,7 @@ export default function ChecklistInteligente({
           };
         }),
       })),
+      otrasObservaciones: textoSeguro(otrasObservaciones),
       itemsMalos: itemsMalos.map((registro) => ({
         item: {
           id: registro.item.id,
@@ -1073,7 +1115,7 @@ export default function ChecklistInteligente({
       })),
     };
 
-    const observacionesChecklist = itemsMalos
+    const observacionesPorItem = itemsMalos
       .map(
         (registro) =>
           `${registro.item.label}: ${
@@ -1081,6 +1123,13 @@ export default function ChecklistInteligente({
           }`,
       )
       .join("\n");
+
+    const observacionesChecklist = unirLineas([
+      observacionesPorItem,
+      otrasObservaciones
+        ? `Otras observaciones generales: ${otrasObservaciones}`
+        : "",
+    ]);
 
     try {
       const response = await fetch("/api/diagnostico-ia", {
@@ -1112,11 +1161,14 @@ export default function ChecklistInteligente({
 
       console.log("RESPUESTA IA:", data);
 
-      const diagnosticoIA = crearDiagnosticoDesdeRespuestaIA(
-        data,
-        tipoEquipo,
-        checklist,
-        itemsMalos,
+      const diagnosticoIA = incorporarObservacionesGenerales(
+        crearDiagnosticoDesdeRespuestaIA(
+          data,
+          tipoEquipo,
+          checklist,
+          itemsMalos,
+        ),
+        otrasObservaciones,
       );
 
       setDiagnosticoGenerado(diagnosticoIA);
@@ -1135,17 +1187,21 @@ export default function ChecklistInteligente({
         respuestas,
         itemsMalos,
         diagnostico: diagnosticoIA,
+        observacionesGenerales: otrasObservaciones,
         diagnosticoIASenior: data.diagnostico || null,
         fuenteIA: data.fuente || "openai",
       });
     } catch (error) {
       console.error("Error IA, usando respaldo local:", error);
 
-      const diagnosticoLocal = crearDiagnosticoVisibleTecnicoDesdeChecklist(
-        tipoEquipo,
-        checklist,
-        itemsMalos,
-        null,
+      const diagnosticoLocal = incorporarObservacionesGenerales(
+        crearDiagnosticoVisibleTecnicoDesdeChecklist(
+          tipoEquipo,
+          checklist,
+          itemsMalos,
+          null,
+        ),
+        otrasObservaciones,
       );
 
       setUsoRespaldoLocal(true);
@@ -1165,6 +1221,7 @@ export default function ChecklistInteligente({
         respuestas,
         itemsMalos,
         diagnostico: diagnosticoLocal,
+        observacionesGenerales: otrasObservaciones,
       });
     } finally {
       setGenerandoIA(false);
@@ -1496,6 +1553,25 @@ export default function ChecklistInteligente({
             </div>
           );
         })}
+      </div>
+
+      <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <label className="mb-2 block text-sm font-bold text-slate-900">
+          Otras observaciones generales
+        </label>
+
+        <p className="mb-3 text-sm text-slate-500">
+          Usa este campo para registrar información adicional que no esté en el
+          checklist. También será enviada a la IA y quedará asociada al
+          diagnóstico.
+        </p>
+
+        <textarea
+          value={otrasObservaciones}
+          onChange={(event) => cambiarOtrasObservaciones(event.target.value)}
+          placeholder="Ej: equipo llega con golpes visibles no asociados a un ítem específico, cliente informa ruido intermitente, faltan accesorios, condiciones especiales de operación, etc."
+          className="min-h-[110px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+        />
       </div>
 
       <div className="mt-6 flex flex-col gap-3 rounded-xl bg-slate-50 p-4 md:flex-row md:items-center md:justify-between">

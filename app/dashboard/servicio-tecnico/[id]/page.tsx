@@ -190,6 +190,174 @@ function normalizarFotosIngreso(fotos?: string | string[] | null) {
 }
 
 
+function limpiarNombreArchivo(nombre: string) {
+  return nombre
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .replace(/-+/g, "-")
+    .toLowerCase();
+}
+
+function serializarRespuestasChecklist(respuestas: Record<string, any>) {
+  const salida: Record<string, any> = {};
+
+  Object.entries(respuestas || {}).forEach(([itemId, respuesta]) => {
+    salida[itemId] = {
+      estado: respuesta?.estado || "pendiente",
+      observacion: respuesta?.observacion || "",
+      acciones: Array.isArray(respuesta?.acciones) ? respuesta.acciones : [],
+      repuesto_nombre: respuesta?.repuesto_nombre || "",
+      repuesto_cantidad: respuesta?.repuesto_cantidad || "",
+      accion_otro: respuesta?.accion_otro || "",
+      cantidad_fotos: Array.isArray(respuesta?.fotos) ? respuesta.fotos.length : 0,
+    };
+  });
+
+  return salida;
+}
+
+function serializarItemsMalosChecklist(itemsMalos: any[]) {
+  return (itemsMalos || []).map((registro) => ({
+    item: {
+      id: registro?.item?.id || "",
+      label: registro?.item?.label || "",
+      sistema: registro?.item?.sistema || "",
+      afectaSeguridad: Boolean(registro?.item?.afectaSeguridad),
+    },
+    respuesta: {
+      estado: registro?.respuesta?.estado || "",
+      observacion: registro?.respuesta?.observacion || "",
+      acciones: Array.isArray(registro?.respuesta?.acciones)
+        ? registro.respuesta.acciones
+        : [],
+      repuesto_nombre: registro?.respuesta?.repuesto_nombre || "",
+      repuesto_cantidad: registro?.respuesta?.repuesto_cantidad || "",
+      accion_otro: registro?.respuesta?.accion_otro || "",
+      cantidad_fotos: Array.isArray(registro?.respuesta?.fotos)
+        ? registro.respuesta.fotos.length
+        : 0,
+    },
+  }));
+}
+
+async function guardarChecklistTecnicoEnSupabase(payload: any) {
+  const equipoId = payload?.equipoId;
+
+  if (!equipoId) {
+    return;
+  }
+
+  const respuestas = payload?.respuestas || {};
+  const checklist = payload?.checklist || null;
+  const itemsMalos = Array.isArray(payload?.itemsMalos) ? payload.itemsMalos : [];
+
+  const respuestasDb = serializarRespuestasChecklist(respuestas);
+  const itemsMalosDb = serializarItemsMalosChecklist(itemsMalos);
+
+  const { error: errorChecklist } = await supabase
+    .from("checklists_tecnicos")
+    .upsert(
+      {
+        orden_id: equipoId,
+        tipo_equipo: payload?.tipoEquipo || null,
+        checklist_nombre: checklist?.nombre || null,
+        checklist_descripcion: checklist?.descripcion || null,
+        checklist_json: checklist || {},
+        respuestas_json: respuestasDb,
+        items_malos_json: itemsMalosDb,
+        observaciones_generales: payload?.observacionesGenerales || null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "orden_id" },
+    );
+
+  if (errorChecklist) {
+    throw new Error(errorChecklist.message);
+  }
+
+  const { data: fotosAnteriores } = await supabase
+    .from("checklist_fotos")
+    .select("storage_path")
+    .eq("orden_id", equipoId);
+
+  const pathsAnteriores = (fotosAnteriores || [])
+    .map((foto: any) => foto.storage_path)
+    .filter(Boolean);
+
+  if (pathsAnteriores.length > 0) {
+    await supabase.storage.from("reportes").remove(pathsAnteriores);
+  }
+
+  await supabase.from("checklist_fotos").delete().eq("orden_id", equipoId);
+
+  const itemsPorId: Record<string, any> = {};
+
+  (checklist?.secciones || []).forEach((seccion: any) => {
+    (seccion?.items || []).forEach((item: any) => {
+      if (item?.id) {
+        itemsPorId[item.id] = item;
+      }
+    });
+  });
+
+  const fotosInsertar: any[] = [];
+
+  for (const [itemId, respuesta] of Object.entries(respuestas) as Array<[
+    string,
+    any,
+  ]>) {
+    const fotos = Array.isArray(respuesta?.fotos) ? respuesta.fotos : [];
+
+    for (let index = 0; index < fotos.length; index += 1) {
+      const foto = fotos[index] as File;
+
+      if (!(foto instanceof File)) {
+        continue;
+      }
+
+      const nombreSeguro = limpiarNombreArchivo(foto.name || `foto-${index}.jpg`);
+      const storagePath = `checklist/${equipoId}/${itemId}-${Date.now()}-${index}-${nombreSeguro}`;
+
+      const { error: errorUpload } = await supabase.storage
+        .from("reportes")
+        .upload(storagePath, foto, {
+          cacheControl: "3600",
+          upsert: true,
+        });
+
+      if (errorUpload) {
+        throw new Error(errorUpload.message);
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from("reportes")
+        .getPublicUrl(storagePath);
+
+      fotosInsertar.push({
+        orden_id: equipoId,
+        item_id: itemId,
+        item_label: itemsPorId[itemId]?.label || itemId,
+        url: publicUrlData.publicUrl,
+        storage_path: storagePath,
+        nombre: foto.name || nombreSeguro,
+        observacion: respuesta?.observacion || null,
+      });
+    }
+  }
+
+  if (fotosInsertar.length > 0) {
+    const { error: errorFotos } = await supabase
+      .from("checklist_fotos")
+      .insert(fotosInsertar);
+
+    if (errorFotos) {
+      throw new Error(errorFotos.message);
+    }
+  }
+}
+
+
 type EventoLogisticaOT = {
   id: string;
   tipo: "retiro" | "despacho";
@@ -566,6 +734,21 @@ export default function DetalleOrdenPage() {
 
     const equipoId = payload?.equipoId || orden.id;
     const diagnosticoIA = payload?.diagnostico;
+
+    try {
+      if (payload?.respuestas && payload?.checklist) {
+        await guardarChecklistTecnicoEnSupabase({
+          ...payload,
+          equipoId,
+        });
+      }
+    } catch (error: any) {
+      alert(
+        error?.message ||
+          "No se pudo guardar el checklist técnico y sus fotos. No se avanzará hasta corregirlo.",
+      );
+      return;
+    }
 
     if (diagnosticoIA) {
       const hallazgos =
