@@ -16,10 +16,23 @@ import { obtenerRepuestoSugerido } from "../lib/repuestosSugeridos";
 type AccionChecklist =
   "repuesto" | "reparacion" | "ajuste" | "mantencion" | "otro";
 
+type FotoChecklistGuardada = {
+  id?: string;
+  nombre: string;
+  url: string;
+  storage_path?: string | null;
+  item_id?: string | null;
+  item_label?: string | null;
+  observacion?: string | null;
+  guardada: true;
+};
+
+type FotoChecklist = File | FotoChecklistGuardada;
+
 type RespuestaChecklist = {
   estado: EstadoChecklist | "";
   observacion: string;
-  fotos: File[];
+  fotos: FotoChecklist[];
   acciones: AccionChecklist[];
   repuesto_nombre: string;
   repuesto_cantidad: string;
@@ -92,6 +105,51 @@ type RespuestaDiagnosticoIA = {
 function textoSeguro(valor: unknown): string {
   if (valor === null || valor === undefined) return "";
   return String(valor).trim();
+}
+
+function esFotoArchivo(foto: FotoChecklist): foto is File {
+  return typeof File !== "undefined" && foto instanceof File;
+}
+
+function esFotoGuardada(foto: FotoChecklist): foto is FotoChecklistGuardada {
+  return !esFotoArchivo(foto) && Boolean((foto as FotoChecklistGuardada)?.guardada);
+}
+
+function nombreFotoChecklist(foto: FotoChecklist) {
+  if (esFotoArchivo(foto)) return foto.name || "Foto checklist";
+  return foto.nombre || foto.item_label || "Foto checklist";
+}
+
+function limpiarNombreArchivo(nombre: string) {
+  return nombre
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .replace(/-+/g, "-")
+    .toLowerCase();
+}
+
+function crearFotoGuardadaDesdeRegistro(registro: any): FotoChecklistGuardada | null {
+  const url = textoSeguro(
+    registro?.url || registro?.foto_url || registro?.public_url || registro?.publicUrl,
+  );
+
+  if (!url) return null;
+
+  return {
+    id: registro?.id ? String(registro.id) : undefined,
+    nombre: textoSeguro(registro?.nombre || registro?.name || registro?.filename) || "Foto checklist",
+    url,
+    storage_path: registro?.storage_path || null,
+    item_id: registro?.item_id || null,
+    item_label: registro?.item_label || null,
+    observacion: registro?.observacion || null,
+    guardada: true,
+  };
+}
+
+function claveFotoGuardada(foto: FotoChecklistGuardada) {
+  return foto.id || foto.storage_path || foto.url;
 }
 
 function unirLineas(lineas: Array<string | null | undefined>): string {
@@ -839,6 +897,8 @@ export default function ChecklistInteligente({
   const [otrasObservaciones, setOtrasObservaciones] = useState("");
   const [tecnicoACargo, setTecnicoACargo] = useState("");
   const [guardandoTecnico, setGuardandoTecnico] = useState(false);
+  const [cargandoFotosGuardadas, setCargandoFotosGuardadas] = useState(false);
+  const [guardandoChecklist, setGuardandoChecklist] = useState(false);
 
   const totalItems =
     checklist?.sections.reduce(
@@ -974,6 +1034,68 @@ export default function ChecklistInteligente({
     );
   }, [equipoId, respuestas, otrasObservaciones, cargadoStorage]);
 
+  useEffect(() => {
+    if (!equipoId || !cargadoStorage) return;
+
+    let activo = true;
+
+    async function cargarFotosChecklistGuardadas() {
+      setCargandoFotosGuardadas(true);
+
+      const { data, error } = await supabase
+        .from("checklist_fotos")
+        .select("*")
+        .eq("orden_id", equipoId);
+
+      if (!activo) return;
+
+      if (error) {
+        console.error("No se pudieron cargar las fotos guardadas del checklist:", error);
+        setCargandoFotosGuardadas(false);
+        return;
+      }
+
+      const agrupadas: Record<string, FotoChecklistGuardada[]> = {};
+
+      (data || []).forEach((registro: any) => {
+        const itemId = textoSeguro(registro.item_id) || OTRAS_FOTOS_CHECKLIST_ID;
+        const foto = crearFotoGuardadaDesdeRegistro(registro);
+        if (!foto) return;
+
+        agrupadas[itemId] = [...(agrupadas[itemId] || []), foto];
+      });
+
+      setRespuestas((prev) => {
+        const siguiente: RespuestasChecklist = { ...prev };
+
+        Object.entries(agrupadas).forEach(([itemId, fotosGuardadas]) => {
+          const actual = siguiente[itemId] ?? crearRespuestaVacia();
+          const archivosLocales = (actual.fotos || []).filter(esFotoArchivo);
+          const guardadasActuales = (actual.fotos || []).filter(esFotoGuardada);
+          const clavesActuales = new Set(guardadasActuales.map(claveFotoGuardada));
+          const nuevasGuardadas = fotosGuardadas.filter(
+            (foto) => !clavesActuales.has(claveFotoGuardada(foto)),
+          );
+
+          siguiente[itemId] = {
+            ...actual,
+            fotos: [...guardadasActuales, ...nuevasGuardadas, ...archivosLocales],
+          };
+        });
+
+        return siguiente;
+      });
+
+      setCargandoFotosGuardadas(false);
+    }
+
+    cargarFotosChecklistGuardadas();
+
+    return () => {
+      activo = false;
+    };
+  }, [equipoId, cargadoStorage]);
+
   function cambiarOtrasObservaciones(value: string) {
     setDiagnosticoGenerado(null);
     setOtrasObservaciones(value);
@@ -1000,8 +1122,44 @@ export default function ChecklistInteligente({
     setGuardandoTecnico(false);
   }
 
+  async function eliminarFotoGuardadaSupabase(foto: FotoChecklistGuardada) {
+    try {
+      if (foto.storage_path) {
+        await supabase.storage.from("reportes").remove([foto.storage_path]);
+      }
+
+      let query = supabase.from("checklist_fotos").delete();
+
+      if (foto.id) {
+        query = query.eq("id", foto.id);
+      } else if (foto.storage_path) {
+        query = query.eq("storage_path", foto.storage_path);
+      } else {
+        query = query.eq("url", foto.url);
+      }
+
+      const { error } = await query;
+
+      if (error) {
+        console.error("No se pudo eliminar la foto del checklist:", error);
+      }
+    } catch (error) {
+      console.error("Error eliminando foto del checklist:", error);
+    }
+  }
+
+  function eliminarFotosGuardadasSupabase(fotos: FotoChecklist[]) {
+    fotos.filter(esFotoGuardada).forEach((foto) => {
+      void eliminarFotoGuardadaSupabase(foto);
+    });
+  }
+
   function cambiarEstado(itemId: string, estado: EstadoChecklist) {
     setDiagnosticoGenerado(null);
+
+    if (estado !== "malo") {
+      eliminarFotosGuardadasSupabase(respuestas[itemId]?.fotos || []);
+    }
 
     setRespuestas((prev) => {
       const anterior = prev[itemId] ?? crearRespuestaVacia();
@@ -1120,8 +1278,14 @@ export default function ChecklistInteligente({
     }));
   }
 
-  function eliminarFoto(itemId: string, index: number) {
+  async function eliminarFoto(itemId: string, index: number) {
     setDiagnosticoGenerado(null);
+
+    const foto = respuestas[itemId]?.fotos?.[index];
+
+    if (foto && esFotoGuardada(foto)) {
+      await eliminarFotoGuardadaSupabase(foto);
+    }
 
     setRespuestas((prev) => ({
       ...prev,
@@ -1139,6 +1303,131 @@ export default function ChecklistInteligente({
       ...prev,
       [sectionId]: !prev[sectionId],
     }));
+  }
+
+  async function guardarChecklistTecnicoConFotos() {
+    if (!equipoId || !checklist || !tipoEquipo) return respuestas;
+
+    setGuardandoChecklist(true);
+
+    const respuestasDb = serializarRespuestas(respuestas);
+    const itemsMalosDb = itemsMalos.map((registro) => ({
+      item: {
+        id: registro.item.id,
+        label: registro.item.label,
+        sistema: registro.item.sistema || "",
+        afectaSeguridad: Boolean(registro.item.afectaSeguridad),
+      },
+      respuesta: {
+        estado: registro.respuesta.estado,
+        observacion: registro.respuesta.observacion,
+        acciones: registro.respuesta.acciones,
+        repuesto_nombre: registro.respuesta.repuesto_nombre,
+        repuesto_cantidad: registro.respuesta.repuesto_cantidad,
+        accion_otro: registro.respuesta.accion_otro,
+        cantidad_fotos: registro.respuesta.fotos?.length || 0,
+      },
+    }));
+
+    const { error: errorChecklist } = await supabase
+      .from("checklists_tecnicos")
+      .upsert(
+        {
+          orden_id: equipoId,
+          tipo_equipo: tipoEquipo,
+          checklist_nombre: checklist.nombre,
+          checklist_descripcion: checklist.descripcion,
+          checklist_json: checklist,
+          respuestas_json: respuestasDb,
+          items_malos_json: itemsMalosDb,
+          observaciones_generales: otrasObservaciones || null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "orden_id" },
+      );
+
+    if (errorChecklist) {
+      setGuardandoChecklist(false);
+      throw new Error(errorChecklist.message);
+    }
+
+    const itemsPorId: Record<string, ChecklistItem | { id: string; label: string }> = {};
+
+    checklist.sections.forEach((section) => {
+      section.items.forEach((item) => {
+        itemsPorId[item.id] = item;
+      });
+    });
+
+    itemsPorId[OTRAS_FOTOS_CHECKLIST_ID] = {
+      id: OTRAS_FOTOS_CHECKLIST_ID,
+      label: "Otras fotos del checklist",
+    };
+
+    const respuestasActualizadas: RespuestasChecklist = { ...respuestas };
+
+    for (const [itemId, respuesta] of Object.entries(respuestas)) {
+      const fotos = respuesta.fotos || [];
+      const guardadas = fotos.filter(esFotoGuardada);
+      const archivos = fotos.filter(esFotoArchivo);
+      const nuevasGuardadas: FotoChecklistGuardada[] = [];
+
+      for (let index = 0; index < archivos.length; index += 1) {
+        const foto = archivos[index];
+        const nombreSeguro = limpiarNombreArchivo(foto.name || `foto-${index}.jpg`);
+        const storagePath = `checklist/${equipoId}/${itemId}-${Date.now()}-${index}-${nombreSeguro}`;
+
+        const { error: errorUpload } = await supabase.storage
+          .from("reportes")
+          .upload(storagePath, foto, {
+            cacheControl: "3600",
+            upsert: true,
+          });
+
+        if (errorUpload) {
+          setGuardandoChecklist(false);
+          throw new Error(errorUpload.message);
+        }
+
+        const { data: publicUrlData } = supabase.storage
+          .from("reportes")
+          .getPublicUrl(storagePath);
+
+        const fila = {
+          orden_id: equipoId,
+          item_id: itemId,
+          item_label: itemsPorId[itemId]?.label || itemId,
+          url: publicUrlData.publicUrl,
+          storage_path: storagePath,
+          nombre: foto.name || nombreSeguro,
+          observacion: respuesta.observacion || null,
+        };
+
+        const { data: fotoInsertada, error: errorInsert } = await supabase
+          .from("checklist_fotos")
+          .insert(fila)
+          .select("*")
+          .single();
+
+        if (errorInsert) {
+          setGuardandoChecklist(false);
+          throw new Error(errorInsert.message);
+        }
+
+        const fotoGuardada = crearFotoGuardadaDesdeRegistro(fotoInsertada);
+        if (fotoGuardada) nuevasGuardadas.push(fotoGuardada);
+      }
+
+      respuestasActualizadas[itemId] = {
+        ...respuesta,
+        fotos: [...guardadas, ...nuevasGuardadas],
+      };
+    }
+
+    setRespuestas(respuestasActualizadas);
+    setGuardandoChecklist(false);
+
+    return respuestasActualizadas;
   }
 
   async function generarDiagnostico() {
@@ -1219,6 +1508,7 @@ export default function ChecklistInteligente({
 
     try {
       await guardarTecnicoACargo(tecnicoACargo);
+      await guardarChecklistTecnicoConFotos();
 
       const response = await fetch("/api/diagnostico-ia", {
         method: "POST",
@@ -1378,6 +1668,8 @@ export default function ChecklistInteligente({
         <p className="mt-2 text-xs font-semibold text-slate-500">
           {guardandoTecnico
             ? "Guardando técnico..."
+            : cargandoFotosGuardadas
+            ? "Cargando fotos guardadas del checklist..."
             : tecnicoACargo
             ? "Este técnico quedará asociado al checklist, diagnóstico e informe."
             : "Selecciona el técnico responsable antes de generar el diagnóstico."}
@@ -1641,11 +1933,11 @@ export default function ChecklistInteligente({
                                 <div className="mt-3 space-y-2">
                                   {respuesta.fotos.map((foto, index) => (
                                     <div
-                                      key={`${foto.name}-${index}`}
+                                      key={`${nombreFotoChecklist(foto)}-${index}`}
                                       className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-sm"
                                     >
                                       <span className="truncate text-slate-700">
-                                        {foto.name}
+                                        {nombreFotoChecklist(foto)}
                                       </span>
 
                                       <button
@@ -1716,10 +2008,10 @@ export default function ChecklistInteligente({
             <div className="mt-3 space-y-2">
               {otrasFotosChecklist.map((foto, index) => (
                 <div
-                  key={`${foto.name}-${index}`}
+                  key={`${nombreFotoChecklist(foto)}-${index}`}
                   className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm"
                 >
-                  <span className="truncate text-slate-700">{foto.name}</span>
+                  <span className="truncate text-slate-700">{nombreFotoChecklist(foto)}</span>
 
                   <button
                     type="button"
@@ -1748,10 +2040,12 @@ export default function ChecklistInteligente({
         <button
           type="button"
           onClick={generarDiagnostico}
-          disabled={itemsRespondidos === 0 || generandoIA}
+          disabled={itemsRespondidos === 0 || generandoIA || guardandoChecklist}
           className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
         >
-          {generandoIA
+          {guardandoChecklist
+            ? "Guardando checklist..."
+            : generandoIA
             ? "Generando con IA..."
             : "Guardar equipo y generar diagnóstico"}
         </button>
