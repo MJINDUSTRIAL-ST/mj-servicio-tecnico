@@ -430,6 +430,151 @@ function formularioLogisticaInicial(): FormularioLogisticaListo {
   };
 }
 
+
+function escaparHtml(valor: any) {
+  return String(valor ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function textoConSaltos(valor: any) {
+  const texto = escaparHtml(valor || "-");
+  return texto.replace(/\n/g, "<br />");
+}
+
+function renderCampoInforme(label: string, valor: any) {
+  return `
+    <div class="field">
+      <span>${escaparHtml(label)}</span>
+      <strong>${escaparHtml(valor || "-")}</strong>
+    </div>
+  `;
+}
+
+function renderFotosInforme(
+  titulo: string,
+  fotos: Array<{ url: string; nombre?: string | null; detalle?: string | null }>,
+) {
+  const fotosValidas = fotos.filter((foto) => Boolean(foto?.url));
+
+  if (fotosValidas.length === 0) return "";
+
+  return `
+    <section class="section pageBreakInsideAvoid">
+      <h3>${escaparHtml(titulo)}</h3>
+      <div class="photoGrid">
+        ${fotosValidas
+          .map(
+            (foto, index) => `
+              <a class="photoCard" href="${escaparHtml(foto.url)}" target="_blank" rel="noopener noreferrer">
+                <img src="${escaparHtml(foto.url)}" alt="${escaparHtml(
+                  foto.nombre || `${titulo} ${index + 1}`,
+                )}" />
+                <span>${escaparHtml(foto.nombre || `Foto ${index + 1}`)}</span>
+                ${foto.detalle ? `<small>${escaparHtml(foto.detalle)}</small>` : ""}
+              </a>
+            `,
+          )
+          .join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderFotosChecklistInforme(
+  fotos: Array<{
+    item_label?: string | null;
+    item_id?: string | null;
+    nombre?: string | null;
+    url?: string | null;
+    observacion?: string | null;
+  }>,
+) {
+  const fotosValidas = fotos.filter((foto) => Boolean(foto?.url));
+
+  if (fotosValidas.length === 0) return "";
+
+  const grupos = fotosValidas.reduce<Record<string, typeof fotosValidas>>(
+    (acc, foto) => {
+      const nombreGrupo =
+        foto.item_label ||
+        foto.item_id ||
+        "Fotos del checklist / diagnóstico";
+      if (!acc[nombreGrupo]) acc[nombreGrupo] = [];
+      acc[nombreGrupo].push(foto);
+      return acc;
+    },
+    {},
+  );
+
+  return `
+    <section class="section pageBreakInsideAvoid">
+      <h3>Fotos del checklist / diagnóstico</h3>
+      ${Object.entries(grupos)
+        .map(
+          ([grupo, grupoFotos]) => `
+            <div class="photoGroup">
+              <h4>${escaparHtml(grupo)}</h4>
+              <div class="photoGrid">
+                ${grupoFotos
+                  .map(
+                    (foto, index) => `
+                      <a class="photoCard" href="${escaparHtml(
+                        foto.url,
+                      )}" target="_blank" rel="noopener noreferrer">
+                        <img src="${escaparHtml(foto.url)}" alt="${escaparHtml(
+                          foto.nombre || `${grupo} ${index + 1}`,
+                        )}" />
+                        <span>${escaparHtml(foto.nombre || `Foto ${index + 1}`)}</span>
+                        ${
+                          foto.observacion
+                            ? `<small>${escaparHtml(foto.observacion)}</small>`
+                            : ""
+                        }
+                      </a>
+                    `,
+                  )
+                  .join("")}
+              </div>
+            </div>
+          `,
+        )
+        .join("")}
+    </section>
+  `;
+}
+
+function renderDocumentosInforme(
+  documentos: Array<{ nombre?: string | null; tipo?: string | null; url?: string | null }>,
+) {
+  const docsValidos = documentos.filter((doc) => Boolean(doc?.url));
+
+  if (docsValidos.length === 0) return "";
+
+  return `
+    <section class="section pageBreakInsideAvoid">
+      <h3>Documentos / certificados asociados</h3>
+      <ul class="docsList">
+        ${docsValidos
+          .map(
+            (doc, index) => `
+              <li>
+                <a href="${escaparHtml(doc.url)}" target="_blank" rel="noopener noreferrer">
+                  ${escaparHtml(doc.nombre || `Documento ${index + 1}`)}
+                </a>
+                ${doc.tipo ? `<span>${escaparHtml(doc.tipo)}</span>` : ""}
+              </li>
+            `,
+          )
+          .join("")}
+      </ul>
+    </section>
+  `;
+}
+
 function AvisoLote({ equipos }: { equipos: EquipoLote[] }) {
   return (
     <div className="avisoLote">
@@ -770,10 +915,459 @@ export default function DetalleOrdenPage() {
   }
 
   async function generarPDF() {
+    if (!orden) return;
+
     setGenerandoPdf(true);
 
     try {
-      window.print();
+      const [{ data: diagnosticoData }, { data: checklistData }, { data: checklistFotosData }] =
+        await Promise.all([
+          supabase
+            .from("diagnosticos")
+            .select("hallazgos,procedimiento,repuestos,updated_at,created_at")
+            .eq("orden_id", orden.id)
+            .maybeSingle(),
+          supabase
+            .from("checklists_tecnicos")
+            .select("observaciones_generales")
+            .eq("orden_id", orden.id)
+            .maybeSingle(),
+          supabase
+            .from("checklist_fotos")
+            .select("id,item_id,item_label,nombre,url,observacion,created_at")
+            .eq("orden_id", orden.id)
+            .order("created_at", { ascending: true }),
+        ]);
+
+      const logoUrl = `${window.location.origin}/logo-informe.png`;
+      const fechaIngreso = orden.created_at
+        ? new Date(orden.created_at).toLocaleDateString("es-CL")
+        : "-";
+      const fechaEmision = new Date().toLocaleDateString("es-CL");
+
+      const fotosIngresoInforme = fotosIngreso.map((url, index) => ({
+        url,
+        nombre: `Foto ingreso ${index + 1}`,
+      }));
+
+      const fotosChecklistInforme = ((checklistFotosData || []) as any[]).map(
+        (foto) => ({
+          item_label: foto.item_label,
+          item_id: foto.item_id,
+          nombre: foto.nombre,
+          url: foto.url,
+          observacion: foto.observacion,
+        }),
+      );
+
+      const fotosTrabajoInforme = reportesOrdenados.flatMap((reporte) =>
+        (reporte.reporte_fotos || []).map((foto, index) => ({
+          url: foto.foto_url,
+          nombre:
+            foto.comentario ||
+            `${reporte.etapa || "Trabajo"} - Foto ${index + 1}`,
+          detalle: reporte.etapa || "Trabajo / egreso",
+        })),
+      );
+
+      const documentosInforme = [
+        ...documentosIngreso.map((doc) => ({
+          nombre: doc.nombre,
+          tipo: doc.tipo || "Documento ingreso",
+          url: doc.url,
+        })),
+        ...reportesOrdenados.flatMap((reporte) =>
+          (reporte.reporte_documentos || []).map((doc) => ({
+            nombre: doc.nombre,
+            tipo: doc.tipo || reporte.etapa || "Documento técnico",
+            url: doc.url,
+          })),
+        ),
+      ];
+
+      const reporteDiagnostico = reportesOrdenados.find(
+        (reporte) =>
+          reporte.etapa?.toLowerCase().includes("diagn") ||
+          Boolean(reporte.hallazgos),
+      );
+
+      const reporteTrabajo = [...reportesOrdenados]
+        .reverse()
+        .find(
+          (reporte) =>
+            reporte.etapa?.toLowerCase().includes("trab") ||
+            reporte.etapa?.toLowerCase().includes("listo") ||
+            reporte.etapa?.toLowerCase().includes("entreg"),
+        );
+
+      const hallazgos =
+        (diagnosticoData as any)?.hallazgos ||
+        reporteDiagnostico?.hallazgos ||
+        reporteDiagnostico?.descripcion ||
+        "Sin diagnóstico registrado.";
+
+      const procedimiento =
+        (diagnosticoData as any)?.procedimiento ||
+        reporteDiagnostico?.acciones ||
+        "Sin procedimiento registrado.";
+
+      const repuestos =
+        (diagnosticoData as any)?.repuestos ||
+        "Sin repuestos registrados.";
+
+      const trabajoFinal =
+        reporteTrabajo?.descripcion ||
+        reporteTrabajo?.acciones ||
+        "Sin trabajo final registrado.";
+
+      const observacionesChecklist =
+        (checklistData as any)?.observaciones_generales || "";
+
+      const estadoInforme =
+        estadoActual === "Entregado"
+          ? "ENTREGADO"
+          : estadoActual === "Listo"
+            ? "LISTO PARA ENTREGA / DESPACHO"
+            : estadoActual === "Revisión"
+              ? "EN REVISIÓN TÉCNICA"
+              : estadoActual === "Trabajo"
+                ? "EN TRABAJO"
+                : estadoActual.toUpperCase();
+
+      const html = `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Informe técnico ${escaparHtml(orden.codigo)}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #e5e7eb;
+      color: #0f172a;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 12px;
+    }
+    .printBar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: #1d4ed8;
+      color: white;
+      text-align: center;
+      padding: 10px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 18px auto;
+      padding: 18mm;
+      background: white;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+    }
+    .top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      border-bottom: 3px solid #1e3a8a;
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+    }
+    .logo {
+      width: 160px;
+      height: auto;
+      object-fit: contain;
+    }
+    .titleBlock h1 {
+      margin: 10px 0 0;
+      color: #1e3a8a;
+      font-size: 24px;
+      letter-spacing: 0.06em;
+    }
+    .meta {
+      text-align: right;
+      line-height: 1.45;
+      font-size: 11px;
+      color: #334155;
+    }
+    .meta strong {
+      display: block;
+      color: #0f172a;
+      font-size: 18px;
+      margin-bottom: 4px;
+    }
+    .status {
+      display: inline-flex;
+      margin-top: 8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 900;
+      background: ${estadoActual === "Listo" || estadoActual === "Entregado" ? "#dcfce7" : "#fef3c7"};
+      color: ${estadoActual === "Listo" || estadoActual === "Entregado" ? "#166534" : "#92400e"};
+    }
+    .grid2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .grid4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .field {
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 8px;
+      min-height: 44px;
+    }
+    .field span {
+      display: block;
+      color: #64748b;
+      font-size: 9px;
+      font-weight: 900;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .field strong {
+      display: block;
+      color: #0f172a;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .section {
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 10px;
+      margin: 10px 0;
+      background: white;
+    }
+    .section h3 {
+      margin: 0 0 8px;
+      color: #1e3a8a;
+      font-size: 13px;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 6px;
+    }
+    .section p {
+      margin: 0;
+      line-height: 1.55;
+      white-space: normal;
+    }
+    .photoGroup {
+      margin-top: 10px;
+    }
+    .photoGroup h4 {
+      margin: 0 0 6px;
+      color: #334155;
+      font-size: 11px;
+    }
+    .photoGrid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+    .photoCard {
+      display: block;
+      border: 1px solid #dbe3ef;
+      border-radius: 8px;
+      padding: 5px;
+      text-decoration: none;
+      color: #0f172a;
+      background: #f8fafc;
+      break-inside: avoid;
+    }
+    .photoCard img {
+      display: block;
+      width: 100%;
+      height: 72px;
+      object-fit: cover;
+      border-radius: 6px;
+      margin-bottom: 5px;
+      background: #e5e7eb;
+    }
+    .photoCard span {
+      display: block;
+      font-size: 9px;
+      font-weight: 900;
+      line-height: 1.25;
+      word-break: break-word;
+    }
+    .photoCard small {
+      display: block;
+      margin-top: 2px;
+      color: #64748b;
+      font-size: 8px;
+      line-height: 1.25;
+      word-break: break-word;
+    }
+    .docsList {
+      margin: 0;
+      padding-left: 16px;
+    }
+    .docsList li {
+      margin: 5px 0;
+      line-height: 1.4;
+    }
+    .docsList a {
+      color: #1d4ed8;
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .docsList span {
+      color: #64748b;
+      margin-left: 6px;
+      font-size: 10px;
+    }
+    .signatures {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
+      margin-top: 34px;
+      text-align: center;
+      font-size: 10px;
+      font-weight: 900;
+    }
+    .signatureLine {
+      border-top: 1px solid #0f172a;
+      padding-top: 8px;
+    }
+    .footer {
+      margin-top: 18px;
+      padding-top: 10px;
+      border-top: 1px solid #e2e8f0;
+      text-align: center;
+      color: #64748b;
+      font-size: 9px;
+    }
+    .pageBreakInsideAvoid { break-inside: avoid; page-break-inside: avoid; }
+    @media print {
+      body { background: white; }
+      .printBar { display: none; }
+      .page {
+        width: auto;
+        min-height: auto;
+        margin: 0;
+        padding: 12mm;
+        box-shadow: none;
+      }
+      a { color: inherit; }
+      .section, .field, .photoCard { break-inside: avoid; page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="printBar" onclick="window.print()">Imprimir / Guardar PDF</div>
+  <main class="page">
+    <header class="top">
+      <div class="titleBlock">
+        <img class="logo" src="${logoUrl}" alt="MJ Industrial" />
+        <h1>INFORME TÉCNICO</h1>
+      </div>
+      <div class="meta">
+        <strong>${escaparHtml(orden.codigo)}</strong>
+        Estado: ${escaparHtml(estadoInforme)}<br />
+        Fecha ingreso: ${escaparHtml(fechaIngreso)}<br />
+        Fecha emisión: ${escaparHtml(fechaEmision)}<br />
+        <span class="status">${escaparHtml(estadoInforme)}</span>
+      </div>
+    </header>
+
+    <section class="grid2">
+      ${renderCampoInforme("Cliente", orden.cliente)}
+      ${renderCampoInforme("Empresa", orden.cliente)}
+      ${renderCampoInforme("Contacto", orden.cliente_email)}
+      ${renderCampoInforme("Técnico responsable", "-")}
+    </section>
+
+    <section class="section pageBreakInsideAvoid">
+      <h3>Equipo 1</h3>
+      <div class="grid4">
+        ${renderCampoInforme("Tipo", orden.equipo)}
+        ${renderCampoInforme("Marca", orden.marca)}
+        ${renderCampoInforme("Modelo", orden.modelo)}
+        ${renderCampoInforme("Serie", orden.numero_serie)}
+      </div>
+      <div class="grid2">
+        ${renderCampoInforme("Capacidad", (orden as any).capacidad || "-")}
+        ${renderCampoInforme("Accesorios", orden.accesorios_entregados || "-")}
+      </div>
+    </section>
+
+    ${renderFotosInforme("Fotos de ingreso", fotosIngresoInforme)}
+
+    <section class="section pageBreakInsideAvoid">
+      <h3>Hallazgos / diagnóstico técnico</h3>
+      <p>${textoConSaltos(hallazgos)}</p>
+      ${
+        observacionesChecklist
+          ? `<p style="margin-top:8px;"><strong>Observaciones generales checklist:</strong><br />${textoConSaltos(
+              observacionesChecklist,
+            )}</p>`
+          : ""
+      }
+    </section>
+
+    ${renderFotosChecklistInforme(fotosChecklistInforme)}
+
+    <section class="section pageBreakInsideAvoid">
+      <h3>Trabajos requeridos / procedimiento recomendado</h3>
+      <p>${textoConSaltos(procedimiento)}</p>
+      <p style="margin-top:8px;"><strong>Repuestos sugeridos / solicitados:</strong><br />${textoConSaltos(
+        repuestos,
+      )}</p>
+    </section>
+
+    <section class="section pageBreakInsideAvoid">
+      <h3>Trabajo realizado / cierre operativo</h3>
+      <p>${textoConSaltos(trabajoFinal)}</p>
+    </section>
+
+    ${renderFotosInforme("Fotos de trabajo / egreso", fotosTrabajoInforme)}
+
+    ${renderDocumentosInforme(documentosInforme)}
+
+    <section class="signatures">
+      <div class="signatureLine">Servicio Técnico MJ Industrial</div>
+      <div class="signatureLine">Cliente / Responsable</div>
+    </section>
+
+    <footer class="footer">
+      MJ Industrial · www.mjindustrial.cl · Informe generado digitalmente
+    </footer>
+  </main>
+  <script>
+    window.addEventListener("load", function () {
+      setTimeout(function () {
+        window.print();
+      }, 600);
+    });
+  </script>
+</body>
+</html>`;
+
+      const ventana = window.open("", "_blank");
+
+      if (!ventana) {
+        alert(
+          "No se pudo abrir el informe técnico. Revisa si el navegador bloqueó la ventana emergente.",
+        );
+        return;
+      }
+
+      ventana.document.open();
+      ventana.document.write(html);
+      ventana.document.close();
+    } catch (error: any) {
+      alert(error?.message || "No se pudo generar el informe técnico.");
     } finally {
       setGenerandoPdf(false);
     }
