@@ -57,6 +57,7 @@ type OrdenInfo = {
   problema?: string | null;
   observaciones?: string | null;
   observacion?: string | null;
+  fotos_estado_inicial?: string | string[] | null;
 };
 
 type EquipoOT = {
@@ -101,6 +102,26 @@ type CotizacionInternaDb = {
   total_neto?: number | null;
   iva?: number | null;
   total_final?: number | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+};
+
+
+type ChecklistFotoDb = {
+  id: string;
+  orden_id: string;
+  item_id: string | null;
+  item_label: string | null;
+  nombre: string | null;
+  url: string;
+  storage_path: string | null;
+  observacion: string | null;
+  created_at?: string | null;
+};
+
+type ChecklistTecnicoDb = {
+  orden_id: string;
+  observaciones_generales?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
 };
@@ -175,6 +196,48 @@ function formatMoneda(valor?: number | null) {
 function textoSeguro(valor: unknown) {
   if (valor === null || valor === undefined) return "";
   return String(valor).trim();
+}
+
+
+function normalizarFotosIngreso(fotos?: string | string[] | null) {
+  if (!fotos) return [];
+
+  if (Array.isArray(fotos)) {
+    return fotos.filter(Boolean).map((url, index) => ({
+      id: `ingreso-${index}`,
+      url,
+      nombre: `Foto de ingreso ${index + 1}`,
+      comentario: "Foto de ingreso",
+    }));
+  }
+
+  if (typeof fotos === "string") {
+    try {
+      const parsed = JSON.parse(fotos);
+
+      if (Array.isArray(parsed)) {
+        return parsed.filter(Boolean).map((url, index) => ({
+          id: `ingreso-${index}`,
+          url: String(url),
+          nombre: `Foto de ingreso ${index + 1}`,
+          comentario: "Foto de ingreso",
+        }));
+      }
+    } catch {
+      return fotos
+        .split(",")
+        .map((foto) => foto.trim())
+        .filter(Boolean)
+        .map((url, index) => ({
+          id: `ingreso-${index}`,
+          url,
+          nombre: `Foto de ingreso ${index + 1}`,
+          comentario: "Foto de ingreso",
+        }));
+    }
+  }
+
+  return [];
 }
 
 function sanitizarTexto(valor: unknown) {
@@ -371,6 +434,8 @@ export default function Reportes({
   const [equiposResumen, setEquiposResumen] = useState<EquipoResumen[]>([]);
   const [cotizacionInterna, setCotizacionInterna] =
     useState<CotizacionInternaDb | null>(null);
+  const [checklistFotos, setChecklistFotos] = useState<ChecklistFotoDb[]>([]);
+  const [checklistsTecnicos, setChecklistsTecnicos] = useState<ChecklistTecnicoDb[]>([]);
   const [loading, setLoading] = useState(false);
 
   const reportesIngreso = useMemo(
@@ -458,6 +523,38 @@ export default function Reportes({
 
       setEquiposResumen(resumen);
 
+      const idsEquipos = equiposBase.map((equipo) => equipo.id).filter(Boolean);
+
+      if (idsEquipos.length > 0) {
+        const { data: checklistFotosData, error: errorChecklistFotos } = await supabase
+          .from("checklist_fotos")
+          .select("*")
+          .in("orden_id", idsEquipos)
+          .order("created_at", { ascending: true });
+
+        if (errorChecklistFotos) {
+          console.warn("No se pudieron cargar fotos de checklist:", errorChecklistFotos);
+          setChecklistFotos([]);
+        } else {
+          setChecklistFotos((checklistFotosData || []) as ChecklistFotoDb[]);
+        }
+
+        const { data: checklistsData, error: errorChecklists } = await supabase
+          .from("checklists_tecnicos")
+          .select("orden_id, observaciones_generales, updated_at, created_at")
+          .in("orden_id", idsEquipos);
+
+        if (errorChecklists) {
+          console.warn("No se pudieron cargar observaciones generales de checklist:", errorChecklists);
+          setChecklistsTecnicos([]);
+        } else {
+          setChecklistsTecnicos((checklistsData || []) as ChecklistTecnicoDb[]);
+        }
+      } else {
+        setChecklistFotos([]);
+        setChecklistsTecnicos([]);
+      }
+
       try {
         const { data: cotizacionData } = await supabase
           .from("cotizaciones_internas")
@@ -480,12 +577,15 @@ export default function Reportes({
   function imprimirReporteFinal() {
     const estado = estadoFinalBadge(equiposResumen, ordenInfo);
 
-    const fotosIngreso = fotosDeReportes(reportesIngreso).map((foto) => ({
-      id: foto.id,
-      url: foto.foto_url,
-      nombre: "Foto de ingreso",
-      comentario: foto.comentario,
-    }));
+    const fotosIngreso = [
+      ...normalizarFotosIngreso(ordenInfo?.fotos_estado_inicial),
+      ...fotosDeReportes(reportesIngreso).map((foto) => ({
+        id: foto.id,
+        url: foto.foto_url,
+        nombre: "Foto de ingreso",
+        comentario: foto.comentario,
+      })),
+    ];
 
     const docsIngreso = documentosDeReportes(reportesIngreso).map((doc) => ({
       id: doc.id,
@@ -493,12 +593,20 @@ export default function Reportes({
       nombre: doc.nombre || "Documento de ingreso",
     }));
 
-    const fotosDiagnostico = fotosDeReportes(reportesDiagnostico).map((foto) => ({
-      id: foto.id,
-      url: foto.foto_url,
-      nombre: "Foto de diagnóstico",
-      comentario: foto.comentario,
-    }));
+    const fotosDiagnostico = [
+      ...checklistFotos.map((foto) => ({
+        id: foto.id,
+        url: foto.url,
+        nombre: foto.item_label || foto.nombre || "Foto checklist",
+        comentario: foto.observacion || foto.item_label || "Foto checklist",
+      })),
+      ...fotosDeReportes(reportesDiagnostico).map((foto) => ({
+        id: foto.id,
+        url: foto.foto_url,
+        nombre: "Foto de diagnóstico",
+        comentario: foto.comentario,
+      })),
+    ];
 
     const docsDiagnostico = documentosDeReportes(reportesDiagnostico).map((doc) => ({
       id: doc.id,
@@ -568,6 +676,14 @@ export default function Reportes({
                 <span class="label">Capacidad</span>
                 <strong>${sanitizarTexto(equipo.capacidad || "-")}</strong>
               </div>
+            </div>
+
+            <div class="timeline-block">
+              <h3>Observaciones generales de checklist</h3>
+              <p>${sanitizarTexto(
+                checklistsTecnicos.find((checklist) => checklist.orden_id === equipo.id)
+                  ?.observaciones_generales || "Sin observaciones generales registradas.",
+              )}</p>
             </div>
 
             <div class="timeline-block">
@@ -1211,9 +1327,29 @@ export default function Reportes({
   }
 
   const estado = estadoFinalBadge(equiposResumen, ordenInfo);
-  const fotosIngreso = fotosDeReportes(reportesIngreso);
+  const fotosIngreso = [
+    ...normalizarFotosIngreso(ordenInfo?.fotos_estado_inicial).map((foto) => ({
+      id: foto.id,
+      foto_url: foto.url,
+      storage_path: null,
+      comentario: foto.comentario,
+      orden: null,
+      es_principal: null,
+    } as ReporteFoto)),
+    ...fotosDeReportes(reportesIngreso),
+  ];
   const documentosIngreso = documentosDeReportes(reportesIngreso);
-  const fotosDiagnostico = fotosDeReportes(reportesDiagnostico);
+  const fotosDiagnostico = [
+    ...checklistFotos.map((foto) => ({
+      id: foto.id,
+      foto_url: foto.url,
+      storage_path: foto.storage_path,
+      comentario: foto.observacion || foto.item_label || foto.nombre,
+      orden: null,
+      es_principal: null,
+    } as ReporteFoto)),
+    ...fotosDeReportes(reportesDiagnostico),
+  ];
   const documentosDiagnostico = documentosDeReportes(reportesDiagnostico);
   const fotosTrabajoReportes = fotosDeReportes(reportesTrabajo);
   const documentosTrabajoReportes = documentosDeReportes(reportesTrabajo);
@@ -1310,6 +1446,21 @@ export default function Reportes({
             </p>
           </div>
         </article>
+      </div>
+
+      <div className="evidenciasPreview">
+        <div>
+          <h3>Fotos de ingreso</h3>
+          <p>{fotosIngreso.length} foto(s) registradas.</p>
+        </div>
+        <div>
+          <h3>Fotos checklist / diagnóstico</h3>
+          <p>{fotosDiagnostico.length} foto(s) registradas.</p>
+        </div>
+        <div>
+          <h3>Fotos trabajo / egreso</h3>
+          <p>{fotosTrabajoReportes.length + fotosTrabajoStore.length} foto(s) registradas.</p>
+        </div>
       </div>
 
       <div className="equipos">
@@ -1513,6 +1664,20 @@ export default function Reportes({
           color: #64748b;
           font-size: 12px;
           font-weight: 800;
+        }
+
+        .evidenciasPreview {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 12px;
+          margin-bottom: 18px;
+        }
+
+        .evidenciasPreview > div {
+          border: 1px solid #e2e8f0;
+          background: #f8fafc;
+          border-radius: 14px;
+          padding: 14px;
         }
 
         .equipos {
