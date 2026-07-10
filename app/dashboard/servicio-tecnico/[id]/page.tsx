@@ -189,6 +189,25 @@ function normalizarFotosIngreso(fotos?: string | string[] | null) {
   return [];
 }
 
+function esUrlImagen(url?: string | null, tipo?: string | null, nombre?: string | null) {
+  const texto = `${url || ""} ${tipo || ""} ${nombre || ""}`.toLowerCase();
+
+  return (
+    texto.includes("image/") ||
+    texto.includes("foto") ||
+    texto.includes("imagen") ||
+    texto.includes("jpg") ||
+    texto.includes("jpeg") ||
+    texto.includes("png") ||
+    texto.includes("webp") ||
+    texto.includes("gif")
+  );
+}
+
+function unirFotosSinDuplicar(fotos: string[]) {
+  return Array.from(new Set(fotos.filter(Boolean)));
+}
+
 
 function limpiarNombreArchivo(nombre: string) {
   return nombre
@@ -663,8 +682,14 @@ export default function DetalleOrdenPage() {
     useState(false);
 
   const fotosIngreso = useMemo(() => {
-    return normalizarFotosIngreso(orden?.fotos_estado_inicial);
-  }, [orden?.fotos_estado_inicial]);
+    const fotosDesdeOrden = normalizarFotosIngreso(orden?.fotos_estado_inicial);
+    const fotosDesdeDocumentos = documentosIngreso
+      .filter((doc) => esUrlImagen(doc.url, doc.tipo, doc.nombre))
+      .map((doc) => doc.url || "")
+      .filter(Boolean);
+
+    return unirFotosSinDuplicar([...fotosDesdeOrden, ...fotosDesdeDocumentos]);
+  }, [orden?.fotos_estado_inicial, documentosIngreso]);
 
   const reportesOrdenados = useMemo(() => {
     return [...reportes].sort((a, b) => {
@@ -1300,6 +1325,12 @@ export default function DetalleOrdenPage() {
         ${renderCampoInforme("Capacidad", (orden as any).capacidad || "-")}
         ${renderCampoInforme("Accesorios", orden.accesorios_entregados || "-")}
       </div>
+    </section>
+
+    <section class="section pageBreakInsideAvoid">
+      <h3>Problema reportado al ingreso</h3>
+      <p><strong>Problema:</strong><br />${textoConSaltos(orden.problema_reportado || "-")}</p>
+      <p style="margin-top:8px;"><strong>Observaciones iniciales:</strong><br />${textoConSaltos(orden.observaciones_iniciales || "-")}</p>
     </section>
 
     ${renderFotosInforme("Fotos de ingreso", fotosIngresoInforme)}
