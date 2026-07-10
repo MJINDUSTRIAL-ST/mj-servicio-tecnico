@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { descargarInformeEjecutivoMJ } from "../lib/informeEjecutivoMJHTML";
+import { descargarInformeTecnico } from "../lib/informeTecnicoHTML";
 import { supabase } from "../../../../lib/supabase";
 import {
   guardarEquipoTrabajo,
@@ -21,6 +21,14 @@ type EquipoRevision = {
   modelo?: string | null;
   numero_serie?: string | null;
   capacidad?: string | null;
+  accesorios?: string | null;
+  problema?: string | null;
+  problema_reportado?: string | null;
+  observaciones?: string | null;
+  observaciones_ingreso?: string | null;
+  fotos_estado_inicial?: unknown;
+  fotos_ingreso?: unknown;
+  fotos?: unknown;
   diagnostico_ia_json?: DiagnosticoIA | string | null;
   diagnostico_ia_fuente?: string | null;
   diagnostico_ia_generado_en?: string | null;
@@ -40,6 +48,13 @@ type OrdenInforme = {
   cliente: string | null;
   cliente_email: string | null;
   created_at: string | null;
+  problema?: string | null;
+  problema_reportado?: string | null;
+  observaciones?: string | null;
+  observaciones_ingreso?: string | null;
+  fotos_estado_inicial?: unknown;
+  fotos_ingreso?: unknown;
+  fotos?: unknown;
 };
 
 type DiagnosticoIA = {
@@ -109,6 +124,155 @@ type RevisionPorEquipo = {
 };
 
 type CampoEditableRevision = "motivo" | "horas" | "procedimiento" | "repuestos";
+
+type FotoInformeRevision = {
+  nombre?: string;
+  url?: string;
+  etapa?: string;
+  itemLabel?: string;
+  observacion?: string;
+  name?: string;
+  filename?: string;
+  foto_url?: string;
+  publicUrl?: string;
+  public_url?: string;
+  preview?: string;
+  src?: string;
+  storage_path?: string;
+};
+
+type DocumentoInformeRevision = {
+  nombre: string;
+  url?: string;
+  tipo?: string;
+  comentario?: string;
+};
+
+function obtenerPrimerTexto(objeto: any, campos: string[]) {
+  for (const campo of campos) {
+    const valor = objeto?.[campo];
+    if (valor !== null && valor !== undefined && String(valor).trim()) {
+      return String(valor).trim();
+    }
+  }
+
+  return "";
+}
+
+function normalizarListaFotos(valor: unknown, etapa: string, itemLabel?: string) {
+  if (!valor) return [] as FotoInformeRevision[];
+
+  let lista: any[] = [];
+
+  if (typeof valor === "string") {
+    const texto = valor.trim();
+
+    if (!texto) return [];
+
+    if (texto.startsWith("[") || texto.startsWith("{")) {
+      try {
+        const parseado = JSON.parse(texto);
+        lista = Array.isArray(parseado) ? parseado : [parseado];
+      } catch {
+        lista = [texto];
+      }
+    } else {
+      lista = [texto];
+    }
+  } else if (Array.isArray(valor)) {
+    lista = valor;
+  } else {
+    lista = [valor];
+  }
+
+  return lista
+    .map((item) => {
+      if (!item) return null;
+
+      if (typeof item === "string") {
+        const url = item.trim();
+        if (!url) return null;
+
+        return {
+          nombre: itemLabel || etapa,
+          url,
+          etapa,
+          itemLabel,
+        };
+      }
+
+      const url =
+        item.url ||
+        item.foto_url ||
+        item.publicUrl ||
+        item.public_url ||
+        item.preview ||
+        item.src ||
+        "";
+
+      if (!String(url).trim()) return null;
+
+      return {
+        nombre:
+          item.nombre ||
+          item.name ||
+          item.filename ||
+          item.item_label ||
+          item.itemLabel ||
+          itemLabel ||
+          etapa,
+        url: String(url).trim(),
+        etapa: item.etapa || etapa,
+        itemLabel: item.item_label || item.itemLabel || itemLabel,
+        observacion: item.observacion || item.comentario || "",
+      } as FotoInformeRevision;
+    })
+    .filter(Boolean) as FotoInformeRevision[];
+}
+
+function fotosUnicas(fotos: FotoInformeRevision[]) {
+  const vistas = new Set<string>();
+
+  return fotos.filter((foto) => {
+    const clave = `${foto.url || ""}|${foto.nombre || ""}|${foto.itemLabel || ""}`;
+    if (!foto.url || vistas.has(clave)) return false;
+    vistas.add(clave);
+    return true;
+  });
+}
+
+function esOtraFotoChecklist(foto: FotoInformeRevision) {
+  const texto = `${foto.nombre || ""} ${foto.itemLabel || ""} ${foto.etapa || ""}`.toLowerCase();
+
+  return texto.includes("otra") || texto.includes("general checklist") || texto.includes("otras fotos");
+}
+
+function normalizarDocumento(valor: any): DocumentoInformeRevision | null {
+  if (!valor) return null;
+
+  const url =
+    valor.url ||
+    valor.publicUrl ||
+    valor.public_url ||
+    valor.documento_url ||
+    valor.archivo_url ||
+    "";
+
+  const nombre =
+    valor.nombre ||
+    valor.name ||
+    valor.filename ||
+    valor.tipo ||
+    "Documento";
+
+  return {
+    nombre,
+    url: url ? String(url) : undefined,
+    tipo: valor.tipo || valor.categoria || "Documento",
+    comentario: valor.comentario || valor.observacion || "",
+  };
+}
+
 
 function identificadorEquipo(equipo: EquipoRevision) {
   if (equipo.numero_serie) return `Serie: ${equipo.numero_serie}`;
@@ -230,21 +394,6 @@ function formatearHorasDesdeIA(diagnosticoIA: DiagnosticoIA | null) {
   return "";
 }
 
-function formatearTrabajosParaPDF(procedimiento: string, repuestos: string) {
-  const trabajos = procedimiento
-    .split("\n")
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-  const repuestosLista = repuestos
-    .split("\n")
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item) => `Repuesto: ${item}`);
-
-  return [...trabajos, ...repuestosLista];
-}
-
 function construirDiagnosticoAprobadoJson(
   actual: RevisionPorEquipo,
   estadoFinal: "Aprobado" | "Rechazado",
@@ -263,55 +412,177 @@ function construirDiagnosticoAprobadoJson(
   };
 }
 
-function calcularEstadoFinalEquipo(actual: RevisionPorEquipo) {
-  const texto = [
-    actual.hallazgosDiagnostico,
-    actual.procedimiento,
-    actual.repuestos,
-  ]
-    .join(" ")
-    .toLowerCase();
-
-  const tieneRiesgoCritico =
-    texto.includes("crítica") ||
-    texto.includes("crítico") ||
-    texto.includes("critico") ||
-    texto.includes("críticas") ||
-    texto.includes("no se recomienda liberar") ||
-    texto.includes("no apto") ||
-    texto.includes("freno") ||
-    texto.includes("cable de acero") ||
-    texto.includes("gancho") ||
-    texto.includes("botonera") ||
-    texto.includes("eléctrica") ||
-    texto.includes("electrica") ||
-    texto.includes("seguridad");
-
-  const tieneTrabajosPendientes =
-    actual.procedimiento.trim().length > 0 ||
-    actual.repuestos.trim().length > 0;
-
-  if (tieneRiesgoCritico) {
-    return "no_apto";
-  }
-
-  if (tieneTrabajosPendientes) {
-    return "observaciones";
-  }
-
-  return "apto";
-}
-
 export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
   const [equipos, setEquipos] = useState<EquipoRevision[]>([]);
   const [ordenInforme, setOrdenInforme] = useState<OrdenInforme | null>(null);
   const [revisiones, setRevisiones] = useState<
     Record<string, RevisionPorEquipo>
   >({});
+  const [fotosIngresoPorEquipo, setFotosIngresoPorEquipo] = useState<
+    Record<string, FotoInformeRevision[]>
+  >({});
+  const [fotosChecklistPorEquipo, setFotosChecklistPorEquipo] = useState<
+    Record<string, FotoInformeRevision[]>
+  >({});
+  const [otrasFotosChecklistPorEquipo, setOtrasFotosChecklistPorEquipo] = useState<
+    Record<string, FotoInformeRevision[]>
+  >({});
+  const [fotosTrabajoPorEquipo, setFotosTrabajoPorEquipo] = useState<
+    Record<string, FotoInformeRevision[]>
+  >({});
+  const [documentosTrabajoPorEquipo, setDocumentosTrabajoPorEquipo] = useState<
+    Record<string, DocumentoInformeRevision[]>
+  >({});
+  const [observacionesChecklistPorEquipo, setObservacionesChecklistPorEquipo] =
+    useState<Record<string, string>>({});
 
   useEffect(() => {
     cargarDatos();
   }, [ordenId]);
+
+  async function cargarEvidencias(
+    equiposBase: EquipoRevision[],
+    ordenBase: OrdenInforme | null,
+  ) {
+    const ids = equiposBase.map((equipo) => equipo.id);
+
+    const fotosIngresoMap: Record<string, FotoInformeRevision[]> = {};
+    const fotosChecklistMap: Record<string, FotoInformeRevision[]> = {};
+    const otrasFotosChecklistMap: Record<string, FotoInformeRevision[]> = {};
+    const fotosTrabajoMap: Record<string, FotoInformeRevision[]> = {};
+    const documentosTrabajoMap: Record<string, DocumentoInformeRevision[]> = {};
+    const observacionesChecklistMap: Record<string, string> = {};
+
+    equiposBase.forEach((equipo) => {
+      const ordenAny = ordenBase as any;
+      const equipoAny = equipo as any;
+
+      fotosIngresoMap[equipo.id] = fotosUnicas([
+        ...normalizarListaFotos(ordenAny?.fotos_estado_inicial, "Ingreso"),
+        ...normalizarListaFotos(ordenAny?.fotos_ingreso, "Ingreso"),
+        ...normalizarListaFotos(equipoAny?.fotos_estado_inicial, "Ingreso"),
+        ...normalizarListaFotos(equipoAny?.fotos_ingreso, "Ingreso"),
+      ]);
+    });
+
+    if (ids.length > 0) {
+      const { data: checklists, error: errorChecklists } = await supabase
+        .from("checklists_tecnicos")
+        .select("orden_id,observaciones_generales")
+        .in("orden_id", ids);
+
+      if (errorChecklists) {
+        console.error("Error cargando observaciones generales del checklist:", errorChecklists);
+      }
+
+      (checklists || []).forEach((registro: any) => {
+        if (registro.orden_id) {
+          observacionesChecklistMap[registro.orden_id] =
+            registro.observaciones_generales || "";
+        }
+      });
+
+      const { data: fotosChecklist, error: errorFotosChecklist } = await supabase
+        .from("checklist_fotos")
+        .select("*")
+        .in("orden_id", ids);
+
+      if (errorFotosChecklist) {
+        console.error("Error cargando fotos del checklist:", errorFotosChecklist);
+      }
+
+      (fotosChecklist || []).forEach((registro: any) => {
+        const ordenFotoId = registro.orden_id;
+        if (!ordenFotoId) return;
+
+        const foto = normalizarListaFotos(
+          {
+            url: registro.url || registro.foto_url || registro.public_url,
+            nombre: registro.nombre || registro.item_label || "Foto checklist",
+            item_label: registro.item_label,
+            observacion: registro.observacion,
+          },
+          "Checklist / diagnóstico",
+          registro.item_label || registro.nombre || "Checklist",
+        )[0];
+
+        if (!foto) return;
+
+        if (esOtraFotoChecklist(foto)) {
+          otrasFotosChecklistMap[ordenFotoId] = [
+            ...(otrasFotosChecklistMap[ordenFotoId] || []),
+            foto,
+          ];
+        } else {
+          fotosChecklistMap[ordenFotoId] = [
+            ...(fotosChecklistMap[ordenFotoId] || []),
+            foto,
+          ];
+        }
+      });
+
+      const { data: fotosTrabajo, error: errorFotosTrabajo } = await supabase
+        .from("reporte_fotos")
+        .select("*")
+        .in("orden_id", ids);
+
+      if (errorFotosTrabajo) {
+        console.error("Error cargando fotos de trabajo:", errorFotosTrabajo);
+      }
+
+      (fotosTrabajo || []).forEach((registro: any) => {
+        const ordenFotoId = registro.orden_id;
+        if (!ordenFotoId) return;
+
+        const foto = normalizarListaFotos(
+          {
+            url: registro.url || registro.foto_url || registro.public_url,
+            nombre: registro.nombre || registro.etapa || "Foto trabajo",
+            item_label: registro.item_label || registro.etapa,
+            observacion: registro.observacion || registro.comentario,
+          },
+          "Trabajo / egreso",
+        )[0];
+
+        if (!foto) return;
+
+        fotosTrabajoMap[ordenFotoId] = [
+          ...(fotosTrabajoMap[ordenFotoId] || []),
+          foto,
+        ];
+      });
+
+      const { data: documentosTrabajo, error: errorDocumentosTrabajo } =
+        await supabase
+          .from("reporte_documentos")
+          .select("*")
+          .in("orden_id", ids);
+
+      if (errorDocumentosTrabajo) {
+        console.error("Error cargando documentos de trabajo:", errorDocumentosTrabajo);
+      }
+
+      (documentosTrabajo || []).forEach((registro: any) => {
+        const ordenDocumentoId = registro.orden_id;
+        if (!ordenDocumentoId) return;
+
+        const documento = normalizarDocumento(registro);
+        if (!documento) return;
+
+        documentosTrabajoMap[ordenDocumentoId] = [
+          ...(documentosTrabajoMap[ordenDocumentoId] || []),
+          documento,
+        ];
+      });
+    }
+
+    setFotosIngresoPorEquipo(fotosIngresoMap);
+    setFotosChecklistPorEquipo(fotosChecklistMap);
+    setOtrasFotosChecklistPorEquipo(otrasFotosChecklistMap);
+    setFotosTrabajoPorEquipo(fotosTrabajoMap);
+    setDocumentosTrabajoPorEquipo(documentosTrabajoMap);
+    setObservacionesChecklistPorEquipo(observacionesChecklistMap);
+  }
 
   async function cargarDatos() {
     const { data: ordenParaInforme, error: errorOrdenInforme } = await supabase
@@ -353,6 +624,7 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
     }
 
     setEquipos(equiposBase);
+    await cargarEvidencias(equiposBase, (ordenParaInforme || null) as OrdenInforme | null);
 
     const nuevoEstado: Record<string, RevisionPorEquipo> = {};
 
@@ -790,37 +1062,77 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
                   <button
                     type="button"
                     onClick={() => {
-                      descargarInformeEjecutivoMJ({
+                      const ordenAny = ordenInforme as any;
+                      const equipoAny = equipo as any;
+
+                      descargarInformeTecnico({
                         ot: ordenInforme?.codigo || equipo.codigo || "Informe técnico",
                         cliente: ordenInforme?.cliente || "-",
                         empresa: ordenInforme?.cliente || "-",
                         contacto: ordenInforme?.cliente_email || "-",
+                        tecnicoResponsable: "-",
                         fechaIngreso: ordenInforme?.created_at
                           ? new Date(ordenInforme.created_at).toLocaleDateString("es-CL")
                           : "-",
                         fechaEmision: new Date().toLocaleDateString("es-CL"),
-                        tecnico: "-",
                         estado:
                           actual.estado === "Aprobado"
                             ? "Diagnóstico aprobado"
                             : actual.estado || "Revisión técnica",
+                        problemaReportado: obtenerPrimerTexto(
+                          equipoAny,
+                          ["problema", "problema_reportado"],
+                        ) || obtenerPrimerTexto(
+                          ordenAny,
+                          ["problema", "problema_reportado"],
+                        ),
+                        observacionesIngreso: obtenerPrimerTexto(
+                          equipoAny,
+                          ["observaciones_ingreso", "observaciones"],
+                        ) || obtenerPrimerTexto(
+                          ordenAny,
+                          ["observaciones_ingreso", "observaciones"],
+                        ),
                         equipos: [
                           {
                             titulo: `Equipo ${index + 1}`,
-                            tipo: equipo.equipo || "Sin tipo",
+                            equipo: equipo.equipo || "Sin tipo",
                             marca: equipo.marca || "-",
                             modelo: equipo.modelo || "-",
-                            serie: equipo.numero_serie || "-",
+                            numeroSerie: equipo.numero_serie || "-",
+                            codigo: equipo.codigo || "-",
                             capacidad: equipo.capacidad || "-",
-                            hallazgos:
+                            accesorios: equipo.accesorios || "-",
+                            problemaReportado: obtenerPrimerTexto(
+                              equipoAny,
+                              ["problema", "problema_reportado"],
+                            ) || obtenerPrimerTexto(
+                              ordenAny,
+                              ["problema", "problema_reportado"],
+                            ),
+                            observacionesIngreso: obtenerPrimerTexto(
+                              equipoAny,
+                              ["observaciones_ingreso", "observaciones"],
+                            ) || obtenerPrimerTexto(
+                              ordenAny,
+                              ["observaciones_ingreso", "observaciones"],
+                            ),
+                            checklist: observacionesChecklistPorEquipo[equipo.id]
+                              ? `Observaciones generales checklist:\n${observacionesChecklistPorEquipo[equipo.id]}`
+                              : "",
+                            diagnostico:
                               actual.hallazgosDiagnostico ||
                               "Sin hallazgos registrados.",
-                            trabajosRequeridos: formatearTrabajosParaPDF(
-                              actual.procedimiento,
-                              actual.repuestos,
-                            ),
-                            estadoFinal: calcularEstadoFinalEquipo(actual),
-                            fotos: [],
+                            procedimiento: actual.procedimiento,
+                            repuestos: actual.repuestos,
+                            fotosIngreso: fotosIngresoPorEquipo[equipo.id] || [],
+                            fotosChecklist: fotosChecklistPorEquipo[equipo.id] || [],
+                            otrasFotosChecklist:
+                              otrasFotosChecklistPorEquipo[equipo.id] || [],
+                            fotosTrabajo: fotosTrabajoPorEquipo[equipo.id] || [],
+                            documentosTrabajo:
+                              documentosTrabajoPorEquipo[equipo.id] || [],
+                            observaciones: actual.motivo,
                           },
                         ],
                       });
