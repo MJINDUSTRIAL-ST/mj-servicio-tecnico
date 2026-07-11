@@ -342,79 +342,99 @@ export default function AdministracionPage() {
   }
 
   async function createInternalUser(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  event.preventDefault();
 
-    const cleanName = newUser.name.trim();
-    const cleanEmail = newUser.email.trim().toLowerCase();
-    const cleanJobTitle = newUser.job_title.trim();
+  const cleanName = newUser.name.trim();
+  const cleanEmail = newUser.email.trim().toLowerCase();
+  const cleanJobTitle = newUser.job_title.trim();
 
-    if (!cleanName) {
-      setError("Debes ingresar el nombre del usuario.");
-      return;
+  if (!cleanName) {
+    setError("Debes ingresar el nombre del usuario.");
+    return;
+  }
+
+  if (!cleanEmail || !cleanEmail.includes("@")) {
+    setError("Debes ingresar un correo válido.");
+    return;
+  }
+
+  if (!newUser.role_key) {
+    setError("Debes seleccionar un rol.");
+    return;
+  }
+
+  setCreatingUser(true);
+  setMessage("");
+  setError("");
+
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      throw new Error("La sesión expiró. Vuelve a iniciar sesión.");
     }
 
-    if (!cleanEmail || !cleanEmail.includes("@")) {
-      setError("Debes ingresar un correo válido.");
-      return;
-    }
-
-    if (!newUser.role_key) {
-      setError("Debes seleccionar un rol.");
-      return;
-    }
-
-    setCreatingUser(true);
-    setMessage("");
-    setError("");
-
-    try {
-      const { data, error: insertError } = await supabase
-        .from("internal_users")
-        .insert({
+    const response = await fetch(
+      "/api/administracion/crear-usuario",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
           name: cleanName,
           email: cleanEmail,
-          job_title: cleanJobTitle,
-          role_key: newUser.role_key,
-          is_active: true,
-        })
-        .select(
-          "id, auth_user_id, name, email, job_title, role_key, is_active",
-        )
-        .single();
+          jobTitle: cleanJobTitle,
+          roleKey: newUser.role_key,
+        }),
+      },
+    );
 
-      if (insertError) {
-        throw insertError;
-      }
+    const result = await response.json();
 
-      setUsers((currentUsers) =>
-        [...currentUsers, data as InternalUser].sort((first, second) =>
-          first.name.localeCompare(second.name),
-        ),
+    if (!response.ok || !result.success) {
+      throw new Error(
+        result.error ?? "No fue posible crear el usuario.",
       );
-
-      setNewUser(EMPTY_FORM);
-      setShowNewUser(false);
-      setMessage(`${cleanEmail} fue agregado correctamente.`);
-    } catch (createError) {
-      console.error(createError);
-
-      const createMessage =
-        createError instanceof Error
-          ? createError.message
-          : "No fue posible agregar el usuario.";
-
-      if (
-        createMessage.toLowerCase().includes("duplicate") ||
-        createMessage.toLowerCase().includes("unique")
-      ) {
-        setError("Ese correo ya está registrado.");
-      } else {
-        setError(createMessage);
-      }
-    } finally {
-      setCreatingUser(false);
     }
+
+    setUsers((currentUsers) =>
+      [...currentUsers, result.user as InternalUser].sort(
+        (a, b) => a.name.localeCompare(b.name),
+      ),
+    );
+
+    setNewUser(EMPTY_FORM);
+    setShowNewUser(false);
+
+    setMessage(
+      `Usuario creado correctamente.
+
+Contraseña temporal:
+
+${result.temporaryPassword}
+
+${
+  result.emailSent
+    ? "El correo de bienvenida fue enviado."
+    : result.warning ?? ""
+}`,
+    );
+  } catch (error) {
+    console.error(error);
+
+    setError(
+      error instanceof Error
+        ? error.message
+        : "No fue posible crear el usuario.",
+    );
+  } finally {
+    setCreatingUser(false);
   }
+}
 
   async function updateUserStatus(
     userId: string,
