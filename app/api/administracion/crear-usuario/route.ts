@@ -70,7 +70,7 @@ export async function POST(request: Request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY;
   const resendApiKey = process.env.RESEND_API_KEY;
 
-  if (
+    if (
     !supabaseUrl ||
     !supabaseAnonKey ||
     !supabaseServiceRoleKey
@@ -78,8 +78,12 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         success: false,
-        error:
-          "Faltan variables de configuración de Supabase en Vercel.",
+        error: "Configuración incompleta.",
+        debug: {
+          supabaseUrl: !!supabaseUrl,
+          supabaseAnonKey: !!supabaseAnonKey,
+          serviceRole: !!supabaseServiceRoleKey,
+        },
       },
       {
         status: 500,
