@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
-const ADMIN_EMAIL = "a.rivademar@icloud.com";
+const ADMIN_EMAIL = "personal@mjindustrial.cl";
 
 type AccessLevel = "none" | "view" | "edit";
 
