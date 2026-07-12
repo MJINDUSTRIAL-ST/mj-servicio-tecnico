@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { useRouter } from "next/navigation";
 
 const ADMIN_EMAIL = "personal@mjindustrial.cl";
 
@@ -120,6 +121,7 @@ function accessLabel(access: AccessLevel): string {
 }
 
 export default function AdministracionPage() {
+    const router = useRouter();
   const [supabase] = useState<SupabaseClient>(() =>
     createSupabaseBrowserClient(),
   );
@@ -542,13 +544,23 @@ ${
           </p>
         </div>
 
-        <button
-          type="button"
-          className="primary-button"
-          onClick={() => openNewUserForm("tecnico")}
-        >
-          + Nuevo usuario interno
-        </button>
+        <div className="header-actions">
+  <button
+    type="button"
+    className="back-dashboard-button"
+    onClick={() => router.push("/dashboard")}
+  >
+    ← Volver al Dashboard
+  </button>
+
+  <button
+    type="button"
+    className="primary-button"
+    onClick={() => openNewUserForm("tecnico")}
+  >
+    + Nuevo usuario interno
+  </button>
+</div>
       </header>
 
       {message ? (
@@ -948,6 +960,27 @@ const styles = `
     margin-bottom: 24px;
   }
 
+  .header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.back-dashboard-button {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid #d0d5dd;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #344054;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.back-dashboard-button:hover {
+  background: #f8fafc;
+}
+
   .page-header h1 {
     margin: 5px 0 7px;
     font-size: 32px;
@@ -973,14 +1006,15 @@ const styles = `
   }
 
   .primary-button,
-  .secondary-button,
-  .save-role-button,
-  .small-add-button,
-  .close-button {
-    border: 0;
-    font: inherit;
-    cursor: pointer;
-  }
+.secondary-button,
+.save-role-button,
+.small-add-button,
+.close-button,
+.back-dashboard-button {
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
 
   .primary-button {
     min-height: 42px;
@@ -1448,9 +1482,15 @@ const styles = `
       flex-direction: column;
     }
 
-    .page-header .primary-button {
-      width: 100%;
-    }
+    .header-actions {
+  width: 100%;
+  flex-direction: column;
+}
+
+.page-header .primary-button,
+.back-dashboard-button {
+  width: 100%;
+}
 
     .new-user-form {
       grid-template-columns: 1fr;
