@@ -11,13 +11,14 @@ export default function Sidebar() {
   const [hovered, setHovered] = useState<string | null>(null);
 
   const items = [
-    { label: "Dashboard", href: "/dashboard" },
-    { label: "Clientes", href: "/dashboard/clientes" },
-    { label: "Servicio Técnico", href: "/dashboard/servicio-tecnico" },
-    { label: "Ventas", href: "/dashboard/ventas" },
-    { label: "Logística", href: "/dashboard/logistica" },
-    { label: "Administración", href: "/dashboard/administracion" },
-  ];
+  { label: "Dashboard", href: "/dashboard" },
+  { label: "Clientes", href: "/dashboard/clientes" },
+  { label: "Servicio Técnico", href: "/dashboard/servicio-tecnico" },
+  { label: "Ventas", href: "/dashboard/ventas" },
+  { label: "Logística", href: "/dashboard/logistica" },
+  { label: "Administración", href: "/dashboard/administracion" },
+  { label: "Cambiar contraseña", href: "/dashboard/cambiar-contrasena" },
+];
 
   const itemStyle = (label: string): React.CSSProperties => ({
     textDecoration: "none",
