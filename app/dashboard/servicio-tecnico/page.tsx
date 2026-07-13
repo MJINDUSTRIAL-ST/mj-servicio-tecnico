@@ -27,6 +27,8 @@ const COLUMNAS = [
   "Entregado",
 ];
 
+const MAX_TARJETAS_VISIBLES = 5;
+
 function esOrdenHija(codigo?: string | null) {
   if (!codigo) return false;
   return /-\d{2}$/.test(codigo);
@@ -101,6 +103,9 @@ export default function ServicioTecnicoPage() {
   const router = useRouter();
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [loading, setLoading] = useState(true);
+  const [columnasAbiertas, setColumnasAbiertas] = useState<
+    Record<string, boolean>
+  >({});
 
   useEffect(() => {
     async function cargarOrdenes() {
@@ -152,6 +157,13 @@ export default function ServicioTecnicoPage() {
     (orden) => normalizarEstado(orden.estado) === "Trabajo"
   ).length;
 
+  function cambiarVisibilidadColumna(nombreColumna: string) {
+    setColumnasAbiertas((actual) => ({
+      ...actual,
+      [nombreColumna]: !actual[nombreColumna],
+    }));
+  }
+
   return (
     <div className="page">
       <Sidebar />
@@ -183,30 +195,60 @@ export default function ServicioTecnicoPage() {
           <div className="loading">Cargando órdenes...</div>
         ) : (
           <section className="kanban">
-            {columnas.map((columna) => (
-              <div key={columna.nombre} className="column">
-                <div className="columnHeader">
-                  <h2>{columna.nombre}</h2>
-                  <span>{columna.ordenes.length}</span>
-                </div>
+            {columnas.map((columna) => {
+              const estaAbierta = columnasAbiertas[columna.nombre] ?? false;
 
-                <div className="cards">
-                  {columna.ordenes.length === 0 ? (
-                    <div className="empty">Sin OT</div>
-                  ) : (
-                    columna.ordenes.map((orden) => (
-                      <OrderCard
-                        key={orden.id}
-                        orden={orden}
-                        onClick={() =>
-                          router.push(`/dashboard/servicio-tecnico/${orden.id}`)
-                        }
-                      />
-                    ))
-                  )}
+              const ordenesVisibles = estaAbierta
+                ? columna.ordenes
+                : columna.ordenes.slice(0, MAX_TARJETAS_VISIBLES);
+
+              const cantidadOculta = Math.max(
+                columna.ordenes.length - MAX_TARJETAS_VISIBLES,
+                0
+              );
+
+              const puedeExpandirse =
+                columna.ordenes.length > MAX_TARJETAS_VISIBLES;
+
+              return (
+                <div key={columna.nombre} className="column">
+                  <div className="columnHeader">
+                    <h2>{columna.nombre}</h2>
+                    <span>{columna.ordenes.length}</span>
+                  </div>
+
+                  <div className="cards">
+                    {columna.ordenes.length === 0 ? (
+                      <div className="empty">Sin OT</div>
+                    ) : (
+                      ordenesVisibles.map((orden) => (
+                        <OrderCard
+                          key={orden.id}
+                          orden={orden}
+                          onClick={() =>
+                            router.push(
+                              `/dashboard/servicio-tecnico/${orden.id}`
+                            )
+                          }
+                        />
+                      ))
+                    )}
+                  </div>
+
+                  {puedeExpandirse ? (
+                    <button
+                      type="button"
+                      className="showMoreButton"
+                      onClick={() => cambiarVisibilidadColumna(columna.nombre)}
+                    >
+                      {estaAbierta
+                        ? "Ver menos"
+                        : `Ver más (${cantidadOculta})`}
+                    </button>
+                  ) : null}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </section>
         )}
       </main>
@@ -219,9 +261,8 @@ export default function ServicioTecnicoPage() {
         }
 
         .main {
-          margin-left: 180px;
           min-height: 100vh;
-          padding: 28px;
+          padding: 76px 28px 28px;
           box-sizing: border-box;
         }
 
@@ -324,9 +365,25 @@ export default function ServicioTecnicoPage() {
           padding: 18px 6px;
         }
 
+        .showMoreButton {
+          width: 100%;
+          margin-top: 12px;
+          border: 1px solid #dbe3ef;
+          border-radius: 12px;
+          background: #f8fafc;
+          color: #2563eb;
+          padding: 10px 12px;
+          font-size: 13px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .showMoreButton:hover {
+          background: #eef4ff;
+        }
+
         @media (max-width: 900px) {
           .main {
-            margin-left: 0;
             padding: 72px 16px 20px;
           }
 
