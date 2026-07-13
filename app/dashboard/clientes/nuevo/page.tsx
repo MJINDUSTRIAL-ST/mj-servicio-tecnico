@@ -1,20 +1,50 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
+
+type Empresa = {
+  id: string;
+  nombre: string;
+  rut?: string | null;
+};
 
 export default function NuevoClientePage() {
   const router = useRouter();
 
   const [guardando, setGuardando] = useState(false);
+  const [empresas, setEmpresas] = useState<Empresa[]>([]);
+  const [cargandoEmpresas, setCargandoEmpresas] = useState(true);
 
   const [nombre, setNombre] = useState("");
   const [telefono, setTelefono] = useState("");
   const [email, setEmail] = useState("");
   const [rut, setRut] = useState("");
-  const [empresa, setEmpresa] = useState("");
+  const [empresaId, setEmpresaId] = useState("");
   const [direccion, setDireccion] = useState("");
+
+  useEffect(() => {
+    cargarEmpresas();
+  }, []);
+
+  async function cargarEmpresas() {
+    setCargandoEmpresas(true);
+
+    const { data, error } = await supabase
+      .from("empresas")
+      .select("id,nombre,rut")
+      .order("nombre", { ascending: true });
+
+    if (error) {
+      alert("Error cargando empresas: " + error.message);
+      setCargandoEmpresas(false);
+      return;
+    }
+
+    setEmpresas((data || []) as Empresa[]);
+    setCargandoEmpresas(false);
+  }
 
   async function generarCodigoAcceso() {
     for (let intento = 0; intento < 30; intento++) {
@@ -54,6 +84,9 @@ export default function NuevoClientePage() {
       return;
     }
 
+    const empresaSeleccionada =
+      empresas.find((empresa) => empresa.id === empresaId) || null;
+
     try {
       setGuardando(true);
 
@@ -65,7 +98,8 @@ export default function NuevoClientePage() {
           telefono: telefono.trim() || null,
           email: emailLimpio,
           rut: rut.trim() || null,
-          empresa: empresa.trim() || null,
+          empresa_id: empresaSeleccionada?.id || null,
+          empresa: empresaSeleccionada?.nombre || null,
           direccion: direccion.trim() || null,
           codigo_acceso: codigoGenerado,
         },
@@ -93,7 +127,7 @@ export default function NuevoClientePage() {
         `Cliente creado correctamente.\n\nCódigo de acceso generado: ${codigoGenerado}`
       );
 
-      router.push("/dashboard/servicio-tecnico");
+      router.push("/dashboard/clientes");
     } catch (error) {
       console.error(error);
 
@@ -111,18 +145,17 @@ export default function NuevoClientePage() {
   return (
     <div className="mx-auto max-w-5xl p-6">
       <button
-        onClick={() => router.push("/dashboard/servicio-tecnico")}
+        onClick={() => router.push("/dashboard/clientes")}
         className="mb-6 text-sm font-medium text-slate-500 transition hover:text-slate-900"
       >
-        ← Volver al Dashboard
+        ← Volver a Clientes
       </button>
 
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-900">Nuevo Cliente</h1>
 
         <p className="mt-1 text-slate-500">
-          Ingresa los datos del cliente. El código de acceso se generará
-          automáticamente y será enviado por correo.
+          Ingresa los datos del cliente/persona. La empresa asociada es opcional.
         </p>
       </div>
 
@@ -132,10 +165,10 @@ export default function NuevoClientePage() {
       >
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
           <Campo
-            titulo="Nombre del cliente *"
+            titulo="Nombre del cliente / contacto *"
             valor={nombre}
             setValor={setNombre}
-            placeholder="Ej: Nicolas Melej"
+            placeholder="Ej: María González"
           />
 
           <Campo
@@ -153,18 +186,40 @@ export default function NuevoClientePage() {
           />
 
           <Campo
-            titulo="RUT"
+            titulo="RUT persona"
             valor={rut}
             setValor={setRut}
             placeholder="12.345.678-9"
           />
 
-          <Campo
-            titulo="Empresa"
-            valor={empresa}
-            setValor={setEmpresa}
-            placeholder="MJ Industrial"
-          />
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-slate-700">
+              Empresa asociada
+            </label>
+
+            <select
+              value={empresaId}
+              onChange={(e) => setEmpresaId(e.target.value)}
+              className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500"
+            >
+              <option value="">
+                {cargandoEmpresas
+                  ? "Cargando empresas..."
+                  : "Sin empresa / persona natural"}
+              </option>
+
+              {empresas.map((empresa) => (
+                <option key={empresa.id} value={empresa.id}>
+                  {empresa.nombre}
+                  {empresa.rut ? ` — ${empresa.rut}` : ""}
+                </option>
+              ))}
+            </select>
+
+            <p className="mt-2 text-xs text-slate-500">
+              Si es persona natural, deja seleccionado “Sin empresa”.
+            </p>
+          </div>
         </div>
 
         <div className="mt-5 rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-900">
@@ -174,13 +229,13 @@ export default function NuevoClientePage() {
 
         <div className="mt-5">
           <label className="mb-2 block text-sm font-semibold text-slate-700">
-            Dirección
+            Dirección / observación
           </label>
 
           <textarea
             value={direccion}
             onChange={(e) => setDireccion(e.target.value)}
-            placeholder="Dirección del cliente"
+            placeholder="Dirección, área, observación o referencia del cliente"
             className="min-h-[120px] w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500"
           />
         </div>
@@ -188,7 +243,7 @@ export default function NuevoClientePage() {
         <div className="mt-8 flex justify-end gap-3">
           <button
             type="button"
-            onClick={() => router.push("/dashboard/servicio-tecnico")}
+            onClick={() => router.push("/dashboard/clientes")}
             className="rounded-xl border border-slate-300 px-5 py-3 font-semibold text-slate-700 transition hover:bg-slate-100"
           >
             Cancelar

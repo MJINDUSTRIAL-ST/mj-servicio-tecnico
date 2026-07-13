@@ -13,6 +13,7 @@ export default function Sidebar() {
   const items = [
     { label: "Dashboard", href: "/dashboard" },
     { label: "Clientes", href: "/dashboard/clientes" },
+    { label: "Empresas", href: "/dashboard/empresas" },
     { label: "Servicio Técnico", href: "/dashboard/servicio-tecnico" },
     { label: "Ventas", href: "/dashboard/ventas" },
     { label: "Logística", href: "/dashboard/logistica" },
@@ -50,21 +51,14 @@ export default function Sidebar() {
       </button>
 
       {open ? (
-        <div
-          className="sidebar-backdrop"
-          onClick={() => setOpen(false)}
-        />
+        <div className="sidebar-backdrop" onClick={() => setOpen(false)} />
       ) : null}
 
       <aside className={open ? "sidebar-drawer open" : "sidebar-drawer"}>
         <div>
           <div className="sidebar-header">
             <Link href="/dashboard" onClick={() => setOpen(false)}>
-              <img
-                src="/logo-mj.png"
-                alt="MJ Industrial"
-                className="logo"
-              />
+              <img src="/logo-mj.png" alt="MJ Industrial" className="logo" />
             </Link>
 
             <button
@@ -93,11 +87,7 @@ export default function Sidebar() {
           </nav>
         </div>
 
-        <button
-          type="button"
-          onClick={cerrarSesion}
-          className="logout"
-        >
+        <button type="button" onClick={cerrarSesion} className="logout">
           Cerrar sesión
         </button>
       </aside>
