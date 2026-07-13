@@ -11,19 +11,19 @@ export default function Sidebar() {
   const [hovered, setHovered] = useState<string | null>(null);
 
   const items = [
-  { label: "Dashboard", href: "/dashboard" },
-  { label: "Clientes", href: "/dashboard/clientes" },
-  { label: "Servicio Técnico", href: "/dashboard/servicio-tecnico" },
-  { label: "Ventas", href: "/dashboard/ventas" },
-  { label: "Logística", href: "/dashboard/logistica" },
-  { label: "Administración", href: "/dashboard/administracion" },
-  { label: "Cambiar contraseña", href: "/dashboard/cambiar-contrasena" },
-];
+    { label: "Dashboard", href: "/dashboard" },
+    { label: "Clientes", href: "/dashboard/clientes" },
+    { label: "Servicio Técnico", href: "/dashboard/servicio-tecnico" },
+    { label: "Ventas", href: "/dashboard/ventas" },
+    { label: "Logística", href: "/dashboard/logistica" },
+    { label: "Administración", href: "/dashboard/administracion" },
+    { label: "Cambiar contraseña", href: "/dashboard/cambiar-contrasena" },
+  ];
 
   const itemStyle = (label: string): React.CSSProperties => ({
     textDecoration: "none",
     backgroundColor: hovered === label ? "#1f2937" : "transparent",
-    color: hovered === label ? "#ffffff" : "rgba(255,255,255,0.72)",
+    color: hovered === label ? "#ffffff" : "rgba(255,255,255,0.76)",
     padding: "12px 14px",
     borderRadius: 12,
     fontWeight: 600,
@@ -33,37 +33,48 @@ export default function Sidebar() {
     whiteSpace: "nowrap",
   });
 
+  async function cerrarSesion() {
+    await supabase.auth.signOut();
+    router.push("/personal");
+  }
+
   return (
     <>
-      <button className="mobile-menu-btn" onClick={() => setOpen(true)}>
-        Menú
+      <button
+        type="button"
+        className="menu-button"
+        onClick={() => setOpen(true)}
+        aria-label="Abrir menú"
+      >
+        ☰
       </button>
 
-      {open && <div className="sidebar-backdrop" onClick={() => setOpen(false)} />}
+      {open ? (
+        <div
+          className="sidebar-backdrop"
+          onClick={() => setOpen(false)}
+        />
+      ) : null}
 
-      <aside
-  style={{
-    position: "fixed",
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 180,
-    background: "#000000",
-    color: "#fff",
-    borderRight: "1px solid rgba(255,255,255,.05)",
-    padding: "18px 14px",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "space-between",
-    transition: ".25s",
-    zIndex: 100,
-  }}
->
+      <aside className={open ? "sidebar-drawer open" : "sidebar-drawer"}>
         <div>
-          <div className="logo-wrap">
-            <Link href="/dashboard">
-              <img src="/logo-mj.png" alt="MJ Industrial" className="logo" />
+          <div className="sidebar-header">
+            <Link href="/dashboard" onClick={() => setOpen(false)}>
+              <img
+                src="/logo-mj.png"
+                alt="MJ Industrial"
+                className="logo"
+              />
             </Link>
+
+            <button
+              type="button"
+              className="close-menu-button"
+              onClick={() => setOpen(false)}
+              aria-label="Cerrar menú"
+            >
+              ×
+            </button>
           </div>
 
           <nav className="nav">
@@ -83,10 +94,8 @@ export default function Sidebar() {
         </div>
 
         <button
-          onClick={async () => {
-            await supabase.auth.signOut();
-            router.push("/personal");
-          }}
+          type="button"
+          onClick={cerrarSesion}
           className="logout"
         >
           Cerrar sesión
@@ -94,32 +103,84 @@ export default function Sidebar() {
       </aside>
 
       <style jsx global>{`
-        .sidebar {
+        .menu-button {
+          position: fixed;
+          top: 16px;
+          left: 16px;
+          z-index: 120;
+          width: 44px;
+          height: 44px;
+          border: 0;
+          border-radius: 12px;
+          background: #111827;
+          color: #ffffff;
+          cursor: pointer;
+          font-size: 24px;
+          font-weight: 800;
+          line-height: 1;
+          box-shadow: 0 8px 20px rgba(15, 23, 42, 0.24);
+        }
+
+        .menu-button:hover {
+          background: #1f2937;
+        }
+
+        .sidebar-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 100;
+          background: rgba(0, 0, 0, 0.42);
+        }
+
+        .sidebar-drawer {
           position: fixed;
           left: 0;
           top: 0;
           bottom: 0;
-          width: 180px;
-          background: #000;
-          border-right: 1px solid rgba(255,255,255,0.08);
-          padding: 20px 14px;
+          z-index: 110;
+          width: 240px;
+          max-width: 82vw;
+          background: #000000;
+          color: #ffffff;
+          border-right: 1px solid rgba(255, 255, 255, 0.08);
+          padding: 18px 14px;
           box-sizing: border-box;
           display: flex;
           flex-direction: column;
           justify-content: space-between;
-          z-index: 50;
+          transform: translateX(-100%);
+          transition: transform 0.22s ease;
+          box-shadow: 12px 0 28px rgba(15, 23, 42, 0.28);
         }
 
-        .logo-wrap {
-          margin: 10px 0 38px;
+        .sidebar-drawer.open {
+          transform: translateX(0);
+        }
+
+        .sidebar-header {
           display: flex;
-          justify-content: center;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin: 8px 0 28px;
         }
 
         .logo {
-          width: 120px;
+          width: 132px;
           height: auto;
           display: block;
+        }
+
+        .close-menu-button {
+          width: 34px;
+          height: 34px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          border-radius: 10px;
+          background: rgba(255, 255, 255, 0.06);
+          color: #ffffff;
+          cursor: pointer;
+          font-size: 24px;
+          line-height: 1;
         }
 
         .nav {
@@ -129,54 +190,33 @@ export default function Sidebar() {
         }
 
         .logout {
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.1);
-          color: rgba(255,255,255,0.72);
+          width: 100%;
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          color: rgba(255, 255, 255, 0.76);
           padding: 13px 14px;
           border-radius: 12px;
           cursor: pointer;
           text-align: left;
           font-size: 14px;
+          font-weight: 600;
         }
 
-        .mobile-menu-btn {
-          display: none;
+        .logout:hover {
+          background: rgba(255, 255, 255, 0.08);
+          color: #ffffff;
         }
 
-        .sidebar-backdrop {
-          display: none;
-        }
-
-        @media (max-width: 900px) {
-          .sidebar {
-            transform: translateX(-100%);
-            transition: transform 0.2s ease;
+        @media (max-width: 600px) {
+          .menu-button {
+            top: 12px;
+            left: 12px;
+            width: 42px;
+            height: 42px;
           }
 
-          .sidebar.open {
-            transform: translateX(0);
-          }
-
-          .mobile-menu-btn {
-            display: block;
-            position: fixed;
-            top: 14px;
-            left: 14px;
-            z-index: 60;
-            background: #111827;
-            color: white;
-            border: none;
-            border-radius: 10px;
-            padding: 10px 14px;
-            font-weight: 700;
-          }
-
-          .sidebar-backdrop {
-            display: block;
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.35);
-            z-index: 40;
+          .sidebar-drawer {
+            width: 230px;
           }
         }
       `}</style>
