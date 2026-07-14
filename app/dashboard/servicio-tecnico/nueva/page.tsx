@@ -10,6 +10,7 @@ type Cliente = {
   nombre: string;
   email: string | null;
   empresa: string | null;
+  empresa_id?: string | null;
 };
 
 type DocumentoOrden = {
@@ -45,11 +46,10 @@ function crearEquipoLote(): EquipoLote {
 
 function NuevaOrdenContenido() {
   const router = useRouter();
-
   const searchParams = useSearchParams();
 
-const editar = searchParams.get("editar") === "1";
-const ordenId = searchParams.get("id");
+  const editar = searchParams.get("editar") === "1";
+  const ordenId = searchParams.get("id");
 
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [clienteId, setClienteId] = useState("");
@@ -76,104 +76,109 @@ const ordenId = searchParams.get("id");
   const [guardando, setGuardando] = useState(false);
 
   useEffect(() => {
-    const cargarDatos = async () => {
-      const { data: clientesData } = await supabase
-        .from("clientes")
-        .select("id, nombre, email, empresa")
-        .order("nombre", { ascending: true });
-
-      setClientes(clientesData || []);
-
-      const { data: ordenesData } = await supabase
-        .from("ordenes")
-        .select("codigo")
-        .like("codigo", "OT-%");
-
-      let mayorNumero = 0;
-
-      (ordenesData || []).forEach((orden) => {
-        const codigoBase = String(orden.codigo || "")
-          .split("-")
-          .slice(0, 2)
-          .join("-");
-        const numero = Number(codigoBase.replace("OT-", ""));
-
-        if (!isNaN(numero) && numero > mayorNumero) {
-          mayorNumero = numero;
-        }
-      });
-
-      const siguienteNumero = mayorNumero + 1;
-      setCodigo(`OT-${String(siguienteNumero).padStart(3, "0")}`);
-    };
-if (editar && ordenId) {
-  cargarOrdenExistente();
-}
-
-    cargarDatos();
+    cargarDatosIniciales();
   }, []);
-  async function cargarOrdenExistente() {
-  if (!ordenId) return;
 
-  const { data: orden, error } = await supabase
-    .from("ordenes")
-    .select("*")
-    .eq("id", ordenId)
-    .single();
+  async function cargarDatosIniciales() {
+    const { data: clientesData } = await supabase
+      .from("clientes")
+      .select("id, nombre, email, empresa, empresa_id")
+      .order("nombre", { ascending: true });
 
-  if (error || !orden) {
-    alert("No se pudo cargar la OT para editar");
-    return;
+    const clientesCargados = (clientesData || []) as Cliente[];
+    setClientes(clientesCargados);
+
+    const { data: ordenesData } = await supabase
+      .from("ordenes")
+      .select("codigo")
+      .like("codigo", "OT-%");
+
+    let mayorNumero = 0;
+
+    (ordenesData || []).forEach((orden) => {
+      const codigoBase = String(orden.codigo || "")
+        .split("-")
+        .slice(0, 2)
+        .join("-");
+      const numero = Number(codigoBase.replace("OT-", ""));
+
+      if (!isNaN(numero) && numero > mayorNumero) {
+        mayorNumero = numero;
+      }
+    });
+
+    const siguienteNumero = mayorNumero + 1;
+    setCodigo(`OT-${String(siguienteNumero).padStart(3, "0")}`);
+
+    if (editar && ordenId) {
+      await cargarOrdenExistente(clientesCargados);
+    }
   }
 
-  setCodigo(orden.codigo || "");
-  setTecnicoIngreso(orden.tecnico_ingreso || "");
-  setTipoIngreso(orden.es_lote ? "lote" : "individual");
-  setCantidadEquipos(orden.cantidad_equipos || 2);
-  setEquipo(orden.equipo || "");
-  setMarca(orden.marca || "");
-  setModelo(orden.modelo || "");
-  setNumeroSerie(orden.numero_serie || "");
-  setAccesoriosEntregados(orden.accesorios_entregados || "");
-  setPrioridad(orden.prioridad || "Media");
-  setProblemaReportado(orden.problema_reportado || "");
-  setObservacionesIniciales(orden.observaciones_iniciales || "");
+  async function cargarOrdenExistente(clientesDisponibles: Cliente[]) {
+    if (!ordenId) return;
 
-  const clienteEncontrado = clientes.find(
-    (cliente) =>
-      cliente.nombre === orden.cliente ||
-      cliente.email === orden.cliente_email
-  );
-
-  if (clienteEncontrado) {
-    setClienteId(clienteEncontrado.id);
-  }
-
-  if (orden.es_lote) {
-    const { data: hijos } = await supabase
+    const { data: orden, error } = await supabase
       .from("ordenes")
       .select("*")
-      .eq("orden_padre_id", orden.id)
-      .order("codigo", { ascending: true });
+      .eq("id", ordenId)
+      .single();
 
-    const equiposEditables =
-      hijos && hijos.length > 0
-        ? hijos.map((hijo) => ({
-            equipo: hijo.equipo || "",
-            marca: hijo.marca || "",
-            modelo: hijo.modelo || "",
-            numero_serie: hijo.numero_serie || "",
-            accesorios_entregados: hijo.accesorios_entregados || "",
-            problema_reportado: hijo.problema_reportado || "",
-            observaciones_iniciales: hijo.observaciones_iniciales || "",
-            fotos: [],
-          }))
-        : [crearEquipoLote(), crearEquipoLote()];
+    if (error || !orden) {
+      alert("No se pudo cargar la OT para editar");
+      return;
+    }
 
-    setEquiposLote(equiposEditables);
-    setCantidadEquipos(Math.max(2, equiposEditables.length));
+    setCodigo(orden.codigo || "");
+    setTecnicoIngreso(orden.tecnico_ingreso || "");
+    setTipoIngreso(orden.es_lote ? "lote" : "individual");
+    setCantidadEquipos(orden.cantidad_equipos || 2);
+    setEquipo(orden.equipo || "");
+    setMarca(orden.marca || "");
+    setModelo(orden.modelo || "");
+    setNumeroSerie(orden.numero_serie || "");
+    setAccesoriosEntregados(orden.accesorios_entregados || "");
+    setPrioridad(orden.prioridad || "Media");
+    setProblemaReportado(orden.problema_reportado || "");
+    setObservacionesIniciales(orden.observaciones_iniciales || "");
+
+    const clienteEncontrado =
+      clientesDisponibles.find((cliente) => cliente.id === orden.cliente_id) ||
+      clientesDisponibles.find(
+        (cliente) =>
+          cliente.nombre === orden.cliente ||
+          cliente.email === orden.cliente_email
+      );
+
+    if (clienteEncontrado) {
+      setClienteId(clienteEncontrado.id);
+    }
+
+    if (orden.es_lote) {
+      const { data: hijos } = await supabase
+        .from("ordenes")
+        .select("*")
+        .eq("orden_padre_id", orden.id)
+        .order("codigo", { ascending: true });
+
+      const equiposEditables =
+        hijos && hijos.length > 0
+          ? hijos.map((hijo) => ({
+              equipo: hijo.equipo || "",
+              marca: hijo.marca || "",
+              modelo: hijo.modelo || "",
+              numero_serie: hijo.numero_serie || "",
+              accesorios_entregados: hijo.accesorios_entregados || "",
+              problema_reportado: hijo.problema_reportado || "",
+              observaciones_iniciales: hijo.observaciones_iniciales || "",
+              fotos: [],
+            }))
+          : [crearEquipoLote(), crearEquipoLote()];
+
+      setEquiposLote(equiposEditables);
+      setCantidadEquipos(Math.max(2, equiposEditables.length));
+    }
   }
-}
 
   useEffect(() => {
     setEquiposLote((prev) => {
@@ -294,7 +299,7 @@ if (editar && ordenId) {
     return subirFotosPorCodigo(codigo, fotos);
   }
 
-  async function subirDocumentos(ordenId: string) {
+  async function subirDocumentos(ordenIdCreada: string) {
     if (documentos.length === 0) return;
 
     for (const documento of documentos) {
@@ -324,7 +329,7 @@ if (editar && ordenId) {
         .from("orden_documentos")
         .insert([
           {
-            orden_id: ordenId,
+            orden_id: ordenIdCreada,
             nombre: documento.file.name,
             tipo: documento.tipo,
             url: data.publicUrl,
@@ -356,15 +361,18 @@ if (editar && ordenId) {
       return;
     }
 
-   if (tipoIngreso === "individual" && (!equipo.trim() || !problemaReportado.trim())) {
-  alert("Completa tipo de equipo y problema reportado");
-  return;
-}
+    if (
+      tipoIngreso === "individual" &&
+      (!equipo.trim() || !problemaReportado.trim())
+    ) {
+      alert("Completa tipo de equipo y problema reportado");
+      return;
+    }
 
-if (tipoIngreso === "lote" && !observacionesIniciales.trim()) {
-  alert("Ingresa una observación general del lote");
-  return;
-}
+    if (tipoIngreso === "lote" && !observacionesIniciales.trim()) {
+      alert("Ingresa una observación general del lote");
+      return;
+    }
 
     if (tipoIngreso === "lote" && cantidadEquipos < 2) {
       alert("El lote debe tener al menos 2 equipos");
@@ -374,78 +382,78 @@ if (tipoIngreso === "lote" && !observacionesIniciales.trim()) {
     setGuardando(true);
 
     try {
+      const datosClienteOrden = {
+        cliente_id: clienteSeleccionado.id,
+        empresa_id: clienteSeleccionado.empresa_id || null,
+        cliente: clienteSeleccionado.nombre,
+        cliente_email: clienteSeleccionado.email.trim().toLowerCase(),
+      };
 
       if (editar && ordenId) {
-  const clienteSeleccionado = clientes.find((c) => c.id === clienteId);
+        const { error: errorOrden } = await supabase
+          .from("ordenes")
+          .update({
+            ...datosClienteOrden,
+            tecnico_ingreso: tecnicoIngreso,
+            equipo:
+              tipoIngreso === "lote"
+                ? `Lote de ${cantidadEquipos} equipos`
+                : equipo,
+            prioridad,
+            marca: tipoIngreso === "lote" ? "" : marca,
+            modelo: tipoIngreso === "lote" ? "" : modelo,
+            numero_serie: tipoIngreso === "lote" ? "" : numeroSerie,
+            accesorios_entregados:
+              tipoIngreso === "lote" ? "" : accesoriosEntregados,
+            problema_reportado:
+              tipoIngreso === "lote" ? "Lote de equipos" : problemaReportado,
+            observaciones_iniciales: observacionesIniciales,
+            es_lote: tipoIngreso === "lote",
+            cantidad_equipos: tipoIngreso === "lote" ? cantidadEquipos : 1,
+          })
+          .eq("id", ordenId);
 
-  if (!clienteSeleccionado) {
-    alert("Selecciona un cliente");
-    setGuardando(false);
-    return;
-  }
+        if (errorOrden) {
+          alert("Error actualizando OT: " + errorOrden.message);
+          setGuardando(false);
+          return;
+        }
 
-  const { error: errorOrden } = await supabase
-    .from("ordenes")
-    .update({
-      cliente: clienteSeleccionado.nombre,
-      cliente_email: clienteSeleccionado.email?.trim().toLowerCase() || "",
-      tecnico_ingreso: tecnicoIngreso,
-      equipo: tipoIngreso === "lote" ? `Lote de ${cantidadEquipos} equipos` : equipo,
-      prioridad,
-      marca: tipoIngreso === "lote" ? "" : marca,
-      modelo: tipoIngreso === "lote" ? "" : modelo,
-      numero_serie: tipoIngreso === "lote" ? "" : numeroSerie,
-      accesorios_entregados:
-        tipoIngreso === "lote" ? "" : accesoriosEntregados,
-      problema_reportado:
-        tipoIngreso === "lote" ? "Lote de equipos" : problemaReportado,
-      observaciones_iniciales: observacionesIniciales,
-      es_lote: tipoIngreso === "lote",
-      cantidad_equipos: tipoIngreso === "lote" ? cantidadEquipos : 1,
-    })
-    .eq("id", ordenId);
+        if (tipoIngreso === "lote") {
+          const { data: hijos } = await supabase
+            .from("ordenes")
+            .select("id,codigo")
+            .eq("orden_padre_id", ordenId)
+            .order("codigo", { ascending: true });
 
-  if (errorOrden) {
-    alert("Error actualizando OT: " + errorOrden.message);
-    setGuardando(false);
-    return;
-  }
+          for (let index = 0; index < equiposLote.length; index++) {
+            const item = equiposLote[index];
+            const hijoExistente = hijos?.[index];
 
-  if (tipoIngreso === "lote") {
-    const { data: hijos } = await supabase
-      .from("ordenes")
-      .select("id,codigo")
-      .eq("orden_padre_id", ordenId)
-      .order("codigo", { ascending: true });
+            if (!hijoExistente?.id) continue;
 
-    for (let index = 0; index < equiposLote.length; index++) {
-      const item = equiposLote[index];
-      const hijoExistente = hijos?.[index];
+            await supabase
+              .from("ordenes")
+              .update({
+                ...datosClienteOrden,
+                equipo: item.equipo,
+                marca: item.marca,
+                modelo: item.modelo,
+                numero_serie: item.numero_serie,
+                accesorios_entregados: item.accesorios_entregados,
+                problema_reportado: item.problema_reportado,
+                observaciones_iniciales: item.observaciones_iniciales,
+                prioridad,
+                tecnico_ingreso: tecnicoIngreso,
+              })
+              .eq("id", hijoExistente.id);
+          }
+        }
 
-      if (!hijoExistente?.id) continue;
+        router.push(`/dashboard/servicio-tecnico/${ordenId}`);
+        return;
+      }
 
-      await supabase
-        .from("ordenes")
-        .update({
-          equipo: item.equipo,
-          marca: item.marca,
-          modelo: item.modelo,
-          numero_serie: item.numero_serie,
-          accesorios_entregados: item.accesorios_entregados,
-          problema_reportado: item.problema_reportado,
-          observaciones_iniciales: item.observaciones_iniciales,
-          prioridad,
-          cliente: clienteSeleccionado.nombre,
-          cliente_email: clienteSeleccionado.email?.trim().toLowerCase() || "",
-          tecnico_ingreso: tecnicoIngreso,
-        })
-        .eq("id", hijoExistente.id);
-    }
-  }
-
-  router.push(`/dashboard/servicio-tecnico/${ordenId}`);
-  return;
-}
       const fotosUrl = await subirFotosGenerales();
 
       if (tipoIngreso === "individual") {
@@ -454,8 +462,7 @@ if (tipoIngreso === "lote" && !observacionesIniciales.trim()) {
           .insert([
             {
               codigo,
-              cliente: clienteSeleccionado.nombre,
-              cliente_email: clienteSeleccionado.email.trim().toLowerCase(),
+              ...datosClienteOrden,
               tecnico_ingreso: tecnicoIngreso,
               equipo,
               estado: "Ingreso",
@@ -496,17 +503,16 @@ if (tipoIngreso === "lote" && !observacionesIniciales.trim()) {
           .insert([
             {
               codigo,
-              cliente: clienteSeleccionado.nombre,
-              cliente_email: clienteSeleccionado.email.trim().toLowerCase(),
+              ...datosClienteOrden,
               tecnico_ingreso: tecnicoIngreso,
               equipo: `Lote de ${cantidadEquipos} equipos`,
               estado: "Ingreso",
               prioridad,
-marca: "",
-modelo: "",
-numero_serie: "",
-accesorios_entregados: "",
-problema_reportado: tipoIngreso === "lote" ? "Lote de equipos" : problemaReportado,
+              marca: "",
+              modelo: "",
+              numero_serie: "",
+              accesorios_entregados: "",
+              problema_reportado: "Lote de equipos",
               observaciones_iniciales: observacionesIniciales,
               fotos_estado_inicial: fotosUrl,
               es_lote: true,
@@ -544,8 +550,7 @@ problema_reportado: tipoIngreso === "lote" ? "Lote de equipos" : problemaReporta
 
           ordenesHijas.push({
             codigo: codigoHijo,
-            cliente: clienteSeleccionado.nombre,
-            cliente_email: clienteSeleccionado.email.trim().toLowerCase(),
+            ...datosClienteOrden,
             tecnico_ingreso: tecnicoIngreso,
             equipo: item.equipo.trim() || equipo,
             estado: "Ingreso",
@@ -598,8 +603,8 @@ problema_reportado: tipoIngreso === "lote" ? "Lote de equipos" : problemaReporta
       </button>
 
       <h1 className="text-3xl font-bold text-slate-900">
-  {editar ? "Editar Orden de Servicio" : "Nueva Orden de Servicio"}
-</h1>
+        {editar ? "Editar Orden de Servicio" : "Nueva Orden de Servicio"}
+      </h1>
 
       <p className="mt-1 text-sm text-slate-500">
         Registrar ingreso individual o lote de equipos
@@ -675,11 +680,16 @@ problema_reportado: tipoIngreso === "lote" ? "Lote de equipos" : problemaReporta
             {clientes.map((cliente) => (
               <option key={cliente.id} value={cliente.id}>
                 {cliente.nombre}
-                {cliente.empresa ? ` — ${cliente.empresa}` : ""}
+                {cliente.empresa ? ` — ${cliente.empresa}` : " — Persona natural"}
                 {cliente.email ? ` (${cliente.email})` : ""}
               </option>
             ))}
           </select>
+
+          <p className="mt-2 text-xs text-slate-500">
+            La OT guardará el cliente solicitante y, si corresponde, la empresa
+            asociada.
+          </p>
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-6">
@@ -699,90 +709,91 @@ problema_reportado: tipoIngreso === "lote" ? "Lote de equipos" : problemaReporta
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-6">
-  <h2 className="mb-4 text-lg font-bold">
-    {tipoIngreso === "lote" ? "Información del lote" : "Equipo / Herramienta"}
-  </h2>
+          <h2 className="mb-4 text-lg font-bold">
+            {tipoIngreso === "lote" ? "Información del lote" : "Equipo / Herramienta"}
+          </h2>
 
-  <div className="mb-4">
-    <label className="mb-1 block text-sm font-semibold">
-      Código de orden
-    </label>
-    <input
-      value={codigo}
-      readOnly
-      className="w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-3 text-slate-500"
-    />
-  </div>
+          <div className="mb-4">
+            <label className="mb-1 block text-sm font-semibold">
+              Código de orden
+            </label>
+            <input
+              value={codigo}
+              readOnly
+              className="w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-3 text-slate-500"
+            />
+          </div>
 
-  {tipoIngreso === "individual" && (
-    <>
-      <div className="grid gap-4 md:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-sm font-semibold">
-            Tipo de Equipo *
-          </label>
+          {tipoIngreso === "individual" && (
+            <>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-semibold">
+                    Tipo de Equipo *
+                  </label>
 
-          <select
-            value={equipo}
-            onChange={(e) => setEquipo(e.target.value)}
-            required
-            className="w-full rounded-lg border border-slate-300 px-3 py-3"
-          >
-            <option value="">Seleccionar tipo de equipo...</option>
-            <option value="Tecle eléctrico">Tecle eléctrico</option>
-            <option value="Tecle manual">Tecle manual</option>
-            <option value="Tecle de palanca">Tecle de palanca</option>
-            <option value="Winche">Winche</option>
-            <option value="Tirfor">Tirfor</option>
-            <option value="Minifor">Minifor</option>
-            <option value="Transpaleta eléctrica">Transpaleta eléctrica</option>
-          </select>
-        </div>
+                  <select
+                    value={equipo}
+                    onChange={(e) => setEquipo(e.target.value)}
+                    required
+                    className="w-full rounded-lg border border-slate-300 px-3 py-3"
+                  >
+                    <option value="">Seleccionar tipo de equipo...</option>
+                    <option value="Tecle eléctrico">Tecle eléctrico</option>
+                    <option value="Tecle manual">Tecle manual</option>
+                    <option value="Tecle de palanca">Tecle de palanca</option>
+                    <option value="Winche">Winche</option>
+                    <option value="Tirfor">Tirfor</option>
+                    <option value="Minifor">Minifor</option>
+                    <option value="Transpaleta eléctrica">Transpaleta eléctrica</option>
+                  </select>
+                </div>
 
-        <InputTexto label="Marca" value={marca} setValue={setMarca} placeholder="Marca" />
-        <InputTexto label="Modelo" value={modelo} setValue={setModelo} placeholder="Modelo" />
-        <InputTexto label="Número de Serie" value={numeroSerie} setValue={setNumeroSerie} placeholder="S/N" />
-      </div>
+                <InputTexto label="Marca" value={marca} setValue={setMarca} placeholder="Marca" />
+                <InputTexto label="Modelo" value={modelo} setValue={setModelo} placeholder="Modelo" />
+                <InputTexto label="Número de Serie" value={numeroSerie} setValue={setNumeroSerie} placeholder="S/N" />
+              </div>
 
-      <div className="mt-4">
-        <InputTexto
-          label="Accesorios Entregados"
-          value={accesoriosEntregados}
-          setValue={setAccesoriosEntregados}
-          placeholder="Cable, control, maletín..."
-        />
-      </div>
-    </>
-  )}
+              <div className="mt-4">
+                <InputTexto
+                  label="Accesorios Entregados"
+                  value={accesoriosEntregados}
+                  setValue={setAccesoriosEntregados}
+                  placeholder="Cable, control, maletín..."
+                />
+              </div>
+            </>
+          )}
 
-  <div className="mt-4">
-    <label className="mb-1 block text-sm font-semibold">Prioridad</label>
-    <select
-      value={prioridad}
-      onChange={(e) => setPrioridad(e.target.value)}
-      className="w-full rounded-lg border border-slate-300 px-3 py-3"
-    >
-      <option>Alta</option>
-      <option>Media</option>
-      <option>Baja</option>
-    </select>
-  </div>
-  {tipoIngreso === "lote" && (
-  <div className="mt-4">
-    <label className="mb-1 block text-sm font-semibold">
-      Observación general del lote *
-    </label>
+          <div className="mt-4">
+            <label className="mb-1 block text-sm font-semibold">Prioridad</label>
+            <select
+              value={prioridad}
+              onChange={(e) => setPrioridad(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-3"
+            >
+              <option>Alta</option>
+              <option>Media</option>
+              <option>Baja</option>
+            </select>
+          </div>
 
-    <textarea
-      placeholder="Ej: Llegan 5 equipos para diagnóstico, guía N°..., cliente solicita revisión general..."
-      value={observacionesIniciales}
-      onChange={(e) => setObservacionesIniciales(e.target.value)}
-      required
-      className="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-3"
-    />
-  </div>
-)}
-</section>
+          {tipoIngreso === "lote" && (
+            <div className="mt-4">
+              <label className="mb-1 block text-sm font-semibold">
+                Observación general del lote *
+              </label>
+
+              <textarea
+                placeholder="Ej: Llegan 5 equipos para diagnóstico, guía N°..., cliente solicita revisión general..."
+                value={observacionesIniciales}
+                onChange={(e) => setObservacionesIniciales(e.target.value)}
+                required
+                className="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-3"
+              />
+            </div>
+          )}
+        </section>
 
         {tipoIngreso === "lote" ? (
           <section className="rounded-2xl border border-blue-200 bg-blue-50 p-6">
@@ -803,28 +814,28 @@ problema_reportado: tipoIngreso === "lote" ? "Lote de equipos" : problemaReporta
                   </p>
 
                   <div className="grid gap-4 md:grid-cols-2">
-                   <div>
-  <label className="mb-1 block text-sm font-semibold">
-    Tipo de equipo
-  </label>
+                    <div>
+                      <label className="mb-1 block text-sm font-semibold">
+                        Tipo de equipo
+                      </label>
 
-  <select
-    value={item.equipo}
-    onChange={(e) =>
-      actualizarEquipoLote(index, "equipo", e.target.value)
-    }
-    className="w-full rounded-lg border border-slate-300 px-3 py-3"
-  >
-    <option value="">Seleccionar tipo de equipo...</option>
-    <option value="Tecle eléctrico">Tecle eléctrico</option>
-    <option value="Tecle manual">Tecle manual</option>
-    <option value="Tecle de palanca">Tecle de palanca</option>
-    <option value="Winche">Winche</option>
-    <option value="Tirfor">Tirfor</option>
-    <option value="Minifor">Minifor</option>
-    <option value="Transpaleta eléctrica">Transpaleta eléctrica</option>
-  </select>
-</div>
+                      <select
+                        value={item.equipo}
+                        onChange={(e) =>
+                          actualizarEquipoLote(index, "equipo", e.target.value)
+                        }
+                        className="w-full rounded-lg border border-slate-300 px-3 py-3"
+                      >
+                        <option value="">Seleccionar tipo de equipo...</option>
+                        <option value="Tecle eléctrico">Tecle eléctrico</option>
+                        <option value="Tecle manual">Tecle manual</option>
+                        <option value="Tecle de palanca">Tecle de palanca</option>
+                        <option value="Winche">Winche</option>
+                        <option value="Tirfor">Tirfor</option>
+                        <option value="Minifor">Minifor</option>
+                        <option value="Transpaleta eléctrica">Transpaleta eléctrica</option>
+                      </select>
+                    </div>
 
                     <InputTexto
                       label="Marca"
@@ -963,31 +974,31 @@ problema_reportado: tipoIngreso === "lote" ? "Lote de equipos" : problemaReporta
           </section>
         ) : null}
 
-{tipoIngreso === "individual" && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
-          <h2 className="mb-4 text-lg font-bold">Problema Reportado</h2>
+        {tipoIngreso === "individual" && (
+          <section className="rounded-2xl border border-slate-200 bg-white p-6">
+            <h2 className="mb-4 text-lg font-bold">Problema Reportado</h2>
 
-          <label className="mb-1 block text-sm font-semibold">
-            Descripción del problema *
-          </label>
-          <textarea
-            placeholder="Describa el problema que presenta el equipo o lote..."
-            value={problemaReportado}
-            onChange={(e) => setProblemaReportado(e.target.value)}
-            required
-            className="min-h-28 w-full rounded-lg border border-slate-300 px-3 py-3"
-          />
+            <label className="mb-1 block text-sm font-semibold">
+              Descripción del problema *
+            </label>
+            <textarea
+              placeholder="Describa el problema que presenta el equipo o lote..."
+              value={problemaReportado}
+              onChange={(e) => setProblemaReportado(e.target.value)}
+              required
+              className="min-h-28 w-full rounded-lg border border-slate-300 px-3 py-3"
+            />
 
-          <label className="mb-1 mt-4 block text-sm font-semibold">
-            Observaciones iniciales
-          </label>
-          <textarea
-            placeholder="Estado visual, golpes, desgaste..."
-            value={observacionesIniciales}
-            onChange={(e) => setObservacionesIniciales(e.target.value)}
-            className="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-3"
-          />
-        </section>
+            <label className="mb-1 mt-4 block text-sm font-semibold">
+              Observaciones iniciales
+            </label>
+            <textarea
+              placeholder="Estado visual, golpes, desgaste..."
+              value={observacionesIniciales}
+              onChange={(e) => setObservacionesIniciales(e.target.value)}
+              className="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-3"
+            />
+          </section>
         )}
 
         <section className="rounded-2xl border border-slate-200 bg-white p-6">
@@ -1109,13 +1120,13 @@ problema_reportado: tipoIngreso === "lote" ? "Lote de equipos" : problemaReporta
             disabled={guardando}
             className="rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
           >
-           {guardando
-  ? "Guardando..."
-  : editar
-    ? "Guardar cambios"
-    : tipoIngreso === "lote"
-      ? "Crear Lote"
-      : "Crear Orden"}
+            {guardando
+              ? "Guardando..."
+              : editar
+                ? "Guardar cambios"
+                : tipoIngreso === "lote"
+                  ? "Crear Lote"
+                  : "Crear Orden"}
           </button>
         </div>
       </form>
@@ -1158,7 +1169,7 @@ function InputTexto({
   );
 }
 
- function InputFoto({
+function InputFoto({
   label,
   descripcion,
   capture = false,
