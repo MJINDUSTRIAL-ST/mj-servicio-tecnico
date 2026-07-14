@@ -91,11 +91,11 @@ export default function EmpresasPage() {
     <div className="mx-auto max-w-6xl p-6">
       <div className="mb-6">
         <button
-          onClick={() => window.history.back()}
-          className="mb-4 text-sm font-medium text-slate-500 transition hover:text-slate-900"
-        >
-          ← Volver
-        </button>
+  onClick={() => (window.location.href = "/dashboard")}
+  className="mb-4 text-sm font-medium text-slate-500 transition hover:text-slate-900"
+>
+  ← Volver al Dashboard
+</button>
 
         <div className="flex items-center justify-between gap-4">
           <div>
