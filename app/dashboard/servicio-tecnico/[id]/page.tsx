@@ -680,6 +680,7 @@ export default function DetalleOrdenPage() {
     useState<FormularioLogisticaListo>(() => formularioLogisticaInicial());
   const [creandoSolicitudLogistica, setCreandoSolicitudLogistica] =
     useState(false);
+      const [notificandoCliente, setNotificandoCliente] = useState(false);
 
   const fotosIngreso = useMemo(() => {
     const fotosDesdeOrden = normalizarFotosIngreso(orden?.fotos_estado_inicial);
@@ -1539,6 +1540,49 @@ setTab("diagnostico");
     await cargarDatos();
   }
 
+    async function notificarClienteEntrega() {
+    if (!orden) return;
+
+    if (!orden.cliente_email) {
+      alert("Esta OT no tiene email de cliente registrado.");
+      return;
+    }
+
+    setNotificandoCliente(true);
+
+    try {
+      const respuesta = await fetch("/api/enviar-correo-equipo-listo", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: orden.cliente_email,
+          cliente: orden.cliente,
+          codigo: orden.codigo,
+          producto: orden.equipo,
+          ordenId: orden.id,
+        }),
+      });
+
+      const data = await respuesta.json();
+
+      if (!respuesta.ok || !data?.success) {
+        alert(
+          data?.error ||
+            "No se pudo enviar el correo de notificación al cliente."
+        );
+        return;
+      }
+
+      alert("Cliente notificado correctamente.");
+    } catch (error: any) {
+      alert(error?.message || "No se pudo enviar el correo al cliente.");
+    } finally {
+      setNotificandoCliente(false);
+    }
+  }
+
   async function crearSolicitudLogistica() {
     if (!orden) return;
 
@@ -1776,11 +1820,22 @@ setTab("diagnostico");
                     </p>
                   </div>
 
-                  <span className="listoBadge">
-                    {eventoLogistica
-                      ? etiquetaEstadoLogistica(eventoLogistica.estado)
-                      : "Pendiente coordinación"}
-                  </span>
+                  <div className="listoAcciones">
+  <span className="listoBadge">
+    {eventoLogistica
+      ? etiquetaEstadoLogistica(eventoLogistica.estado)
+      : "Pendiente coordinación"}
+  </span>
+
+  <button
+    type="button"
+    className="notificarCliente"
+    onClick={notificarClienteEntrega}
+    disabled={notificandoCliente || !orden.cliente_email}
+  >
+    {notificandoCliente ? "Enviando..." : "Notificar cliente"}
+  </button>
+</div>
                 </div>
 
                 {eventoLogistica ? (
@@ -2084,6 +2139,34 @@ setTab("diagnostico");
           white-space: nowrap;
         }
 
+                .listoAcciones {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 10px;
+        }
+
+        .notificarCliente {
+          border: none;
+          background: #2563eb;
+          color: white;
+          padding: 10px 14px;
+          border-radius: 12px;
+          font-weight: 900;
+          cursor: pointer;
+          font-size: 13px;
+          white-space: nowrap;
+        }
+
+        .notificarCliente:hover {
+          background: #1d4ed8;
+        }
+
+        .notificarCliente:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
         .eventoCreado {
           border: 1px solid #bbf7d0;
           background: #f0fdf4;
@@ -2218,6 +2301,10 @@ setTab("diagnostico");
         @media (max-width: 900px) {
           .page {
             padding: 22px 14px 50px;
+          }
+
+                    .listoAcciones {
+            align-items: flex-start;
           }
 
           .twoColumns,
