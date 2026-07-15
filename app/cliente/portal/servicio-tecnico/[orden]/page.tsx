@@ -42,6 +42,36 @@ type Orden = {
   fotos_estado_inicial: string | string[] | null;
 };
 
+type Diagnostico = {
+  id?: string;
+  orden_id?: string;
+  hallazgos?: string | null;
+  procedimiento?: string | null;
+  repuestos?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+type ChecklistFoto = {
+  id: string;
+  item_id?: string | null;
+  item_label?: string | null;
+  nombre?: string | null;
+  url?: string | null;
+  observacion?: string | null;
+  created_at?: string | null;
+};
+
+type OrdenDocumento = {
+  id: string;
+  orden_id: string;
+  nombre: string | null;
+  tipo: string | null;
+  url: string | null;
+  storage_path: string | null;
+  created_at: string | null;
+};
+
 type ReporteFoto = {
   id: string;
   foto_url: string;
@@ -221,6 +251,19 @@ function formatMoneda(valor?: number | null) {
   }).format(valor);
 }
 
+function escaparHtml(valor: any) {
+  return String(valor ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function textoConSaltos(valor: any) {
+  return escaparHtml(valor || "-").replace(/\n/g, "<br />");
+}
+
 function getCircleClass({
   completada,
   activa,
@@ -295,14 +338,81 @@ function getBadgeClass(estado: EstadoCliente): string {
   }
 }
 
+function estadoCotizacion(estado: EstadoCliente) {
+  if (estado === "Rechazada") return "Rechazada";
+
+  if (
+    estado === "Aprobada" ||
+    estado === "En reparación" ||
+    estado === "Listo para entrega" ||
+    estado === "Entregado"
+  ) {
+    return "Aprobada";
+  }
+
+  if (estado === "Cotización") return "Pendiente de aprobación";
+
+  return "Pendiente";
+}
+
+function puedeDescargarFinal(estado: EstadoCliente) {
+  return (
+    estado === "En reparación" ||
+    estado === "Listo para entrega" ||
+    estado === "Entregado"
+  );
+}
+
+function renderFotosPDF(
+  titulo: string,
+  fotos: Array<{ url: string; nombre?: string | null; detalle?: string | null }>
+) {
+  const fotosValidas = fotos.filter((foto) => Boolean(foto.url));
+
+  if (fotosValidas.length === 0) return "";
+
+  return `
+    <section class="section">
+      <h3>${escaparHtml(titulo)}</h3>
+      <div class="photoGrid">
+        ${fotosValidas
+          .map(
+            (foto, index) => `
+              <a class="photoCard" href="${escaparHtml(
+                foto.url
+              )}" target="_blank" rel="noopener noreferrer">
+                <img src="${escaparHtml(foto.url)}" alt="${escaparHtml(
+                  foto.nombre || `Foto ${index + 1}`
+                )}" />
+                <span>${escaparHtml(foto.nombre || `Foto ${index + 1}`)}</span>
+                ${
+                  foto.detalle
+                    ? `<small>${escaparHtml(foto.detalle)}</small>`
+                    : ""
+                }
+              </a>
+            `
+          )
+          .join("")}
+      </div>
+    </section>
+  `;
+}
+
 export default function DetalleServicioClientePage() {
   const params = useParams();
   const ordenId = Array.isArray(params.orden) ? params.orden[0] : params.orden;
 
   const [orden, setOrden] = useState<Orden | null>(null);
+  const [diagnostico, setDiagnostico] = useState<Diagnostico | null>(null);
+  const [checklistFotos, setChecklistFotos] = useState<ChecklistFoto[]>([]);
+  const [documentosIngreso, setDocumentosIngreso] = useState<OrdenDocumento[]>(
+    []
+  );
   const [reportes, setReportes] = useState<Reporte[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [generandoPdf, setGenerandoPdf] = useState(false);
 
   const estadoCliente = useMemo(() => {
     return normalizarEstadoCliente(orden?.estado);
@@ -316,64 +426,95 @@ export default function DetalleServicioClientePage() {
     return normalizarFotos(orden?.fotos_estado_inicial || null);
   }, [orden?.fotos_estado_inicial]);
 
+  const cotizacionEstado = useMemo(() => {
+    return estadoCotizacion(estadoCliente);
+  }, [estadoCliente]);
+
   useEffect(() => {
-    const cargarOrden = async () => {
-      setLoading(true);
-      setError("");
+    cargarOrden();
+  }, [ordenId]);
 
-      const email = localStorage.getItem("cliente_email")?.trim().toLowerCase();
+  async function cargarOrden() {
+    setLoading(true);
+    setError("");
 
-      if (!email) {
-        setError("No hay sesión activa");
-        setLoading(false);
-        return;
-      }
+    const email = localStorage.getItem("cliente_email")?.trim().toLowerCase();
 
-      const { data: ordenDirecta } = await supabase
-        .from("ordenes")
-        .select("*")
-        .eq("id", ordenId)
-        .eq("cliente_email", email)
+    if (!email) {
+      setError("No hay sesión activa");
+      setLoading(false);
+      return;
+    }
+
+    const { data: ordenDirecta } = await supabase
+      .from("ordenes")
+      .select("*")
+      .eq("id", ordenId)
+      .eq("cliente_email", email)
+      .maybeSingle();
+
+    let ordenAutorizada = ordenDirecta as Orden | null;
+
+    if (!ordenAutorizada) {
+      const { data: clienteActual } = await supabase
+        .from("clientes")
+        .select("id")
+        .eq("email", email)
         .maybeSingle();
 
-      let ordenAutorizada = ordenDirecta as Orden | null;
+      const clientePortal = clienteActual as ClientePortal | null;
 
-      if (!ordenAutorizada) {
-        const { data: clienteActual } = await supabase
-          .from("clientes")
+      if (clientePortal?.id) {
+        const { data: acceso } = await supabase
+          .from("orden_clientes_acceso")
           .select("id")
-          .eq("email", email)
+          .eq("orden_id", ordenId)
+          .eq("cliente_id", clientePortal.id)
           .maybeSingle();
 
-        const clientePortal = clienteActual as ClientePortal | null;
-
-        if (clientePortal?.id) {
-          const { data: acceso } = await supabase
-            .from("orden_clientes_acceso")
-            .select("id")
-            .eq("orden_id", ordenId)
-            .eq("cliente_id", clientePortal.id)
+        if (acceso?.id) {
+          const { data: ordenPorAcceso } = await supabase
+            .from("ordenes")
+            .select("*")
+            .eq("id", ordenId)
             .maybeSingle();
 
-          if (acceso?.id) {
-            const { data: ordenPorAcceso } = await supabase
-              .from("ordenes")
-              .select("*")
-              .eq("id", ordenId)
-              .maybeSingle();
-
-            ordenAutorizada = ordenPorAcceso as Orden | null;
-          }
+          ordenAutorizada = ordenPorAcceso as Orden | null;
         }
       }
+    }
 
-      if (!ordenAutorizada) {
-        setError("Orden no encontrada o sin permiso de acceso");
-        setLoading(false);
-        return;
-      }
+    if (!ordenAutorizada) {
+      setError("Orden no encontrada o sin permiso de acceso");
+      setLoading(false);
+      return;
+    }
 
-      const { data: reportesData, error: reportesError } = await supabase
+    const [
+      { data: diagnosticoData },
+      { data: checklistFotosData },
+      { data: documentosData },
+      { data: reportesData, error: reportesError },
+    ] = await Promise.all([
+      supabase
+        .from("diagnosticos")
+        .select("*")
+        .eq("orden_id", ordenAutorizada.id)
+        .maybeSingle(),
+
+      supabase
+        .from("checklist_fotos")
+        .select("id,item_id,item_label,nombre,url,observacion,created_at")
+        .eq("orden_id", ordenAutorizada.id)
+        .order("created_at", { ascending: true }),
+
+      supabase
+        .from("orden_documentos")
+        .select("*")
+        .eq("orden_id", ordenAutorizada.id)
+        .order("created_at", { ascending: true }),
+
+      supabase
         .from("reportes")
         .select(
           `
@@ -388,32 +529,417 @@ export default function DetalleServicioClientePage() {
         `
         )
         .eq("orden_id", ordenAutorizada.id)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false }),
+    ]);
 
-      if (reportesError) {
-        setError(reportesError.message);
-        setLoading(false);
+    if (reportesError) {
+      setError(reportesError.message);
+      setLoading(false);
+      return;
+    }
+
+    const reportesOrdenados = ((reportesData || []) as Reporte[]).map(
+      (reporte) => ({
+        ...reporte,
+        reporte_fotos: [...(reporte.reporte_fotos || [])].sort((a, b) => {
+          const ordenA = a.orden ?? 0;
+          const ordenB = b.orden ?? 0;
+          return ordenA - ordenB;
+        }),
+      })
+    );
+
+    setOrden(ordenAutorizada);
+    setDiagnostico((diagnosticoData as Diagnostico) || null);
+    setChecklistFotos((checklistFotosData || []) as ChecklistFoto[]);
+    setDocumentosIngreso((documentosData || []) as OrdenDocumento[]);
+    setReportes(reportesOrdenados);
+    setLoading(false);
+  }
+
+  function generarPDF(tipo: "diagnostico" | "final") {
+    if (!orden) return;
+
+    setGenerandoPdf(true);
+
+    try {
+      const logoUrl = `${window.location.origin}/logo-informe.png`;
+      const fechaEmision = new Date().toLocaleDateString("es-CL");
+      const titulo =
+        tipo === "diagnostico"
+          ? "INFORME TÉCNICO DIAGNÓSTICO"
+          : "INFORME TÉCNICO FINAL";
+
+      const fotosIngresoPDF = fotosIngreso.map((url, index) => ({
+        url,
+        nombre: `Foto ingreso ${index + 1}`,
+      }));
+
+      const fotosChecklistPDF = checklistFotos
+        .filter((foto) => Boolean(foto.url))
+        .map((foto, index) => ({
+          url: foto.url || "",
+          nombre:
+            foto.item_label || foto.nombre || `Foto diagnóstico ${index + 1}`,
+          detalle: foto.observacion,
+        }));
+
+      const fotosReportesPDF = reportes.flatMap((reporte) =>
+        (reporte.reporte_fotos || []).map((foto, index) => ({
+          url: foto.foto_url,
+          nombre:
+            foto.comentario ||
+            `${reporte.etapa || "Reporte"} - Foto ${index + 1}`,
+          detalle: reporte.etapa,
+        }))
+      );
+
+      const ultimoReporte = reportes[0];
+
+      const html = `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>${escaparHtml(titulo)} ${escaparHtml(orden.codigo)}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #e5e7eb;
+      color: #0f172a;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 12px;
+    }
+    .printBar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: #1d4ed8;
+      color: white;
+      text-align: center;
+      padding: 10px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 18px auto;
+      padding: 18mm;
+      background: white;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+    }
+    .top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      border-bottom: 3px solid #1e3a8a;
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+    }
+    .logo { width: 150px; height: auto; object-fit: contain; }
+    h1 {
+      margin: 12px 0 0;
+      color: #1e3a8a;
+      font-size: 22px;
+      letter-spacing: 0.06em;
+    }
+    .meta {
+      text-align: right;
+      line-height: 1.45;
+      color: #334155;
+    }
+    .meta strong {
+      display: block;
+      color: #0f172a;
+      font-size: 18px;
+      margin-bottom: 4px;
+    }
+    .status {
+      display: inline-flex;
+      margin-top: 8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 900;
+      background: #dbeafe;
+      color: #1e40af;
+    }
+    .grid2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .grid4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .field {
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 8px;
+      min-height: 44px;
+    }
+    .field span {
+      display: block;
+      color: #64748b;
+      font-size: 9px;
+      font-weight: 900;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .field strong {
+      display: block;
+      color: #0f172a;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .section {
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 10px;
+      margin: 10px 0;
+      background: white;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .section h3 {
+      margin: 0 0 8px;
+      color: #1e3a8a;
+      font-size: 13px;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 6px;
+    }
+    .section p {
+      margin: 0;
+      line-height: 1.55;
+    }
+    .photoGrid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+    .photoCard {
+      display: block;
+      border: 1px solid #dbe3ef;
+      border-radius: 8px;
+      padding: 5px;
+      text-decoration: none;
+      color: #0f172a;
+      background: #f8fafc;
+      break-inside: avoid;
+    }
+    .photoCard img {
+      display: block;
+      width: 100%;
+      height: 72px;
+      object-fit: cover;
+      border-radius: 6px;
+      margin-bottom: 5px;
+      background: #e5e7eb;
+    }
+    .photoCard span {
+      display: block;
+      font-size: 9px;
+      font-weight: 900;
+      line-height: 1.25;
+      word-break: break-word;
+    }
+    .photoCard small {
+      display: block;
+      margin-top: 2px;
+      color: #64748b;
+      font-size: 8px;
+      line-height: 1.25;
+      word-break: break-word;
+    }
+    .docsList {
+      margin: 0;
+      padding-left: 16px;
+    }
+    .docsList li {
+      margin: 5px 0;
+      line-height: 1.4;
+    }
+    .docsList a {
+      color: #1d4ed8;
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .footer {
+      margin-top: 18px;
+      padding-top: 10px;
+      border-top: 1px solid #e2e8f0;
+      text-align: center;
+      color: #64748b;
+      font-size: 9px;
+    }
+    @media print {
+      body { background: white; }
+      .printBar { display: none; }
+      .page {
+        width: auto;
+        min-height: auto;
+        margin: 0;
+        padding: 12mm;
+        box-shadow: none;
+      }
+      .section, .field, .photoCard { break-inside: avoid; page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="printBar" onclick="window.print()">Imprimir / Guardar PDF</div>
+  <main class="page">
+    <header class="top">
+      <div>
+        <img class="logo" src="${logoUrl}" alt="MJ Industrial" />
+        <h1>${escaparHtml(titulo)}</h1>
+      </div>
+      <div class="meta">
+        <strong>${escaparHtml(orden.codigo)}</strong>
+        Estado: ${escaparHtml(estadoCliente)}<br />
+        Fecha ingreso: ${escaparHtml(formatFecha(orden.created_at))}<br />
+        Fecha emisión: ${escaparHtml(fechaEmision)}<br />
+        <span class="status">${escaparHtml(estadoCliente)}</span>
+      </div>
+    </header>
+
+    <section class="grid2">
+      <div class="field"><span>Cliente</span><strong>${escaparHtml(
+        orden.cliente
+      )}</strong></div>
+      <div class="field"><span>Email</span><strong>${escaparHtml(
+        orden.cliente_email
+      )}</strong></div>
+      <div class="field"><span>Equipo</span><strong>${escaparHtml(
+        orden.equipo
+      )}</strong></div>
+      <div class="field"><span>Prioridad</span><strong>${escaparHtml(
+        orden.prioridad || "-"
+      )}</strong></div>
+    </section>
+
+    <section class="section">
+      <h3>Datos del equipo</h3>
+      <div class="grid4">
+        <div class="field"><span>Marca</span><strong>${escaparHtml(
+          orden.marca || "-"
+        )}</strong></div>
+        <div class="field"><span>Modelo</span><strong>${escaparHtml(
+          orden.modelo || "-"
+        )}</strong></div>
+        <div class="field"><span>Serie</span><strong>${escaparHtml(
+          orden.numero_serie || "-"
+        )}</strong></div>
+        <div class="field"><span>Accesorios</span><strong>${escaparHtml(
+          orden.accesorios_entregados || "-"
+        )}</strong></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h3>Problema reportado al ingreso</h3>
+      <p>${textoConSaltos(orden.problema_reportado || "-")}</p>
+      <p style="margin-top:8px;"><strong>Observaciones iniciales:</strong><br />${textoConSaltos(
+        orden.observaciones_iniciales || "-"
+      )}</p>
+    </section>
+
+    ${renderFotosPDF("Fotos de ingreso", fotosIngresoPDF)}
+
+    <section class="section">
+      <h3>Diagnóstico técnico</h3>
+      <p><strong>Hallazgos:</strong><br />${textoConSaltos(
+        diagnostico?.hallazgos || "Sin diagnóstico registrado."
+      )}</p>
+      <p style="margin-top:8px;"><strong>Procedimiento recomendado:</strong><br />${textoConSaltos(
+        diagnostico?.procedimiento || "-"
+      )}</p>
+      <p style="margin-top:8px;"><strong>Repuestos sugeridos:</strong><br />${textoConSaltos(
+        diagnostico?.repuestos || "-"
+      )}</p>
+    </section>
+
+    ${renderFotosPDF("Fotos del diagnóstico / checklist", fotosChecklistPDF)}
+
+    ${
+      tipo === "final"
+        ? `<section class="section">
+            <h3>Trabajo realizado / cierre operativo</h3>
+            <p><strong>Descripción:</strong><br />${textoConSaltos(
+              ultimoReporte?.descripcion || "Sin descripción final registrada."
+            )}</p>
+            <p style="margin-top:8px;"><strong>Hallazgos / acciones:</strong><br />${textoConSaltos(
+              ultimoReporte?.acciones ||
+                ultimoReporte?.hallazgos ||
+                "Sin acciones finales registradas."
+            )}</p>
+          </section>
+          ${renderFotosPDF("Fotos de trabajo / egreso", fotosReportesPDF)}`
+        : ""
+    }
+
+    ${
+      documentosIngreso.length > 0
+        ? `<section class="section">
+            <h3>Documentos asociados</h3>
+            <ul class="docsList">
+              ${documentosIngreso
+                .filter((doc) => Boolean(doc.url))
+                .map(
+                  (doc, index) => `
+                    <li>
+                      <a href="${escaparHtml(
+                        doc.url
+                      )}" target="_blank" rel="noopener noreferrer">
+                        ${escaparHtml(doc.nombre || `Documento ${index + 1}`)}
+                      </a>
+                      ${doc.tipo ? ` · ${escaparHtml(doc.tipo)}` : ""}
+                    </li>
+                  `
+                )
+                .join("")}
+            </ul>
+          </section>`
+        : ""
+    }
+
+    <footer class="footer">
+      MJ Industrial · www.mjindustrial.cl · Informe generado digitalmente
+    </footer>
+  </main>
+  <script>
+    window.addEventListener("load", function () {
+      setTimeout(function () {
+        window.print();
+      }, 600);
+    });
+  </script>
+</body>
+</html>`;
+
+      const ventana = window.open("", "_blank");
+
+      if (!ventana) {
+        alert(
+          "No se pudo abrir el PDF. Revisa si el navegador bloqueó la ventana emergente."
+        );
         return;
       }
 
-      const reportesOrdenados = ((reportesData || []) as Reporte[]).map(
-        (reporte) => ({
-          ...reporte,
-          reporte_fotos: [...(reporte.reporte_fotos || [])].sort((a, b) => {
-            const ordenA = a.orden ?? 0;
-            const ordenB = b.orden ?? 0;
-            return ordenA - ordenB;
-          }),
-        })
-      );
-
-      setOrden(ordenAutorizada);
-      setReportes(reportesOrdenados);
-      setLoading(false);
-    };
-
-    cargarOrden();
-  }, [ordenId]);
+      ventana.document.open();
+      ventana.document.write(html);
+      ventana.document.close();
+    } finally {
+      setGenerandoPdf(false);
+    }
+  }
 
   if (loading) {
     return <main className="p-6">Cargando orden...</main>;
@@ -664,7 +1190,95 @@ export default function DetalleServicioClientePage() {
           </div>
         )}
       </section>
+
+      <section className="grid gap-5 lg:grid-cols-3">
+        <InfoActionCard
+          titulo="Diagnóstico técnico"
+          estado={diagnostico ? "Disponible" : "Pendiente"}
+          texto={
+            diagnostico
+              ? "El informe técnico de diagnóstico ya está disponible para esta orden."
+              : "El diagnóstico técnico todavía no está disponible."
+          }
+          boton="Descargar informe técnico PDF"
+          disabled={!diagnostico || generandoPdf}
+          onClick={() => generarPDF("diagnostico")}
+        />
+
+        <InfoActionCard
+          titulo="Cotización"
+          estado={cotizacionEstado}
+          texto={
+            cotizacionEstado === "Aprobada"
+              ? "La cotización fue aprobada. El equipo puede avanzar a trabajo."
+              : cotizacionEstado === "Rechazada"
+                ? "La cotización fue rechazada."
+                : cotizacionEstado === "Pendiente de aprobación"
+                  ? "La cotización se encuentra pendiente de aprobación."
+                  : "La cotización todavía no está disponible."
+          }
+          boton=""
+          disabled
+          onClick={() => {}}
+        />
+
+        <InfoActionCard
+          titulo="Informe técnico final"
+          estado={
+            puedeDescargarFinal(estadoCliente) ? "Disponible" : "Pendiente"
+          }
+          texto={
+            puedeDescargarFinal(estadoCliente)
+              ? "El informe técnico final ya puede ser descargado."
+              : "El informe final estará disponible cuando el equipo avance a trabajo, listo para entrega o entregado."
+          }
+          boton="Descargar informe final PDF"
+          disabled={!puedeDescargarFinal(estadoCliente) || generandoPdf}
+          onClick={() => generarPDF("final")}
+        />
+      </section>
     </main>
+  );
+}
+
+function InfoActionCard({
+  titulo,
+  estado,
+  texto,
+  boton,
+  disabled,
+  onClick,
+}: {
+  titulo: string;
+  estado: string;
+  texto: string;
+  boton: string;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <section className="rounded-3xl bg-white p-6 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
+        <h2 className="text-xl font-bold text-slate-900">{titulo}</h2>
+
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
+          {estado}
+        </span>
+      </div>
+
+      <p className="mt-3 text-sm leading-6 text-slate-600">{texto}</p>
+
+      {boton ? (
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={disabled}
+          className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+        >
+          {boton}
+        </button>
+      ) : null}
+    </section>
   );
 }
 
