@@ -5,6 +5,16 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
+type EstadoCliente =
+  | "Ingreso"
+  | "Diagnóstico"
+  | "Cotización"
+  | "Aprobada"
+  | "Rechazada"
+  | "En reparación"
+  | "Listo para entrega"
+  | "Entregado";
+
 type Orden = {
   id: string;
   codigo?: string | null;
@@ -17,42 +27,92 @@ type Orden = {
   tecnico_responsable?: string | null;
 };
 
-const PASOS = [
-  "Ingresada",
+type ClientePortal = {
+  id: string;
+};
+
+const PASOS_BASE = [
+  "Ingreso",
   "Diagnóstico",
   "Cotización",
-  "Aprobada",
-  "En reparación",
-  "Listo p/Entrega",
+  "Aprobada / Rechazada",
+  "En reparación / Trabajo",
+  "Listo para entrega",
   "Entregado",
 ];
 
-function normalizarEstado(estado?: string | null) {
-  if (!estado) return "Ingresada";
+const indicePorEstado: Record<EstadoCliente, number> = {
+  Ingreso: 0,
+  Diagnóstico: 1,
+  Cotización: 2,
+  Aprobada: 3,
+  Rechazada: 3,
+  "En reparación": 4,
+  "Listo para entrega": 5,
+  Entregado: 6,
+};
 
-  const texto = estado.trim().toLowerCase();
+function normalizarEstadoCliente(estado?: string | null): EstadoCliente {
+  if (!estado) return "Ingreso";
 
-  if (texto === "ingreso") return "Ingresada";
-  if (texto === "ingresada") return "Ingresada";
+  const texto = estado
+    .toLowerCase()
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 
-  if (texto === "diagnostico") return "Diagnóstico";
-  if (texto === "diagnóstico") return "Diagnóstico";
+  if (texto.includes("entregado")) return "Entregado";
+  if (texto.includes("listo")) return "Listo para entrega";
+  if (texto.includes("rechaz")) return "Rechazada";
+  if (texto.includes("aprob")) return "Aprobada";
 
-  if (texto === "cotizacion") return "Cotización";
-  if (texto === "cotización") return "Cotización";
+  if (
+    texto.includes("trabajo") ||
+    texto.includes("mantenimiento") ||
+    texto.includes("mant.") ||
+    texto.includes("reparacion") ||
+    texto.includes("repar.")
+  ) {
+    return "En reparación";
+  }
 
-  if (texto === "aprobada") return "Aprobada";
+  if (texto.includes("cotizacion") || texto.includes("comercial")) {
+    return "Cotización";
+  }
 
-  if (texto === "reparacion") return "En reparación";
-  if (texto === "reparación") return "En reparación";
-  if (texto === "en reparación") return "En reparación";
+  if (
+    texto.includes("diagnostico") ||
+    texto.includes("checklist") ||
+    texto.includes("revision") ||
+    texto.includes("jefe")
+  ) {
+    return "Diagnóstico";
+  }
 
-  if (texto === "listo") return "Listo p/Entrega";
-  if (texto === "listo p/entrega") return "Listo p/Entrega";
+  if (texto.includes("ingreso") || texto.includes("ingresada")) {
+    return "Ingreso";
+  }
 
-  if (texto === "entregado") return "Entregado";
+  return "Ingreso";
+}
 
-  return estado;
+function pasosCliente(estadoActual: EstadoCliente) {
+  return PASOS_BASE.map((paso, index) => {
+    if (index === 3) {
+      if (estadoActual === "Rechazada") return "Rechazada";
+
+      if (
+        estadoActual === "Aprobada" ||
+        estadoActual === "En reparación" ||
+        estadoActual === "Listo para entrega" ||
+        estadoActual === "Entregado"
+      ) {
+        return "Aprobada";
+      }
+    }
+
+    return paso;
+  });
 }
 
 function formatFecha(fecha?: string | null) {
@@ -65,18 +125,42 @@ function formatFecha(fecha?: string | null) {
   }
 }
 
-function colorEstado(estado?: string | null) {
-  const actual = normalizarEstado(estado);
-
-  if (actual === "Ingresada") return "bg-slate-100 text-slate-700";
-  if (actual === "Diagnóstico") return "bg-blue-50 text-blue-800";
-  if (actual === "Cotización") return "bg-yellow-50 text-yellow-800";
-  if (actual === "Aprobada") return "bg-indigo-50 text-indigo-800";
-  if (actual === "En reparación") return "bg-orange-50 text-orange-800";
-  if (actual === "Listo p/Entrega") return "bg-green-50 text-green-800";
-  if (actual === "Entregado") return "bg-emerald-50 text-emerald-800";
+function colorEstado(estado: EstadoCliente) {
+  if (estado === "Ingreso") return "bg-slate-100 text-slate-700";
+  if (estado === "Diagnóstico") return "bg-blue-50 text-blue-800";
+  if (estado === "Cotización") return "bg-yellow-50 text-yellow-800";
+  if (estado === "Aprobada") return "bg-green-50 text-green-800";
+  if (estado === "Rechazada") return "bg-red-50 text-red-800";
+  if (estado === "En reparación") return "bg-orange-50 text-orange-800";
+  if (estado === "Listo para entrega") return "bg-emerald-50 text-emerald-800";
+  if (estado === "Entregado") return "bg-slate-900 text-white";
 
   return "bg-slate-100 text-slate-700";
+}
+
+function colorPunto({
+  index,
+  pasoActual,
+  estadoActual,
+}: {
+  index: number;
+  pasoActual: number;
+  estadoActual: EstadoCliente;
+}) {
+  if (estadoActual === "Rechazada" && index === pasoActual) {
+    return "bg-red-600";
+  }
+
+  if (index <= pasoActual) {
+    return "bg-blue-600";
+  }
+
+  return "bg-slate-300";
+}
+
+function colorLinea(estadoActual: EstadoCliente) {
+  if (estadoActual === "Rechazada") return "bg-red-600";
+  return "bg-blue-600";
 }
 
 export default function ClienteServicioTecnicoPage() {
@@ -90,7 +174,10 @@ export default function ClienteServicioTecnicoPage() {
   }, []);
 
   async function cargarOrdenes() {
-    const clienteEmail = localStorage.getItem("cliente_email");
+    const clienteEmail = localStorage
+      .getItem("cliente_email")
+      ?.trim()
+      .toLowerCase();
 
     if (!clienteEmail) {
       router.push("/cliente");
@@ -99,44 +186,94 @@ export default function ClienteServicioTecnicoPage() {
 
     setLoading(true);
 
-    const { data, error } = await supabase
+    const { data: ordenesDirectas, error: errorDirectas } = await supabase
       .from("ordenes")
       .select("*")
-      .eq("cliente_email", clienteEmail.trim().toLowerCase())
+      .eq("cliente_email", clienteEmail)
       .order("created_at", { ascending: false });
 
-    if (error) {
-      console.error(error);
-      alert("Error cargando órdenes: " + error.message);
+    if (errorDirectas) {
+      console.error(errorDirectas);
+      alert("Error cargando órdenes: " + errorDirectas.message);
       setOrdenes([]);
       setLoading(false);
       return;
     }
 
-    setOrdenes((data || []) as Orden[]);
+    let ordenesPorAcceso: Orden[] = [];
+
+    const { data: clienteActual } = await supabase
+      .from("clientes")
+      .select("id")
+      .eq("email", clienteEmail)
+      .maybeSingle();
+
+    const clientePortal = clienteActual as ClientePortal | null;
+
+    if (clientePortal?.id) {
+      const { data: accesos } = await supabase
+        .from("orden_clientes_acceso")
+        .select("orden_id")
+        .eq("cliente_id", clientePortal.id);
+
+      const ordenIds = (accesos || [])
+        .map((acceso: any) => acceso.orden_id)
+        .filter(Boolean);
+
+      if (ordenIds.length > 0) {
+        const { data: ordenesAcceso, error: errorAccesos } = await supabase
+          .from("ordenes")
+          .select("*")
+          .in("id", ordenIds);
+
+        if (!errorAccesos) {
+          ordenesPorAcceso = (ordenesAcceso || []) as Orden[];
+        }
+      }
+    }
+
+    const mapa = new Map<string, Orden>();
+
+    [...((ordenesDirectas || []) as Orden[]), ...ordenesPorAcceso].forEach(
+      (orden) => {
+        if (orden.id) mapa.set(orden.id, orden);
+      }
+    );
+
+    const ordenesFinales = Array.from(mapa.values()).sort((a, b) => {
+      const fechaA = new Date(a.created_at || "").getTime() || 0;
+      const fechaB = new Date(b.created_at || "").getTime() || 0;
+      return fechaB - fechaA;
+    });
+
+    setOrdenes(ordenesFinales);
     setLoading(false);
   }
 
   const resumen = useMemo(() => {
     return {
       total: ordenes.length,
-      ingresadas: ordenes.filter(
-        (o) => normalizarEstado(o.estado) === "Ingresada"
+      ingreso: ordenes.filter(
+        (o) => normalizarEstadoCliente(o.estado) === "Ingreso"
       ).length,
       diagnostico: ordenes.filter(
-        (o) => normalizarEstado(o.estado) === "Diagnóstico"
+        (o) => normalizarEstadoCliente(o.estado) === "Diagnóstico"
       ).length,
       cotizacion: ordenes.filter(
-        (o) => normalizarEstado(o.estado) === "Cotización"
+        (o) => normalizarEstadoCliente(o.estado) === "Cotización"
       ).length,
-      reparacion: ordenes.filter(
-  (o) => normalizarEstado(o.estado) === "En reparación"
-).length,
+      resultado: ordenes.filter((o) => {
+        const estado = normalizarEstadoCliente(o.estado);
+        return estado === "Aprobada" || estado === "Rechazada";
+      }).length,
+      trabajo: ordenes.filter(
+        (o) => normalizarEstadoCliente(o.estado) === "En reparación"
+      ).length,
       listas: ordenes.filter(
-        (o) => normalizarEstado(o.estado) === "Listo p/Entrega"
+        (o) => normalizarEstadoCliente(o.estado) === "Listo para entrega"
       ).length,
       entregadas: ordenes.filter(
-        (o) => normalizarEstado(o.estado) === "Entregado"
+        (o) => normalizarEstadoCliente(o.estado) === "Entregado"
       ).length,
     };
   }, [ordenes]);
@@ -154,14 +291,15 @@ export default function ClienteServicioTecnicoPage() {
     <div className="mx-auto max-w-6xl">
       <h1 className="text-4xl font-bold">Servicio Técnico</h1>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-3 lg:grid-cols-7">
+      <div className="mt-6 grid gap-4 md:grid-cols-4 xl:grid-cols-8">
         <ResumenCard titulo="Total" valor={resumen.total} clase="bg-slate-50" />
-        <ResumenCard titulo="Ingresadas" valor={resumen.ingresadas} clase="bg-slate-50" />
+        <ResumenCard titulo="Ingreso" valor={resumen.ingreso} clase="bg-slate-50" />
         <ResumenCard titulo="Diagnóstico" valor={resumen.diagnostico} clase="bg-blue-50" />
         <ResumenCard titulo="Cotización" valor={resumen.cotizacion} clase="bg-yellow-50" />
-        <ResumenCard titulo="Reparación" valor={resumen.reparacion} clase="bg-orange-50" />
-        <ResumenCard titulo="Listas" valor={resumen.listas} clase="bg-green-50" />
-        <ResumenCard titulo="Entregadas" valor={resumen.entregadas} clase="bg-emerald-50" />
+        <ResumenCard titulo="Aprob./Rech." valor={resumen.resultado} clase="bg-slate-50" />
+        <ResumenCard titulo="Trabajo" valor={resumen.trabajo} clase="bg-orange-50" />
+        <ResumenCard titulo="Listas" valor={resumen.listas} clase="bg-emerald-50" />
+        <ResumenCard titulo="Entregadas" valor={resumen.entregadas} clase="bg-slate-100" />
       </div>
 
       {ordenes.length === 0 ? (
@@ -171,8 +309,9 @@ export default function ClienteServicioTecnicoPage() {
       ) : (
         <div className="mt-10 grid gap-5">
           {ordenes.map((orden) => {
-            const estadoActual = normalizarEstado(orden.estado);
-            const pasoActual = Math.max(PASOS.indexOf(estadoActual), 0);
+            const estadoActual = normalizarEstadoCliente(orden.estado);
+            const pasoActual = indicePorEstado[estadoActual];
+            const pasos = pasosCliente(estadoActual);
 
             return (
               <Link
@@ -228,19 +367,28 @@ export default function ClienteServicioTecnicoPage() {
                     <div className="absolute left-0 top-2 h-1 w-full bg-slate-200" />
 
                     <div
-                      className="absolute left-0 top-2 h-1 bg-orange-500"
+                      className={`absolute left-0 top-2 h-1 ${colorLinea(
+                        estadoActual
+                      )}`}
                       style={{
-                        width: `${((pasoActual + 1) / PASOS.length) * 100}%`,
+                        width: `${(pasoActual / (pasos.length - 1)) * 100}%`,
                       }}
                     />
 
                     <div className="relative flex justify-between">
-                      {PASOS.map((paso, index) => (
-                        <div key={paso} className="flex w-full flex-col items-center">
+                      {pasos.map((paso, index) => (
+                        <div
+                          key={`${orden.id}-${paso}-${index}`}
+                          className="flex w-full flex-col items-center"
+                        >
                           <div
-                            className={`h-5 w-5 rounded-full border-4 border-white ${
-                              index <= pasoActual ? "bg-orange-500" : "bg-slate-300"
-                            }`}
+                            className={`h-5 w-5 rounded-full border-4 border-white ${colorPunto(
+                              {
+                                index,
+                                pasoActual,
+                                estadoActual,
+                              }
+                            )}`}
                           />
 
                           <span
