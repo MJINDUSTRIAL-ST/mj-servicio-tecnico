@@ -5,12 +5,22 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabase";
 
-type EtapaKey =
+type EstadoCliente =
   | "Ingreso"
-  | "Revisión"
+  | "Diagnóstico"
   | "Cotización"
-  | "Mantenimiento"
-  | "Reparación"
+  | "Aprobada"
+  | "Rechazada"
+  | "En reparación"
+  | "Listo para entrega"
+  | "Entregado";
+
+type EtapaVisualKey =
+  | "Ingreso"
+  | "Diagnóstico"
+  | "Cotización"
+  | "Resultado"
+  | "Trabajo"
   | "Listo"
   | "Entregado";
 
@@ -52,33 +62,127 @@ type Reporte = {
   reporte_fotos?: ReporteFoto[];
 };
 
-const etapas: EtapaKey[] = [
-  "Ingreso",
-  "Revisión",
-  "Cotización",
-  "Mantenimiento",
-  "Reparación",
-  "Listo",
-  "Entregado",
-];
-
-const iconos: Record<EtapaKey, string> = {
-  Ingreso: "📦",
-  Revisión: "🔍",
-  Cotización: "📄",
-  Mantenimiento: "⚙️",
-  Reparación: "🔧",
-  Listo: "✅",
-  Entregado: "🚚",
+type ClientePortal = {
+  id: string;
 };
 
-function normalizarEstado(estado?: string | null): EtapaKey {
+const indicePorEstado: Record<EstadoCliente, number> = {
+  Ingreso: 0,
+  Diagnóstico: 1,
+  Cotización: 2,
+  Aprobada: 3,
+  Rechazada: 3,
+  "En reparación": 4,
+  "Listo para entrega": 5,
+  Entregado: 6,
+};
+
+function crearEtapasVisuales(estadoActual: EstadoCliente) {
+  const indiceActual = indicePorEstado[estadoActual];
+
+  let etiquetaResultado = "Aprobada / Rechazada";
+
+  if (estadoActual === "Rechazada") {
+    etiquetaResultado = "Rechazada";
+  }
+
+  if (
+    estadoActual === "Aprobada" ||
+    estadoActual === "En reparación" ||
+    estadoActual === "Listo para entrega" ||
+    estadoActual === "Entregado"
+  ) {
+    etiquetaResultado = "Aprobada";
+  }
+
+  return [
+    {
+      key: "Ingreso" as EtapaVisualKey,
+      label: "Ingreso",
+      icono: "📦",
+      index: 0,
+    },
+    {
+      key: "Diagnóstico" as EtapaVisualKey,
+      label: "Diagnóstico",
+      icono: "🔍",
+      index: 1,
+    },
+    {
+      key: "Cotización" as EtapaVisualKey,
+      label: "Cotización",
+      icono: "📄",
+      index: 2,
+    },
+    {
+      key: "Resultado" as EtapaVisualKey,
+      label: etiquetaResultado,
+      icono: estadoActual === "Rechazada" ? "✖️" : "✅",
+      index: 3,
+    },
+    {
+      key: "Trabajo" as EtapaVisualKey,
+      label: "En reparación / Trabajo",
+      icono: "🔧",
+      index: 4,
+    },
+    {
+      key: "Listo" as EtapaVisualKey,
+      label: "Listo para entrega",
+      icono: "✅",
+      index: 5,
+    },
+    {
+      key: "Entregado" as EtapaVisualKey,
+      label: "Entregado",
+      icono: "🚚",
+      index: 6,
+    },
+  ].map((etapa) => ({
+    ...etapa,
+    completada: etapa.index < indiceActual,
+    activa: etapa.index === indiceActual,
+  }));
+}
+
+function normalizarEstadoCliente(estado?: string | null): EstadoCliente {
   if (!estado) return "Ingreso";
 
-  if (estado === "Mant.") return "Mantenimiento";
-  if (estado === "Repar.") return "Reparación";
-  if (estado === "Listo p/Entrega") return "Listo";
-  if (etapas.includes(estado as EtapaKey)) return estado as EtapaKey;
+  const e = estado
+    .toLowerCase()
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  if (e.includes("entregado")) return "Entregado";
+  if (e.includes("listo")) return "Listo para entrega";
+  if (e.includes("rechaz")) return "Rechazada";
+  if (e.includes("aprob")) return "Aprobada";
+
+  if (
+    e.includes("trabajo") ||
+    e.includes("mantenimiento") ||
+    e.includes("mant.") ||
+    e.includes("reparacion") ||
+    e.includes("repar.")
+  ) {
+    return "En reparación";
+  }
+
+  if (e.includes("cotizacion") || e.includes("comercial")) {
+    return "Cotización";
+  }
+
+  if (
+    e.includes("diagnostico") ||
+    e.includes("checklist") ||
+    e.includes("revision") ||
+    e.includes("jefe")
+  ) {
+    return "Diagnóstico";
+  }
+
+  if (e.includes("ingreso")) return "Ingreso";
 
   return "Ingreso";
 }
@@ -119,47 +223,70 @@ function formatMoneda(valor?: number | null) {
   }).format(valor);
 }
 
-function getCircleClass(etapa: EtapaKey, etapaActual: EtapaKey): string {
-  const actual = etapas.indexOf(etapaActual);
-  const index = etapas.indexOf(etapa);
+function getCircleClass({
+  completada,
+  activa,
+  estadoActual,
+  etapaKey,
+}: {
+  completada: boolean;
+  activa: boolean;
+  estadoActual: EstadoCliente;
+  etapaKey: EtapaVisualKey;
+}) {
+  if (activa && estadoActual === "Rechazada" && etapaKey === "Resultado") {
+    return "bg-red-600 text-white border-red-600";
+  }
 
-  if (index < actual) return "bg-blue-100 text-blue-700 border-blue-200";
-  if (index === actual) return "bg-blue-600 text-white border-blue-600";
+  if (completada) return "bg-blue-100 text-blue-700 border-blue-200";
+  if (activa) return "bg-blue-600 text-white border-blue-600";
+
   return "bg-slate-100 text-slate-400 border-slate-200";
 }
 
-function getTextClass(etapa: EtapaKey, etapaActual: EtapaKey): string {
-  const actual = etapas.indexOf(etapaActual);
-  const index = etapas.indexOf(etapa);
+function getTextClass({
+  completada,
+  activa,
+  estadoActual,
+  etapaKey,
+}: {
+  completada: boolean;
+  activa: boolean;
+  estadoActual: EstadoCliente;
+  etapaKey: EtapaVisualKey;
+}) {
+  if (activa && estadoActual === "Rechazada" && etapaKey === "Resultado") {
+    return "text-red-700 font-semibold";
+  }
 
-  if (index < actual) return "text-blue-600";
-  if (index === actual) return "text-blue-700 font-semibold";
+  if (completada) return "text-blue-600";
+  if (activa) return "text-blue-700 font-semibold";
+
   return "text-slate-400";
 }
 
-function getLineClass(index: number, etapaActual: EtapaKey): string {
-  const actual = etapas.indexOf(etapaActual);
+function getLineClass(index: number, estadoActual: EstadoCliente) {
+  const actual = indicePorEstado[estadoActual];
   return index < actual ? "bg-blue-500" : "bg-slate-200";
 }
 
-function getBadgeClass(etapa: string): string {
-  const etapaNormalizada = normalizarEstado(etapa);
-
-  switch (etapaNormalizada) {
-    case "Listo":
-      return "bg-green-100 text-green-700";
-    case "Mantenimiento":
-      return "bg-cyan-100 text-cyan-700";
-    case "Cotización":
-      return "bg-purple-100 text-purple-700";
-    case "Revisión":
-      return "bg-yellow-100 text-yellow-700";
-    case "Ingreso":
-      return "bg-slate-100 text-slate-700";
-    case "Reparación":
-      return "bg-orange-100 text-orange-700";
+function getBadgeClass(estado: EstadoCliente): string {
+  switch (estado) {
     case "Entregado":
       return "bg-blue-100 text-blue-700";
+    case "Listo para entrega":
+      return "bg-green-100 text-green-700";
+    case "En reparación":
+      return "bg-orange-100 text-orange-700";
+    case "Rechazada":
+      return "bg-red-100 text-red-700";
+    case "Aprobada":
+      return "bg-green-100 text-green-700";
+    case "Cotización":
+      return "bg-purple-100 text-purple-700";
+    case "Diagnóstico":
+      return "bg-yellow-100 text-yellow-700";
+    case "Ingreso":
     default:
       return "bg-slate-100 text-slate-700";
   }
@@ -174,9 +301,13 @@ export default function DetalleServicioClientePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const etapaActual = useMemo(() => {
-    return normalizarEstado(orden?.estado);
+  const estadoCliente = useMemo(() => {
+    return normalizarEstadoCliente(orden?.estado);
   }, [orden?.estado]);
+
+  const etapasVisuales = useMemo(() => {
+    return crearEtapasVisuales(estadoCliente);
+  }, [estadoCliente]);
 
   const fotosIngreso = useMemo(() => {
     return normalizarFotos(orden?.fotos_estado_inicial || null);
@@ -187,25 +318,53 @@ export default function DetalleServicioClientePage() {
       setLoading(true);
       setError("");
 
-      const email = localStorage
-  .getItem("cliente_email")
-  ?.trim()
-  .toLowerCase();
+      const email = localStorage.getItem("cliente_email")?.trim().toLowerCase();
 
-if (!email) {
-  setError("No hay sesión activa");
-  setLoading(false);
-  return;
-}
+      if (!email) {
+        setError("No hay sesión activa");
+        setLoading(false);
+        return;
+      }
 
-      const { data: ordenData, error: ordenError } = await supabase
-  .from("ordenes")
-  .select("*")
-  .eq("id", ordenId)
-  .eq("cliente_email", email)
-  .single();
+      const { data: ordenDirecta } = await supabase
+        .from("ordenes")
+        .select("*")
+        .eq("id", ordenId)
+        .eq("cliente_email", email)
+        .maybeSingle();
 
-      if (ordenError || !ordenData) {
+      let ordenAutorizada = ordenDirecta as Orden | null;
+
+      if (!ordenAutorizada) {
+        const { data: clienteActual } = await supabase
+          .from("clientes")
+          .select("id")
+          .eq("email", email)
+          .maybeSingle();
+
+        const clientePortal = clienteActual as ClientePortal | null;
+
+        if (clientePortal?.id) {
+          const { data: acceso } = await supabase
+            .from("orden_clientes_acceso")
+            .select("id")
+            .eq("orden_id", ordenId)
+            .eq("cliente_id", clientePortal.id)
+            .maybeSingle();
+
+          if (acceso?.id) {
+            const { data: ordenPorAcceso } = await supabase
+              .from("ordenes")
+              .select("*")
+              .eq("id", ordenId)
+              .maybeSingle();
+
+            ordenAutorizada = ordenPorAcceso as Orden | null;
+          }
+        }
+      }
+
+      if (!ordenAutorizada) {
         setError("Orden no encontrada o sin permiso de acceso");
         setLoading(false);
         return;
@@ -225,7 +384,7 @@ if (!email) {
           )
         `
         )
-        .eq("orden_id", ordenData.id)
+        .eq("orden_id", ordenAutorizada.id)
         .order("created_at", { ascending: false });
 
       if (reportesError) {
@@ -245,7 +404,7 @@ if (!email) {
         })
       );
 
-      setOrden(ordenData as Orden);
+      setOrden(ordenAutorizada);
       setReportes(reportesOrdenados);
       setLoading(false);
     };
@@ -273,7 +432,9 @@ if (!email) {
 
   return (
     <main className="space-y-6 p-6">
-     
+      <Link href="/cliente/portal/servicio-tecnico" className="text-blue-600">
+        ← Volver a Servicio Técnico
+      </Link>
 
       <section className="rounded-3xl bg-white p-6 shadow-sm">
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
@@ -281,18 +442,20 @@ if (!email) {
             <p className="text-sm font-semibold text-blue-600">
               Orden de Servicio
             </p>
+
             <h1 className="mt-1 text-4xl font-bold text-slate-900">
               {orden.codigo}
             </h1>
+
             <p className="mt-2 text-lg text-slate-500">{orden.equipo}</p>
           </div>
 
           <span
             className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold ${getBadgeClass(
-              orden.estado
+              estadoCliente
             )}`}
           >
-            {orden.estado}
+            {estadoCliente}
           </span>
         </div>
       </section>
@@ -303,29 +466,40 @@ if (!email) {
         </h2>
 
         <div className="overflow-x-auto">
-          <div className="flex min-w-[760px] items-center justify-between">
-            {etapas.map((etapa, index) => (
-              <div key={etapa} className="flex flex-1 items-center">
+          <div className="flex min-w-[920px] items-center justify-between">
+            {etapasVisuales.map((etapa, index) => (
+              <div key={etapa.key} className="flex flex-1 items-center">
                 <div className="flex flex-col items-center gap-2">
                   <div
                     className={`flex h-14 w-14 items-center justify-center rounded-full border text-xl ${getCircleClass(
-                      etapa,
-                      etapaActual
+                      {
+                        completada: etapa.completada,
+                        activa: etapa.activa,
+                        estadoActual: estadoCliente,
+                        etapaKey: etapa.key,
+                      }
                     )}`}
                   >
-                    {iconos[etapa]}
+                    {etapa.icono}
                   </div>
 
-                  <span className={`text-sm ${getTextClass(etapa, etapaActual)}`}>
-                    {etapa}
+                  <span
+                    className={`text-center text-sm ${getTextClass({
+                      completada: etapa.completada,
+                      activa: etapa.activa,
+                      estadoActual: estadoCliente,
+                      etapaKey: etapa.key,
+                    })}`}
+                  >
+                    {etapa.label}
                   </span>
                 </div>
 
-                {index < etapas.length - 1 && (
+                {index < etapasVisuales.length - 1 && (
                   <div
                     className={`mx-3 h-[3px] flex-1 rounded-full ${getLineClass(
                       index,
-                      etapaActual
+                      estadoCliente
                     )}`}
                   />
                 )}
@@ -347,7 +521,7 @@ if (!email) {
           <InfoItem label="Modelo" value={orden.modelo} />
           <InfoItem label="Número de serie" value={orden.numero_serie} />
           <InfoItem label="Prioridad" value={orden.prioridad} />
-          <InfoItem label="Estado actual" value={orden.estado} />
+          <InfoItem label="Estado actual" value={estadoCliente} />
           <InfoItem
             label="Fecha de ingreso"
             value={formatFecha(orden.created_at)}
@@ -384,6 +558,7 @@ if (!email) {
                 key={`${foto}-${i}`}
                 href={foto}
                 target="_blank"
+                rel="noopener noreferrer"
                 className="block overflow-hidden rounded-2xl border bg-slate-100"
               >
                 <img
@@ -410,6 +585,7 @@ if (!email) {
           <div className="space-y-5">
             {reportes.map((reporte) => {
               const fotos = reporte.reporte_fotos || [];
+              const estadoReporte = normalizarEstadoCliente(reporte.etapa);
 
               return (
                 <article
@@ -419,10 +595,10 @@ if (!email) {
                   <div className="mb-4 flex flex-col justify-between gap-2 md:flex-row md:items-center">
                     <span
                       className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${getBadgeClass(
-                        reporte.etapa
+                        estadoReporte
                       )}`}
                     >
-                      {normalizarEstado(reporte.etapa)}
+                      {estadoReporte}
                     </span>
 
                     <span className="text-sm text-slate-500">
@@ -441,11 +617,17 @@ if (!email) {
                   )}
 
                   {reporte.acciones && (
-                    <InfoBlock label="Acciones realizadas" value={reporte.acciones} />
+                    <InfoBlock
+                      label="Acciones realizadas"
+                      value={reporte.acciones}
+                    />
                   )}
 
                   {reporte.costo != null && (
-                    <InfoBlock label="Costo informado" value={formatMoneda(reporte.costo)} />
+                    <InfoBlock
+                      label="Costo informado"
+                      value={formatMoneda(reporte.costo)}
+                    />
                   )}
 
                   {fotos.length > 0 && (
@@ -460,6 +642,7 @@ if (!email) {
                             key={foto.id}
                             href={foto.foto_url}
                             target="_blank"
+                            rel="noopener noreferrer"
                             className="block overflow-hidden rounded-xl border bg-white"
                           >
                             <img
