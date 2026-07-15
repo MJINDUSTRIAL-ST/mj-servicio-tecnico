@@ -78,8 +78,6 @@ const indicePorEstado: Record<EstadoCliente, number> = {
 };
 
 function crearEtapasVisuales(estadoActual: EstadoCliente) {
-  const indiceActual = indicePorEstado[estadoActual];
-
   let etiquetaResultado = "Aprobada / Rechazada";
 
   if (estadoActual === "Rechazada") {
@@ -99,49 +97,49 @@ function crearEtapasVisuales(estadoActual: EstadoCliente) {
     {
       key: "Ingreso" as EtapaVisualKey,
       label: "Ingreso",
-      icono: "📦",
+      numero: "1",
       index: 0,
     },
     {
       key: "Diagnóstico" as EtapaVisualKey,
       label: "Diagnóstico",
-      icono: "🔍",
+      numero: "2",
       index: 1,
     },
     {
       key: "Cotización" as EtapaVisualKey,
       label: "Cotización",
-      icono: "📄",
+      numero: "3",
       index: 2,
     },
     {
       key: "Resultado" as EtapaVisualKey,
       label: etiquetaResultado,
-      icono: estadoActual === "Rechazada" ? "✖️" : "✅",
+      numero: "4",
       index: 3,
     },
     {
       key: "Trabajo" as EtapaVisualKey,
       label: "En reparación / Trabajo",
-      icono: "🔧",
+      numero: "5",
       index: 4,
     },
     {
       key: "Listo" as EtapaVisualKey,
       label: "Listo para entrega",
-      icono: "✅",
+      numero: "6",
       index: 5,
     },
     {
       key: "Entregado" as EtapaVisualKey,
       label: "Entregado",
-      icono: "🚚",
+      numero: "7",
       index: 6,
     },
   ].map((etapa) => ({
     ...etapa,
-    completada: etapa.index < indiceActual,
-    activa: etapa.index === indiceActual,
+    completada: etapa.index < indicePorEstado[estadoActual],
+    activa: etapa.index === indicePorEstado[estadoActual],
   }));
 }
 
@@ -182,7 +180,7 @@ function normalizarEstadoCliente(estado?: string | null): EstadoCliente {
     return "Diagnóstico";
   }
 
-  if (e.includes("ingreso")) return "Ingreso";
+  if (e.includes("ingreso") || e.includes("ingresada")) return "Ingreso";
 
   return "Ingreso";
 }
@@ -267,25 +265,30 @@ function getTextClass({
 
 function getLineClass(index: number, estadoActual: EstadoCliente) {
   const actual = indicePorEstado[estadoActual];
+
+  if (estadoActual === "Rechazada" && index < actual) {
+    return "bg-red-500";
+  }
+
   return index < actual ? "bg-blue-500" : "bg-slate-200";
 }
 
 function getBadgeClass(estado: EstadoCliente): string {
   switch (estado) {
     case "Entregado":
-      return "bg-blue-100 text-blue-700";
+      return "bg-slate-900 text-white";
     case "Listo para entrega":
-      return "bg-green-100 text-green-700";
+      return "bg-emerald-50 text-emerald-800";
     case "En reparación":
-      return "bg-orange-100 text-orange-700";
+      return "bg-orange-50 text-orange-800";
     case "Rechazada":
-      return "bg-red-100 text-red-700";
+      return "bg-red-50 text-red-800";
     case "Aprobada":
-      return "bg-green-100 text-green-700";
+      return "bg-green-50 text-green-800";
     case "Cotización":
-      return "bg-purple-100 text-purple-700";
+      return "bg-yellow-50 text-yellow-800";
     case "Diagnóstico":
-      return "bg-yellow-100 text-yellow-700";
+      return "bg-blue-50 text-blue-800";
     case "Ingreso":
     default:
       return "bg-slate-100 text-slate-700";
@@ -471,7 +474,7 @@ export default function DetalleServicioClientePage() {
               <div key={etapa.key} className="flex flex-1 items-center">
                 <div className="flex flex-col items-center gap-2">
                   <div
-                    className={`flex h-14 w-14 items-center justify-center rounded-full border text-xl ${getCircleClass(
+                    className={`flex h-12 w-12 items-center justify-center rounded-full border text-sm font-bold ${getCircleClass(
                       {
                         completada: etapa.completada,
                         activa: etapa.activa,
@@ -480,7 +483,7 @@ export default function DetalleServicioClientePage() {
                       }
                     )}`}
                   >
-                    {etapa.icono}
+                    {etapa.numero}
                   </div>
 
                   <span
