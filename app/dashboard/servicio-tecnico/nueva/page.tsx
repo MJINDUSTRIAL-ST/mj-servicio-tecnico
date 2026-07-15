@@ -1,9 +1,15 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 import { useSearchParams } from "next/navigation";
+
+type Empresa = {
+  id: string;
+  nombre: string;
+  rut?: string | null;
+};
 
 type Cliente = {
   id: string;
@@ -51,6 +57,8 @@ function NuevaOrdenContenido() {
   const editar = searchParams.get("editar") === "1";
   const ordenId = searchParams.get("id");
 
+  const [empresas, setEmpresas] = useState<Empresa[]>([]);
+  const [empresaId, setEmpresaId] = useState("");
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [clienteId, setClienteId] = useState("");
 
@@ -75,11 +83,26 @@ function NuevaOrdenContenido() {
   const [documentos, setDocumentos] = useState<DocumentoOrden[]>([]);
   const [guardando, setGuardando] = useState(false);
 
+  const clientesFiltrados = useMemo(() => {
+    if (!empresaId) {
+      return clientes.filter((cliente) => !cliente.empresa_id);
+    }
+
+    return clientes.filter((cliente) => cliente.empresa_id === empresaId);
+  }, [clientes, empresaId]);
+
   useEffect(() => {
     cargarDatosIniciales();
   }, []);
 
   async function cargarDatosIniciales() {
+    const { data: empresasData } = await supabase
+      .from("empresas")
+      .select("id,nombre,rut")
+      .order("nombre", { ascending: true });
+
+    setEmpresas((empresasData || []) as Empresa[]);
+
     const { data: clientesData } = await supabase
       .from("clientes")
       .select("id, nombre, email, empresa, empresa_id")
@@ -152,6 +175,9 @@ function NuevaOrdenContenido() {
 
     if (clienteEncontrado) {
       setClienteId(clienteEncontrado.id);
+      setEmpresaId(clienteEncontrado.empresa_id || "");
+    } else if (orden.empresa_id) {
+      setEmpresaId(orden.empresa_id);
     }
 
     if (orden.es_lote) {
@@ -196,6 +222,11 @@ function NuevaOrdenContenido() {
       return copia;
     });
   }, [cantidadEquipos]);
+
+  function cambiarEmpresa(id: string) {
+    setEmpresaId(id);
+    setClienteId("");
+  }
 
   function actualizarEquipoLote(
     index: number,
@@ -344,10 +375,13 @@ function NuevaOrdenContenido() {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
+    const empresaSeleccionada =
+      empresas.find((empresa) => empresa.id === empresaId) || null;
+
     const clienteSeleccionado = clientes.find((c) => c.id === clienteId);
 
     if (!clienteSeleccionado) {
-      alert("Selecciona un cliente");
+      alert("Selecciona un cliente solicitante");
       return;
     }
 
@@ -384,7 +418,8 @@ function NuevaOrdenContenido() {
     try {
       const datosClienteOrden = {
         cliente_id: clienteSeleccionado.id,
-        empresa_id: clienteSeleccionado.empresa_id || null,
+        empresa_id:
+          empresaSeleccionada?.id || clienteSeleccionado.empresa_id || null,
         cliente: clienteSeleccionado.nombre,
         cliente_email: clienteSeleccionado.email.trim().toLowerCase(),
       };
@@ -667,29 +702,68 @@ function NuevaOrdenContenido() {
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-6">
-          <h2 className="mb-4 text-lg font-bold">Cliente</h2>
+          <h2 className="mb-4 text-lg font-bold">Empresa / Cliente</h2>
 
-          <select
-            value={clienteId}
-            onChange={(e) => setClienteId(e.target.value)}
-            required
-            className="w-full rounded-lg border border-slate-300 px-3 py-3"
-          >
-            <option value="">Seleccionar cliente...</option>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-semibold">
+                Empresa asociada
+              </label>
 
-            {clientes.map((cliente) => (
-              <option key={cliente.id} value={cliente.id}>
-                {cliente.nombre}
-                {cliente.empresa ? ` — ${cliente.empresa}` : " — Persona natural"}
-                {cliente.email ? ` (${cliente.email})` : ""}
-              </option>
-            ))}
-          </select>
+              <select
+                value={empresaId}
+                onChange={(e) => cambiarEmpresa(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-3"
+              >
+                <option value="">Sin empresa / persona natural</option>
 
-          <p className="mt-2 text-xs text-slate-500">
-            La OT guardará el cliente solicitante y, si corresponde, la empresa
-            asociada.
-          </p>
+                {empresas.map((empresa) => (
+                  <option key={empresa.id} value={empresa.id}>
+                    {empresa.nombre}
+                    {empresa.rut ? ` — ${empresa.rut}` : ""}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs text-slate-500">
+                Si corresponde a una empresa, selecciónala primero.
+              </p>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-semibold">
+                Cliente solicitante *
+              </label>
+
+              <select
+                value={clienteId}
+                onChange={(e) => setClienteId(e.target.value)}
+                required
+                className="w-full rounded-lg border border-slate-300 px-3 py-3"
+              >
+                <option value="">Seleccionar cliente...</option>
+
+                {clientesFiltrados.map((cliente) => (
+                  <option key={cliente.id} value={cliente.id}>
+                    {cliente.nombre}
+                    {cliente.email ? ` (${cliente.email})` : ""}
+                  </option>
+                ))}
+              </select>
+
+              {clientesFiltrados.length === 0 ? (
+                <p className="mt-2 text-xs font-semibold text-orange-700">
+                  No hay clientes asociados a esta opción. Crea el cliente o
+                  revisa su empresa asociada.
+                </p>
+              ) : (
+                <p className="mt-2 text-xs text-slate-500">
+                  La OT quedará vinculada a este cliente y a la empresa
+                  seleccionada.
+                </p>
+              )}
+            </div>
+          </div>
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-6">
@@ -745,13 +819,32 @@ function NuevaOrdenContenido() {
                     <option value="Winche">Winche</option>
                     <option value="Tirfor">Tirfor</option>
                     <option value="Minifor">Minifor</option>
-                    <option value="Transpaleta eléctrica">Transpaleta eléctrica</option>
+                    <option value="Transpaleta eléctrica">
+                      Transpaleta eléctrica
+                    </option>
                   </select>
                 </div>
 
-                <InputTexto label="Marca" value={marca} setValue={setMarca} placeholder="Marca" />
-                <InputTexto label="Modelo" value={modelo} setValue={setModelo} placeholder="Modelo" />
-                <InputTexto label="Número de Serie" value={numeroSerie} setValue={setNumeroSerie} placeholder="S/N" />
+                <InputTexto
+                  label="Marca"
+                  value={marca}
+                  setValue={setMarca}
+                  placeholder="Marca"
+                />
+
+                <InputTexto
+                  label="Modelo"
+                  value={modelo}
+                  setValue={setModelo}
+                  placeholder="Modelo"
+                />
+
+                <InputTexto
+                  label="Número de Serie"
+                  value={numeroSerie}
+                  setValue={setNumeroSerie}
+                  placeholder="S/N"
+                />
               </div>
 
               <div className="mt-4">
@@ -766,7 +859,10 @@ function NuevaOrdenContenido() {
           )}
 
           <div className="mt-4">
-            <label className="mb-1 block text-sm font-semibold">Prioridad</label>
+            <label className="mb-1 block text-sm font-semibold">
+              Prioridad
+            </label>
+
             <select
               value={prioridad}
               onChange={(e) => setPrioridad(e.target.value)}
@@ -829,11 +925,15 @@ function NuevaOrdenContenido() {
                         <option value="">Seleccionar tipo de equipo...</option>
                         <option value="Tecle eléctrico">Tecle eléctrico</option>
                         <option value="Tecle manual">Tecle manual</option>
-                        <option value="Tecle de palanca">Tecle de palanca</option>
+                        <option value="Tecle de palanca">
+                          Tecle de palanca
+                        </option>
                         <option value="Winche">Winche</option>
                         <option value="Tirfor">Tirfor</option>
                         <option value="Minifor">Minifor</option>
-                        <option value="Transpaleta eléctrica">Transpaleta eléctrica</option>
+                        <option value="Transpaleta eléctrica">
+                          Transpaleta eléctrica
+                        </option>
                       </select>
                     </div>
 
@@ -895,6 +995,7 @@ function NuevaOrdenContenido() {
                     <label className="mb-1 block text-sm font-semibold">
                       Observaciones
                     </label>
+
                     <textarea
                       value={item.observaciones_iniciales}
                       onChange={(e) =>
@@ -981,6 +1082,7 @@ function NuevaOrdenContenido() {
             <label className="mb-1 block text-sm font-semibold">
               Descripción del problema *
             </label>
+
             <textarea
               placeholder="Describa el problema que presenta el equipo o lote..."
               value={problemaReportado}
@@ -992,6 +1094,7 @@ function NuevaOrdenContenido() {
             <label className="mb-1 mt-4 block text-sm font-semibold">
               Observaciones iniciales
             </label>
+
             <textarea
               placeholder="Estado visual, golpes, desgaste..."
               value={observacionesIniciales}
@@ -1018,6 +1121,7 @@ function NuevaOrdenContenido() {
               capture
               onChange={agregarFotos}
             />
+
             <InputFoto
               label="Subir desde galería"
               descripcion="Selecciona fotos guardadas"
@@ -1028,6 +1132,7 @@ function NuevaOrdenContenido() {
           {fotos.length > 0 && (
             <div className="mt-4 space-y-2 text-sm text-slate-600">
               <p className="font-semibold">Fotos generales seleccionadas:</p>
+
               {fotos.map((foto, index) => (
                 <div
                   key={`${foto.name}-${foto.lastModified}-${index}`}
@@ -1063,16 +1168,19 @@ function NuevaOrdenContenido() {
               tipo="orden-compra"
               onChange={agregarDocumentos}
             />
+
             <InputPDF
               label="Cotización PDF"
               tipo="cotizacion"
               onChange={agregarDocumentos}
             />
+
             <InputPDF
               label="Informe recibido PDF"
               tipo="informe-recibido"
               onChange={agregarDocumentos}
             />
+
             <InputPDF
               label="Otros documentos PDF"
               tipo="otros"
@@ -1158,6 +1266,7 @@ function InputTexto({
   return (
     <div>
       <label className="mb-1 block text-sm font-semibold">{label}</label>
+
       <input
         placeholder={placeholder}
         value={value}
@@ -1183,6 +1292,7 @@ function InputFoto({
   return (
     <div className="rounded-xl border border-dashed border-slate-300 bg-white p-6">
       <p className="font-semibold">{label}</p>
+
       <p className="mb-3 text-sm text-slate-500">{descripcion}</p>
 
       <input
@@ -1213,7 +1323,9 @@ function InputPDF({
   return (
     <label className="block cursor-pointer rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center hover:bg-slate-50">
       <span className="block text-2xl">📄</span>
+
       <span className="mt-2 block font-semibold">{label}</span>
+
       <span className="mt-1 block text-sm text-slate-500">
         Seleccionar archivo PDF
       </span>
