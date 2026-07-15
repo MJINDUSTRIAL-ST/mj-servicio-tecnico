@@ -84,12 +84,8 @@ function NuevaOrdenContenido() {
   const [guardando, setGuardando] = useState(false);
 
   const clientesFiltrados = useMemo(() => {
-    if (!empresaId) {
-      return clientes.filter((cliente) => !cliente.empresa_id);
-    }
-
-    return clientes.filter((cliente) => cliente.empresa_id === empresaId);
-  }, [clientes, empresaId]);
+  return clientes;
+}, [clientes]);
 
   useEffect(() => {
     cargarDatosIniciales();
@@ -752,16 +748,14 @@ function NuevaOrdenContenido() {
               </select>
 
               {clientesFiltrados.length === 0 ? (
-                <p className="mt-2 text-xs font-semibold text-orange-700">
-                  No hay clientes asociados a esta opción. Crea el cliente o
-                  revisa su empresa asociada.
-                </p>
-              ) : (
-                <p className="mt-2 text-xs text-slate-500">
-                  La OT quedará vinculada a este cliente y a la empresa
-                  seleccionada.
-                </p>
-              )}
+  <p className="mt-2 text-xs font-semibold text-orange-700">
+    No hay clientes creados. Primero crea un cliente en el módulo Clientes.
+  </p>
+) : (
+  <p className="mt-2 text-xs text-slate-500">
+    La OT quedará vinculada a la empresa seleccionada y al cliente solicitante.
+  </p>
+)}
             </div>
           </div>
         </section>
