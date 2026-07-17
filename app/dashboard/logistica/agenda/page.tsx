@@ -40,9 +40,15 @@ type EventoLogistica = {
   observacion: string | null;
   orden_id: string | null;
   codigo_ot: string | null;
+  producto_equipo?: string | null;
   origen: OrigenLogistica | string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  recibido_por?: string | null;
+  entrega_foto_url?: string | null;
+  entrega_foto_path?: string | null;
+  entrega_observacion?: string | null;
+  entregado_at?: string | null;
 };
 
 type FormularioLogistica = {
@@ -358,6 +364,25 @@ function validarUUID(valor: string) {
   );
 }
 
+function limpiarNombreArchivo(nombre: string) {
+  return nombre
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .replace(/-+/g, "-")
+    .toLowerCase();
+}
+
+function fechaHoraEntrega(fecha?: string | null) {
+  if (!fecha) return "-";
+
+  try {
+    return new Date(fecha).toLocaleString("es-CL");
+  } catch {
+    return fecha;
+  }
+}
+
 export default function AgendaOperativaPage() {
   const [eventos, setEventos] = useState<EventoLogistica[]>([]);
   const [fechaActual, setFechaActual] = useState(() => new Date());
@@ -386,6 +411,21 @@ export default function AgendaOperativaPage() {
     useState<FiltroRapido | null>(null);
 
   const [mostrarTodosResumen, setMostrarTodosResumen] = useState(false);
+
+  const [despachoAProgramar, setDespachoAProgramar] =
+    useState<EventoLogistica | null>(null);
+  const [fechaProgramacion, setFechaProgramacion] = useState(fechaHoyISO());
+  const [horaProgramacion, setHoraProgramacion] = useState("");
+  const [observacionProgramacion, setObservacionProgramacion] = useState("");
+  const [guardandoProgramacion, setGuardandoProgramacion] = useState(false);
+
+  const [eventoAEntregar, setEventoAEntregar] =
+    useState<EventoLogistica | null>(null);
+  const [recibidoPor, setRecibidoPor] = useState("");
+  const [fotoEntrega, setFotoEntrega] = useState<File | null>(null);
+  const [fotoEntregaPreview, setFotoEntregaPreview] = useState("");
+  const [observacionEntrega, setObservacionEntrega] = useState("");
+  const [guardandoEntrega, setGuardandoEntrega] = useState(false);
 
   useEffect(() => {
     cargarEventos();
@@ -498,6 +538,315 @@ export default function AgendaOperativaPage() {
   function abrirEditar(evento: EventoLogistica) {
     setFormulario(convertirEventoAFormulario(evento));
     setMostrarFormulario(true);
+  }
+
+  function abrirProgramarDespacho(evento: EventoLogistica) {
+    setDespachoAProgramar(evento);
+    setFechaProgramacion(evento.fecha || fechaHoyISO());
+    setHoraProgramacion(evento.hora ? evento.hora.slice(0, 5) : "");
+    setObservacionProgramacion(evento.observacion || "");
+  }
+
+  function cerrarProgramacionDespacho() {
+    if (guardandoProgramacion) return;
+
+    setDespachoAProgramar(null);
+    setFechaProgramacion(fechaHoyISO());
+    setHoraProgramacion("");
+    setObservacionProgramacion("");
+  }
+
+  async function guardarProgramacionDespacho() {
+    if (!despachoAProgramar) return;
+
+    if (!fechaProgramacion) {
+      alert("Debes seleccionar la fecha del despacho.");
+      return;
+    }
+
+    if (!horaProgramacion) {
+      alert("Debes seleccionar la hora del despacho.");
+      return;
+    }
+
+    setGuardandoProgramacion(true);
+
+    const { error: errorActualizar } = await supabase
+      .from("agenda_logistica")
+      .update({
+        fecha: fechaProgramacion,
+        hora: horaProgramacion,
+        observacion: observacionProgramacion.trim() || null,
+        estado: "agendado",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", despachoAProgramar.id);
+
+    if (errorActualizar) {
+      setGuardandoProgramacion(false);
+      alert(
+        errorActualizar.message ||
+          "No se pudo agendar el despacho.",
+      );
+      return;
+    }
+
+    let correoEnviado = true;
+
+    if (despachoAProgramar.email) {
+      try {
+        const respuestaCorreo = await fetch(
+          "/api/enviar-correo-programacion-despacho",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              email: despachoAProgramar.email,
+              producto:
+                despachoAProgramar.producto_equipo ||
+                despachoAProgramar.codigo_ot ||
+                "Equipo",
+              fecha: fechaProgramacion,
+              hora: horaProgramacion,
+              numero: despachoAProgramar.codigo_ot,
+            }),
+          },
+        );
+
+        const resultadoCorreo = await respuestaCorreo.json();
+        correoEnviado = respuestaCorreo.ok && resultadoCorreo?.success;
+      } catch (errorCorreo) {
+        console.error(
+          "Error enviando correo de despacho programado:",
+          errorCorreo,
+        );
+        correoEnviado = false;
+      }
+    }
+
+    const fechaAgendada = fechaProgramacion;
+
+    setGuardandoProgramacion(false);
+    cerrarProgramacionDespacho();
+
+    const fechaEvento = new Date(`${fechaAgendada}T12:00:00`);
+    setFechaActual(
+      new Date(
+        fechaEvento.getFullYear(),
+        fechaEvento.getMonth(),
+        1,
+      ),
+    );
+    setFechaSeleccionada(fechaAgendada);
+
+    await cargarEventos();
+
+    if (!correoEnviado) {
+      alert(
+        "El despacho quedó agendado, pero no se pudo enviar el correo al cliente.",
+      );
+      return;
+    }
+
+    alert("Despacho agendado correctamente.");
+  }
+
+  function abrirRegistrarEntrega(evento: EventoLogistica) {
+    setEventoAEntregar(evento);
+    setRecibidoPor(evento.recibido_por || evento.contacto || "");
+    setFotoEntrega(null);
+    setFotoEntregaPreview("");
+    setObservacionEntrega(evento.entrega_observacion || "");
+  }
+
+  function cerrarRegistrarEntrega(forzar = false) {
+    if (guardandoEntrega && !forzar) return;
+
+    if (fotoEntregaPreview) {
+      URL.revokeObjectURL(fotoEntregaPreview);
+    }
+
+    setEventoAEntregar(null);
+    setRecibidoPor("");
+    setFotoEntrega(null);
+    setFotoEntregaPreview("");
+    setObservacionEntrega("");
+  }
+
+  function seleccionarFotoEntrega(archivo?: File | null) {
+    if (fotoEntregaPreview) {
+      URL.revokeObjectURL(fotoEntregaPreview);
+    }
+
+    if (!archivo) {
+      setFotoEntrega(null);
+      setFotoEntregaPreview("");
+      return;
+    }
+
+    if (!archivo.type.startsWith("image/")) {
+      alert("Debes seleccionar una imagen.");
+      setFotoEntrega(null);
+      setFotoEntregaPreview("");
+      return;
+    }
+
+    setFotoEntrega(archivo);
+    setFotoEntregaPreview(URL.createObjectURL(archivo));
+  }
+
+  async function registrarEntrega() {
+    if (!eventoAEntregar) return;
+
+    if (!recibidoPor.trim()) {
+      alert("Debes ingresar el nombre de la persona que recibe.");
+      return;
+    }
+
+    if (!fotoEntrega) {
+      alert("Debes tomar o seleccionar una foto de la entrega.");
+      return;
+    }
+
+    setGuardandoEntrega(true);
+
+    let storagePath = "";
+
+    try {
+      const nombreSeguro = limpiarNombreArchivo(
+        fotoEntrega.name || `entrega-${Date.now()}.jpg`,
+      );
+
+      storagePath = `entregas/${eventoAEntregar.id}/${Date.now()}-${nombreSeguro}`;
+
+      const { error: errorUpload } = await supabase.storage
+        .from("reportes")
+        .upload(storagePath, fotoEntrega, {
+          cacheControl: "3600",
+          upsert: true,
+        });
+
+      if (errorUpload) {
+        throw new Error(errorUpload.message);
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from("reportes")
+        .getPublicUrl(storagePath);
+
+      const fotoUrl = publicUrlData.publicUrl;
+      const entregadoAt = new Date().toISOString();
+
+      const { error: errorAgenda } = await supabase
+        .from("agenda_logistica")
+        .update({
+          estado: "realizado",
+          recibido_por: recibidoPor.trim(),
+          entrega_foto_url: fotoUrl,
+          entrega_foto_path: storagePath,
+          entrega_observacion: observacionEntrega.trim() || null,
+          entregado_at: entregadoAt,
+          updated_at: entregadoAt,
+        })
+        .eq("id", eventoAEntregar.id);
+
+      if (errorAgenda) {
+        throw new Error(errorAgenda.message);
+      }
+
+      let ordenActualizada = true;
+
+      if (eventoAEntregar.origen === "servicio_tecnico") {
+        if (eventoAEntregar.orden_id) {
+          const { error: errorOrden } = await supabase
+            .from("ordenes")
+            .update({ estado: "entregado" })
+            .eq("id", eventoAEntregar.orden_id);
+
+          ordenActualizada = !errorOrden;
+        } else if (eventoAEntregar.codigo_ot) {
+          const { error: errorOrdenCodigo } = await supabase
+            .from("ordenes")
+            .update({ estado: "entregado" })
+            .eq("codigo", eventoAEntregar.codigo_ot);
+
+          ordenActualizada = !errorOrdenCodigo;
+        }
+      }
+
+      let correoEnviado = true;
+
+      if (eventoAEntregar.email) {
+        try {
+          const respuestaCorreo = await fetch("/api/enviar-correo-entregado", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              email: eventoAEntregar.email,
+              cliente: eventoAEntregar.cliente,
+              producto:
+                eventoAEntregar.producto_equipo ||
+                eventoAEntregar.codigo_ot ||
+                "Equipo",
+              numero: eventoAEntregar.codigo_ot,
+              recibidoPor: recibidoPor.trim(),
+              fechaEntrega: entregadoAt,
+              fotoUrl,
+              observacion: observacionEntrega.trim() || null,
+            }),
+          });
+
+          const resultadoCorreo = await respuestaCorreo.json();
+          correoEnviado = respuestaCorreo.ok && resultadoCorreo?.success;
+        } catch (errorCorreo) {
+          console.error("Error enviando correo de entrega:", errorCorreo);
+          correoEnviado = false;
+        }
+      }
+
+      cerrarRegistrarEntrega(true);
+      await cargarEventos();
+
+      if (!ordenActualizada && !correoEnviado) {
+        alert(
+          "La entrega quedó registrada, pero no se pudo actualizar la OT ni enviar el correo al cliente.",
+        );
+        return;
+      }
+
+      if (!ordenActualizada) {
+        alert(
+          "La entrega quedó registrada y el correo fue enviado, pero no se pudo actualizar la OT a Entregado.",
+        );
+        return;
+      }
+
+      if (!correoEnviado) {
+        alert(
+          "La entrega quedó registrada y la OT fue actualizada, pero no se pudo enviar el correo al cliente.",
+        );
+        return;
+      }
+
+      alert("Entrega registrada correctamente. El cliente fue notificado.");
+    } catch (error: unknown) {
+      if (storagePath) {
+        await supabase.storage.from("reportes").remove([storagePath]);
+      }
+
+      const mensaje =
+        error instanceof Error
+          ? error.message
+          : "No se pudo registrar la entrega.";
+
+      alert(mensaje);
+    } finally {
+      setGuardandoEntrega(false);
+    }
   }
 
   function actualizarFormulario(
@@ -1395,103 +1744,359 @@ export default function AgendaOperativaPage() {
                     </p>
                   ) : null}
 
-                  <div className="eventActions">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        abrirEditar(evento)
-                      }
-                    >
-                      Editar
-                    </button>
-
-                    {evento.orden_id ? (
-                      <Link
-                        href={`/dashboard/servicio-tecnico/${evento.orden_id}`}
-                        className="linkButton"
-                      >
-                        Ver OT
-                      </Link>
-                    ) : null}
-
-                    {evento.estado !==
-                    "agendado" ? (
+                  {normalizarTipo(evento.tipo) === "despacho" &&
+                  evento.estado === "solicitado" ? (
+                    <div className="eventActions singleAction">
                       <button
                         type="button"
-                        onClick={() =>
-                          cambiarEstado(
-                            evento,
-                            "agendado",
-                          )
-                        }
+                        className="scheduleButton"
+                        onClick={() => abrirProgramarDespacho(evento)}
                       >
-                        Agendado
+                        Agendar despacho
                       </button>
-                    ) : null}
-
-                    {evento.estado !==
-                    "en_ruta" ? (
+                    </div>
+                  ) : evento.estado === "agendado" ||
+                    evento.estado === "en_ruta" ? (
+                    <div className="eventActions singleAction">
                       <button
                         type="button"
-                        onClick={() =>
-                          cambiarEstado(
-                            evento,
-                            "en_ruta",
-                          )
-                        }
+                        className="deliveryButton"
+                        onClick={() => abrirRegistrarEntrega(evento)}
                       >
-                        En ruta
+                        Registrar entrega
                       </button>
-                    ) : null}
+                    </div>
+                  ) : evento.estado === "realizado" ? (
+                    <div className="deliveryEvidence">
+                      <div>
+                        <span>Recibido por</span>
+                        <strong>{evento.recibido_por || "Sin información"}</strong>
+                      </div>
 
-                    {evento.estado !==
-                    "realizado" ? (
+                      <div>
+                        <span>Fecha de entrega</span>
+                        <strong>{fechaHoraEntrega(evento.entregado_at)}</strong>
+                      </div>
+
+                      {evento.entrega_observacion ? (
+                        <p>{evento.entrega_observacion}</p>
+                      ) : null}
+
+                      {evento.entrega_foto_url ? (
+                        <a
+                          href={evento.entrega_foto_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="evidencePhoto"
+                        >
+                          Ver foto de entrega
+                        </a>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="eventActions">
                       <button
                         type="button"
-                        className="success"
-                        onClick={() =>
-                          cambiarEstado(
-                            evento,
-                            "realizado",
-                          )
-                        }
+                        onClick={() => abrirEditar(evento)}
                       >
-                        Realizado
+                        Editar
                       </button>
-                    ) : null}
 
-                    {evento.estado !==
-                    "cancelado" ? (
+                      {evento.orden_id ? (
+                        <Link
+                          href={`/dashboard/servicio-tecnico/${evento.orden_id}`}
+                          className="linkButton"
+                        >
+                          Ver OT
+                        </Link>
+                      ) : null}
+
+                      {evento.estado !== "cancelado" ? (
+                        <button
+                          type="button"
+                          className="warning"
+                          onClick={() => cambiarEstado(evento, "cancelado")}
+                        >
+                          Cancelar
+                        </button>
+                      ) : null}
+
                       <button
                         type="button"
-                        className="warning"
-                        onClick={() =>
-                          cambiarEstado(
-                            evento,
-                            "cancelado",
-                          )
-                        }
+                        className="danger"
+                        onClick={() => eliminarEvento(evento)}
                       >
-                        Cancelar
+                        Eliminar
                       </button>
-                    ) : null}
-
-                    <button
-                      type="button"
-                      className="danger"
-                      onClick={() =>
-                        eliminarEvento(evento)
-                      }
-                    >
-                      Eliminar
-                    </button>
-                  </div>
+                    </div>
+                  )}
                 </article>
               ),
             )}
           </div>
         </aside>
       </section>
+
+      {despachoAProgramar ? (
+        <div className="modalOverlay">
+          <div className="modal scheduleModal">
+            <div className="modalHeader">
+              <div>
+                <p>Solicitud de despacho</p>
+                <h2>Agendar despacho</h2>
+              </div>
+
+              <button
+                type="button"
+                className="close"
+                onClick={cerrarProgramacionDespacho}
+                disabled={guardandoProgramacion}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="requestSummary">
+              <div>
+                <span>OT</span>
+                <strong>{despachoAProgramar.codigo_ot || "Sin OT"}</strong>
+              </div>
+
+              <div>
+                <span>Cliente</span>
+                <strong>{despachoAProgramar.cliente || "Sin cliente"}</strong>
+              </div>
+
+              <div className="summaryWide">
+                <span>Dirección de despacho</span>
+                <strong>
+                  {[
+                    despachoAProgramar.direccion,
+                    despachoAProgramar.comuna,
+                    despachoAProgramar.region,
+                  ]
+                    .filter(Boolean)
+                    .join(", ") || "Sin dirección"}
+                </strong>
+              </div>
+
+              <div>
+                <span>Contacto</span>
+                <strong>
+                  {[
+                    despachoAProgramar.contacto,
+                    despachoAProgramar.telefono,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "Sin contacto"}
+                </strong>
+              </div>
+
+              <div>
+                <span>Email</span>
+                <strong>{despachoAProgramar.email || "Sin email"}</strong>
+              </div>
+            </div>
+
+            <div className="formGrid programacionGrid">
+              <label>
+                Día del despacho
+
+                <input
+                  type="date"
+                  value={fechaProgramacion}
+                  min={fechaHoyISO()}
+                  onChange={(event) =>
+                    setFechaProgramacion(event.target.value)
+                  }
+                />
+              </label>
+
+              <label>
+                Hora del despacho
+
+                <input
+                  type="time"
+                  value={horaProgramacion}
+                  onChange={(event) =>
+                    setHoraProgramacion(event.target.value)
+                  }
+                />
+              </label>
+
+              <label className="span2">
+                Observaciones
+
+                <textarea
+                  value={observacionProgramacion}
+                  onChange={(event) =>
+                    setObservacionProgramacion(event.target.value)
+                  }
+                  rows={4}
+                  placeholder="Indicaciones para el despacho, rango horario, acceso, documentación u otra información operativa."
+                />
+              </label>
+            </div>
+
+            <p className="automaticStatusNote">
+              Al guardar, la solicitud cambiará automáticamente de
+              <strong> Solicitado </strong>a<strong> Agendado</strong> y se
+              enviará la programación al correo del cliente.
+            </p>
+
+            <div className="modalActions">
+              <button
+                type="button"
+                className="secondary"
+                onClick={cerrarProgramacionDespacho}
+                disabled={guardandoProgramacion}
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={guardarProgramacionDespacho}
+                disabled={guardandoProgramacion}
+                className="primary"
+              >
+                {guardandoProgramacion
+                  ? "Agendando..."
+                  : "Guardar y agendar despacho"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {eventoAEntregar ? (
+        <div className="modalOverlay">
+          <div className="modal scheduleModal">
+            <div className="modalHeader">
+              <div>
+                <p>Confirmación logística</p>
+                <h2>Registrar entrega</h2>
+              </div>
+
+              <button
+                type="button"
+                className="close"
+                onClick={() => cerrarRegistrarEntrega()}
+                disabled={guardandoEntrega}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="requestSummary">
+              <div>
+                <span>OT</span>
+                <strong>{eventoAEntregar.codigo_ot || "Sin OT"}</strong>
+              </div>
+
+              <div>
+                <span>Cliente</span>
+                <strong>{eventoAEntregar.cliente || "Sin cliente"}</strong>
+              </div>
+
+              <div className="summaryWide">
+                <span>Dirección</span>
+                <strong>
+                  {[
+                    eventoAEntregar.direccion,
+                    eventoAEntregar.comuna,
+                    eventoAEntregar.region,
+                  ]
+                    .filter(Boolean)
+                    .join(", ") || "Sin dirección"}
+                </strong>
+              </div>
+
+              <div>
+                <span>Fecha programada</span>
+                <strong>{fechaResumida(eventoAEntregar.fecha)}</strong>
+              </div>
+
+              <div>
+                <span>Hora programada</span>
+                <strong>{formatearHora(eventoAEntregar.hora)}</strong>
+              </div>
+            </div>
+
+            <div className="formGrid programacionGrid">
+              <label className="span2">
+                Nombre de quien recibe *
+
+                <input
+                  value={recibidoPor}
+                  onChange={(event) => setRecibidoPor(event.target.value)}
+                  placeholder="Nombre completo de quien recibe"
+                />
+              </label>
+
+              <label className="span2">
+                Foto de la entrega *
+
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(event) =>
+                    seleccionarFotoEntrega(event.target.files?.[0] || null)
+                  }
+                />
+              </label>
+
+              {fotoEntregaPreview ? (
+                <div className="span2 deliveryPreview">
+                  <img src={fotoEntregaPreview} alt="Vista previa de entrega" />
+                </div>
+              ) : null}
+
+              <label className="span2">
+                Observaciones
+
+                <textarea
+                  value={observacionEntrega}
+                  onChange={(event) =>
+                    setObservacionEntrega(event.target.value)
+                  }
+                  rows={4}
+                  placeholder="Estado de recepción, documentos entregados u otra observación."
+                />
+              </label>
+            </div>
+
+            <p className="automaticStatusNote">
+              Al confirmar, el registro cambiará automáticamente a
+              <strong> Realizado</strong>, la OT avanzará a
+              <strong> Entregado</strong> y el cliente recibirá un correo.
+            </p>
+
+            <div className="modalActions">
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => cerrarRegistrarEntrega()}
+                disabled={guardandoEntrega}
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={registrarEntrega}
+                disabled={guardandoEntrega}
+                className="primary"
+              >
+                {guardandoEntrega
+                  ? "Registrando..."
+                  : "Confirmar entrega"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {mostrarFormulario ? (
         <div className="modalOverlay">
@@ -2379,6 +2984,106 @@ export default function AgendaOperativaPage() {
           color: #b91c1c;
         }
 
+        .eventActions.singleAction {
+          display: block;
+        }
+
+        .eventActions .scheduleButton {
+          width: 100%;
+          border: none;
+          background: #2563eb;
+          color: white;
+          padding: 11px 14px;
+          border-radius: 11px;
+          font-size: 13px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .eventActions .scheduleButton:hover {
+          background: #1d4ed8;
+        }
+
+        .eventActions .deliveryButton {
+          width: 100%;
+          border: none;
+          background: #16a34a;
+          color: white;
+          padding: 11px 14px;
+          border-radius: 11px;
+          font-size: 13px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .eventActions .deliveryButton:hover {
+          background: #15803d;
+        }
+
+        .deliveryEvidence {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+          margin-top: 12px;
+          padding: 12px;
+          border: 1px solid #bbf7d0;
+          border-radius: 12px;
+          background: #f0fdf4;
+        }
+
+        .deliveryEvidence span {
+          display: block;
+          margin-bottom: 3px;
+          color: #64748b;
+          font-size: 10px;
+          font-weight: 900;
+          text-transform: uppercase;
+        }
+
+        .deliveryEvidence strong {
+          color: #14532d;
+          font-size: 13px;
+        }
+
+        .deliveryEvidence p {
+          grid-column: span 2;
+          margin: 0 !important;
+          padding: 8px;
+          border-radius: 9px;
+          background: white;
+          color: #334155 !important;
+        }
+
+        .evidencePhoto {
+          grid-column: span 2;
+          display: inline-flex;
+          justify-content: center;
+          border: 1px solid #86efac;
+          border-radius: 10px;
+          padding: 9px 12px;
+          background: white;
+          color: #166534;
+          font-size: 12px;
+          font-weight: 900;
+          text-decoration: none;
+        }
+
+        .deliveryPreview {
+          overflow: hidden;
+          border: 1px solid #dbeafe;
+          border-radius: 14px;
+          background: #f8fafc;
+          padding: 8px;
+        }
+
+        .deliveryPreview img {
+          display: block;
+          width: 100%;
+          max-height: 340px;
+          object-fit: contain;
+          border-radius: 10px;
+        }
+
         .modalOverlay {
           position: fixed;
           inset: 0;
@@ -2398,6 +3103,61 @@ export default function AgendaOperativaPage() {
           border-radius: 22px;
           padding: 22px;
           box-shadow: 0 24px 80px rgba(15, 23, 42, 0.25);
+        }
+
+        .scheduleModal {
+          width: min(680px, 100%);
+        }
+
+        .requestSummary {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+          margin-bottom: 18px;
+          padding: 14px;
+          border: 1px solid #dbeafe;
+          border-radius: 16px;
+          background: #f8fafc;
+        }
+
+        .requestSummary > div {
+          min-width: 0;
+        }
+
+        .requestSummary .summaryWide {
+          grid-column: span 2;
+        }
+
+        .requestSummary span {
+          display: block;
+          margin-bottom: 4px;
+          color: #64748b;
+          font-size: 11px;
+          font-weight: 900;
+          text-transform: uppercase;
+        }
+
+        .requestSummary strong {
+          display: block;
+          color: #0f172a;
+          font-size: 13px;
+          line-height: 1.4;
+          overflow-wrap: anywhere;
+        }
+
+        .programacionGrid {
+          margin-top: 4px;
+        }
+
+        .automaticStatusNote {
+          margin: 16px 0 0;
+          padding: 12px 14px;
+          border: 1px solid #bfdbfe;
+          border-radius: 12px;
+          background: #eff6ff;
+          color: #1e3a8a;
+          font-size: 12px;
+          line-height: 1.5;
         }
 
         .modalHeader {
@@ -2535,6 +3295,14 @@ export default function AgendaOperativaPage() {
 
           .formGrid {
             grid-template-columns: 1fr;
+          }
+
+          .requestSummary {
+            grid-template-columns: 1fr;
+          }
+
+          .requestSummary .summaryWide {
+            grid-column: span 1;
           }
 
           .span2 {
