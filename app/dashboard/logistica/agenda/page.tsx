@@ -385,6 +385,8 @@ export default function AgendaOperativaPage() {
   const [filtroRapido, setFiltroRapido] =
     useState<FiltroRapido | null>(null);
 
+  const [mostrarTodosResumen, setMostrarTodosResumen] = useState(false);
+
   useEffect(() => {
     cargarEventos();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -436,6 +438,7 @@ export default function AgendaOperativaPage() {
   function seleccionarFiltroRapido(filtro: FiltroRapido) {
     setFiltroTipo("todos");
     setFiltroEstado("todos");
+    setMostrarTodosResumen(false);
 
     setFiltroRapido((actual) =>
       actual === filtro ? null : filtro,
@@ -758,10 +761,16 @@ export default function AgendaOperativaPage() {
   );
 
   const eventosResumen = useMemo(() => {
-    return ordenarEventosPorFecha(
-      eventosFiltrados,
-    );
+    return ordenarEventosPorFecha(eventosFiltrados);
   }, [eventosFiltrados]);
+
+  const eventosResumenVisibles = useMemo(() => {
+    if (mostrarTodosResumen) {
+      return eventosResumen;
+    }
+
+    return eventosResumen.slice(0, 5);
+  }, [eventosResumen, mostrarTodosResumen]);
 
   const resumen = useMemo(() => {
     return {
@@ -946,92 +955,83 @@ export default function AgendaOperativaPage() {
       </section>
 
       {filtroRapido ? (
-        <section className="quickSummary">
-          <div className="quickSummaryHeader">
-            <div>
-              <span>Resumen seleccionado</span>
+  <section className="quickSummary">
+    <div className="quickSummaryHeader">
+      <div>
+        <span>Resumen seleccionado</span>
 
-              <h2>
-                {tituloFiltroRapido(
-                  filtroRapido,
-                )}
-              </h2>
-            </div>
+        <h2>{tituloFiltroRapido(filtroRapido)}</h2>
+      </div>
 
-            <div className="summaryHeaderActions">
-              <strong>
-                {eventosResumen.length}
-              </strong>
+      <div className="summaryHeaderActions">
+        <strong>{eventosResumen.length}</strong>
 
-              <button
-                type="button"
-                onClick={() =>
-                  setFiltroRapido(null)
-                }
-              >
-                Cerrar
-              </button>
-            </div>
-          </div>
+        <button
+          type="button"
+          onClick={() => {
+            setFiltroRapido(null);
+            setMostrarTodosResumen(false);
+          }}
+        >
+          Cerrar
+        </button>
+      </div>
+    </div>
 
-          {eventosResumen.length === 0 ? (
-            <p className="summaryEmpty">
-              No hay registros en esta categoría
-              durante el mes seleccionado.
-            </p>
-          ) : (
-            <div className="summaryList">
-              {eventosResumen.map((evento) => (
-                <button
-                  type="button"
-                  key={evento.id}
-                  className="summaryItem"
-                  onClick={() =>
-                    abrirEventoDesdeResumen(
-                      evento,
-                    )
-                  }
-                >
-                  <div>
-                    <strong>
-                      {evento.codigo_ot ||
-                        "Sin OT"}
-                      {" · "}
-                      {evento.cliente ||
-                        "Sin cliente"}
-                    </strong>
+    {eventosResumen.length === 0 ? (
+      <p className="summaryEmpty">
+        No hay registros en esta categoría durante el mes seleccionado.
+      </p>
+    ) : (
+      <>
+        <div className="summaryList">
+          {eventosResumenVisibles.map((evento) => (
+            <button
+              type="button"
+              key={evento.id}
+              className="summaryItem"
+              onClick={() => abrirEventoDesdeResumen(evento)}
+            >
+              <div>
+                <strong>
+                  {evento.codigo_ot || "Sin OT"}
+                  {" · "}
+                  {evento.cliente || "Sin cliente"}
+                </strong>
 
-                    <span>
-                      {etiquetaTipo(
-                        evento.tipo,
-                      )}
-                      {" · "}
-                      {etiquetaEstado(
-                        evento.estado,
-                      )}
-                    </span>
-                  </div>
+                <span>
+                  {etiquetaTipo(evento.tipo)}
+                  {" · "}
+                  {etiquetaEstado(evento.estado)}
+                </span>
+              </div>
 
-                  <div className="summaryDate">
-                    <strong>
-                      {fechaResumida(
-                        evento.fecha,
-                      )}
-                    </strong>
+              <div className="summaryDate">
+                <strong>{fechaResumida(evento.fecha)}</strong>
 
-                    <span>
-                      {formatearHora(
-                        evento.hora,
-                      )}
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
-      ) : null}
+                <span>{formatearHora(evento.hora)}</span>
+              </div>
+            </button>
+          ))}
+        </div>
 
+        {eventosResumen.length > 5 ? (
+          <button
+            type="button"
+            className="summaryMoreButton"
+            onClick={() =>
+              setMostrarTodosResumen((actual) => !actual)
+            }
+          >
+            {mostrarTodosResumen
+              ? "Ver menos"
+              : `Ver más (${eventosResumen.length - 5})`}
+          </button>
+        ) : null}
+      </>
+    )}
+  </section>
+) : null}
       <section className="toolbar">
         <div className="monthControls">
           <button
@@ -2049,6 +2049,24 @@ export default function AgendaOperativaPage() {
           color: #64748b;
           font-size: 14px;
           padding: 10px 0;
+        }
+
+                .summaryMoreButton {
+          width: 100%;
+          margin-top: 10px;
+          border: 1px solid #bfdbfe;
+          background: #eff6ff;
+          color: #1d4ed8;
+          border-radius: 12px;
+          padding: 10px 14px;
+          font-size: 13px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .summaryMoreButton:hover {
+          border-color: #2563eb;
+          background: #dbeafe;
         }
 
         .toolbar {
