@@ -96,6 +96,28 @@ type ClientePortal = {
   id: string;
 };
 
+type TipoEntregaCliente = "retiro_taller" | "despacho";
+
+type SolicitudLogistica = {
+  id: string;
+  tipo: "retiro" | "retiro_taller" | "despacho";
+  estado: "solicitado" | "agendado" | "en_ruta" | "realizado" | "cancelado";
+  fecha: string;
+  hora: string | null;
+  cliente: string | null;
+  contacto: string | null;
+  telefono: string | null;
+  email: string | null;
+  direccion: string | null;
+  comuna: string | null;
+  region: string | null;
+  observacion: string | null;
+  orden_id: string | null;
+  codigo_ot: string | null;
+  origen: string | null;
+  created_at?: string | null;
+};
+
 const indicePorEstado: Record<EstadoCliente, number> = {
   Ingreso: 0,
   Diagnóstico: 1,
@@ -363,6 +385,44 @@ function puedeDescargarFinal(estado: EstadoCliente) {
   );
 }
 
+function fechaHoyISO() {
+  const hoy = new Date();
+  const year = hoy.getFullYear();
+  const month = String(hoy.getMonth() + 1).padStart(2, "0");
+  const day = String(hoy.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function formatFechaCorta(fecha?: string | null) {
+  if (!fecha) return "-";
+
+  try {
+    return new Date(`${fecha}T12:00:00`).toLocaleDateString("es-CL");
+  } catch {
+    return fecha;
+  }
+}
+
+function etiquetaEstadoLogistica(estado?: SolicitudLogistica["estado"] | null) {
+  if (estado === "solicitado") return "Solicitado";
+  if (estado === "agendado") return "Agendado";
+  if (estado === "en_ruta") return "En ruta";
+  if (estado === "realizado") return "Realizado";
+  if (estado === "cancelado") return "Cancelado";
+
+  return "Pendiente";
+}
+
+function bloqueRetiroDesdeHora(hora?: string | null) {
+  if (!hora) return "Sin bloque registrado";
+
+  if (hora.startsWith("10:")) return "10:00 a 12:30 hrs.";
+  if (hora.startsWith("15:")) return "15:00 a 17:00 hrs.";
+
+  return hora;
+}
+
 function renderFotosPDF(
   titulo: string,
   fotos: Array<{ url: string; nombre?: string | null; detalle?: string | null }>
@@ -413,6 +473,20 @@ export default function DetalleServicioClientePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [generandoPdf, setGenerandoPdf] = useState(false);
+
+  const [solicitudLogistica, setSolicitudLogistica] =
+    useState<SolicitudLogistica | null>(null);
+  const [modalidadEntrega, setModalidadEntrega] =
+    useState<TipoEntregaCliente | null>(null);
+  const [fechaRetiro, setFechaRetiro] = useState(fechaHoyISO());
+  const [bloqueRetiro, setBloqueRetiro] = useState<"10:00" | "15:00">("10:00");
+  const [direccionDespacho, setDireccionDespacho] = useState("");
+  const [comunaDespacho, setComunaDespacho] = useState("");
+  const [regionDespacho, setRegionDespacho] = useState("");
+  const [contactoDespacho, setContactoDespacho] = useState("");
+  const [telefonoDespacho, setTelefonoDespacho] = useState("");
+  const [observacionEntrega, setObservacionEntrega] = useState("");
+  const [guardandoEntrega, setGuardandoEntrega] = useState(false);
 
   const estadoCliente = useMemo(() => {
     return normalizarEstadoCliente(orden?.estado);
@@ -495,6 +569,10 @@ export default function DetalleServicioClientePage() {
       { data: checklistFotosData },
       { data: documentosData },
       { data: reportesData, error: reportesError },
+      {
+        data: solicitudLogisticaData,
+        error: solicitudLogisticaError,
+      },
     ] = await Promise.all([
       supabase
         .from("diagnosticos")
@@ -530,12 +608,28 @@ export default function DetalleServicioClientePage() {
         )
         .eq("orden_id", ordenAutorizada.id)
         .order("created_at", { ascending: false }),
+
+      supabase
+        .from("agenda_logistica")
+        .select("*")
+        .eq("orden_id", ordenAutorizada.id)
+        .in("tipo", ["retiro", "retiro_taller", "despacho"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
 
     if (reportesError) {
       setError(reportesError.message);
       setLoading(false);
       return;
+    }
+
+    if (solicitudLogisticaError) {
+      console.error(
+        "No se pudo cargar la solicitud de retiro o despacho:",
+        solicitudLogisticaError
+      );
     }
 
     const reportesOrdenados = ((reportesData || []) as Reporte[]).map(
@@ -554,7 +648,139 @@ export default function DetalleServicioClientePage() {
     setChecklistFotos((checklistFotosData || []) as ChecklistFoto[]);
     setDocumentosIngreso((documentosData || []) as OrdenDocumento[]);
     setReportes(reportesOrdenados);
+    setSolicitudLogistica(
+      (solicitudLogisticaData as SolicitudLogistica | null) || null
+    );
     setLoading(false);
+  }
+
+  async function guardarSolicitudEntrega() {
+    if (!orden || guardandoEntrega || solicitudLogistica) return;
+
+    if (!modalidadEntrega) {
+      alert("Selecciona retiro en taller o solicitar despacho.");
+      return;
+    }
+
+    if (modalidadEntrega === "retiro_taller" && !fechaRetiro) {
+      alert("Selecciona la fecha de retiro.");
+      return;
+    }
+
+    if (modalidadEntrega === "despacho") {
+      if (!direccionDespacho.trim()) {
+        alert("Ingresa la dirección de despacho.");
+        return;
+      }
+
+      if (!comunaDespacho.trim()) {
+        alert("Ingresa la comuna.");
+        return;
+      }
+
+      if (!contactoDespacho.trim()) {
+        alert("Ingresa la persona de contacto.");
+        return;
+      }
+
+      if (!telefonoDespacho.trim()) {
+        alert("Ingresa el teléfono de contacto.");
+        return;
+      }
+    }
+
+    setGuardandoEntrega(true);
+
+    try {
+      const { data: solicitudExistente, error: errorValidacion } = await supabase
+        .from("agenda_logistica")
+        .select("*")
+        .eq("orden_id", orden.id)
+        .in("tipo", ["retiro", "retiro_taller", "despacho"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (errorValidacion) {
+        throw errorValidacion;
+      }
+
+      if (solicitudExistente) {
+        setSolicitudLogistica(solicitudExistente as SolicitudLogistica);
+        alert("Esta orden ya tiene una solicitud de retiro o despacho registrada.");
+        return;
+      }
+
+      const esRetiro = modalidadEntrega === "retiro_taller";
+      const bloqueCompleto =
+        bloqueRetiro === "10:00"
+          ? "10:00 a 12:30 hrs."
+          : "15:00 a 17:00 hrs.";
+
+      const observaciones = [
+        esRetiro
+          ? `Retiro en taller solicitado por el cliente. Bloque: ${bloqueCompleto}`
+          : "Despacho solicitado por el cliente. Pendiente de coordinación logística.",
+        observacionEntrega.trim() || null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      const payload = {
+        tipo: modalidadEntrega,
+        estado: esRetiro ? "agendado" : "solicitado",
+        fecha: esRetiro ? fechaRetiro : fechaHoyISO(),
+        hora: esRetiro ? bloqueRetiro : null,
+        cliente: orden.cliente || null,
+        contacto: esRetiro
+          ? orden.cliente || null
+          : contactoDespacho.trim(),
+        telefono: esRetiro ? null : telefonoDespacho.trim(),
+        email: orden.cliente_email || null,
+        direccion: esRetiro
+          ? "Taller MJ Industrial"
+          : direccionDespacho.trim(),
+        comuna: esRetiro ? "Taller MJ" : comunaDespacho.trim(),
+        region: esRetiro
+          ? "Región Metropolitana"
+          : regionDespacho.trim() || null,
+        observacion: observaciones || null,
+        orden_id: orden.id,
+        codigo_ot: orden.codigo || null,
+        origen: "servicio_tecnico",
+        updated_at: new Date().toISOString(),
+      };
+
+      const { data, error: errorInsert } = await supabase
+        .from("agenda_logistica")
+        .insert(payload)
+        .select("*")
+        .single();
+
+      if (errorInsert) {
+        throw errorInsert;
+      }
+
+      setSolicitudLogistica(data as SolicitudLogistica);
+      setModalidadEntrega(null);
+
+      alert(
+        esRetiro
+          ? "Retiro en taller agendado correctamente."
+          : "Solicitud de despacho enviada correctamente."
+      );
+    } catch (errorSolicitud) {
+      console.error(errorSolicitud);
+
+      const mensaje =
+        errorSolicitud instanceof Error
+          ? errorSolicitud.message
+          : "No se pudo registrar la solicitud.";
+
+      alert(mensaje);
+    } finally {
+      setGuardandoEntrega(false);
+    }
   }
 
   function generarPDF(tipo: "diagnostico" | "final") {
@@ -1237,6 +1463,310 @@ export default function DetalleServicioClientePage() {
           onClick={() => generarPDF("final")}
         />
       </section>
+
+      {estadoCliente === "Listo para entrega" ||
+      estadoCliente === "Entregado" ? (
+        <section className="rounded-3xl border border-blue-100 bg-white p-6 shadow-sm">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+            <div>
+              <p className="text-sm font-semibold text-blue-600">
+                Coordinación logística
+              </p>
+
+              <h2 className="mt-1 text-2xl font-bold text-slate-900">
+                Retiro o despacho
+              </h2>
+
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                {solicitudLogistica
+                  ? "La solicitud ya fue registrada y está disponible para el equipo de Logística."
+                  : estadoCliente === "Entregado"
+                    ? "La orden ya figura como entregada."
+                    : "Selecciona si retirarás el equipo en el taller de MJ Industrial o si necesitas despacho."}
+              </p>
+            </div>
+
+            {solicitudLogistica ? (
+              <span className="inline-flex w-fit rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
+                {etiquetaEstadoLogistica(solicitudLogistica.estado)}
+              </span>
+            ) : null}
+          </div>
+
+          {solicitudLogistica ? (
+            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <div className="grid gap-4 md:grid-cols-2">
+                <InfoItem
+                  label="Modalidad"
+                  value={
+                    solicitudLogistica.tipo === "despacho"
+                      ? "Despacho"
+                      : "Retiro en taller"
+                  }
+                />
+
+                <InfoItem
+                  label={
+                    solicitudLogistica.tipo === "despacho"
+                      ? "Fecha de solicitud"
+                      : "Fecha de retiro"
+                  }
+                  value={formatFechaCorta(solicitudLogistica.fecha)}
+                />
+
+                {solicitudLogistica.tipo !== "despacho" ? (
+                  <InfoItem
+                    label="Bloque de retiro"
+                    value={bloqueRetiroDesdeHora(solicitudLogistica.hora)}
+                  />
+                ) : (
+                  <InfoItem
+                    label="Estado"
+                    value={etiquetaEstadoLogistica(
+                      solicitudLogistica.estado
+                    )}
+                  />
+                )}
+
+                {solicitudLogistica.tipo === "despacho" ? (
+                  <InfoItem
+                    label="Dirección"
+                    value={[
+                      solicitudLogistica.direccion,
+                      solicitudLogistica.comuna,
+                      solicitudLogistica.region,
+                    ]
+                      .filter(Boolean)
+                      .join(", ")}
+                  />
+                ) : (
+                  <InfoItem
+                    label="Lugar"
+                    value="Taller MJ Industrial"
+                  />
+                )}
+              </div>
+
+              {solicitudLogistica.observacion ? (
+                <InfoBlock
+                  label="Observación"
+                  value={solicitudLogistica.observacion}
+                />
+              ) : null}
+
+              <p className="mt-4 text-xs leading-5 text-slate-500">
+                Para modificar esta solicitud, comunícate con MJ Industrial.
+              </p>
+            </div>
+          ) : estadoCliente === "Listo para entrega" ? (
+            <>
+              <div className="mt-6 grid gap-3 md:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setModalidadEntrega("retiro_taller")}
+                  className={`rounded-2xl border p-5 text-left transition ${
+                    modalidadEntrega === "retiro_taller"
+                      ? "border-blue-600 bg-blue-50"
+                      : "border-slate-200 bg-slate-50 hover:border-blue-300"
+                  }`}
+                >
+                  <span className="block text-base font-bold text-slate-900">
+                    Retirar en taller
+                  </span>
+
+                  <span className="mt-1 block text-sm leading-5 text-slate-600">
+                    Selecciona una fecha y uno de los dos bloques disponibles.
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setModalidadEntrega("despacho")}
+                  className={`rounded-2xl border p-5 text-left transition ${
+                    modalidadEntrega === "despacho"
+                      ? "border-blue-600 bg-blue-50"
+                      : "border-slate-200 bg-slate-50 hover:border-blue-300"
+                  }`}
+                >
+                  <span className="block text-base font-bold text-slate-900">
+                    Solicitar despacho
+                  </span>
+
+                  <span className="mt-1 block text-sm leading-5 text-slate-600">
+                    Envía la dirección y los datos de contacto para que Logística coordine la entrega.
+                  </span>
+                </button>
+              </div>
+
+              {modalidadEntrega === "retiro_taller" ? (
+                <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                      Fecha de retiro
+
+                      <input
+                        type="date"
+                        min={fechaHoyISO()}
+                        value={fechaRetiro}
+                        onChange={(event) => setFechaRetiro(event.target.value)}
+                        className="rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500"
+                      />
+                    </label>
+
+                    <div>
+                      <p className="text-sm font-semibold text-slate-700">
+                        Bloque horario
+                      </p>
+
+                      <div className="mt-2 grid gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setBloqueRetiro("10:00")}
+                          className={`rounded-xl border px-4 py-3 text-left text-sm font-bold ${
+                            bloqueRetiro === "10:00"
+                              ? "border-blue-600 bg-blue-600 text-white"
+                              : "border-slate-300 bg-white text-slate-700"
+                          }`}
+                        >
+                          10:00 a 12:30 hrs.
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setBloqueRetiro("15:00")}
+                          className={`rounded-xl border px-4 py-3 text-left text-sm font-bold ${
+                            bloqueRetiro === "15:00"
+                              ? "border-blue-600 bg-blue-600 text-white"
+                              : "border-slate-300 bg-white text-slate-700"
+                          }`}
+                        >
+                          15:00 a 17:00 hrs.
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <label className="mt-5 grid gap-2 text-sm font-semibold text-slate-700">
+                    Observación opcional
+
+                    <textarea
+                      rows={3}
+                      value={observacionEntrega}
+                      onChange={(event) =>
+                        setObservacionEntrega(event.target.value)
+                      }
+                      placeholder="Ej.: retirará Juan Pérez, patente del vehículo, etc."
+                      className="rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500"
+                    />
+                  </label>
+                </div>
+              ) : null}
+
+              {modalidadEntrega === "despacho" ? (
+                <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="grid gap-2 text-sm font-semibold text-slate-700 md:col-span-2">
+                      Dirección de despacho
+
+                      <input
+                        value={direccionDespacho}
+                        onChange={(event) =>
+                          setDireccionDespacho(event.target.value)
+                        }
+                        placeholder="Calle, número y referencias"
+                        className="rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500"
+                      />
+                    </label>
+
+                    <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                      Comuna
+
+                      <input
+                        value={comunaDespacho}
+                        onChange={(event) =>
+                          setComunaDespacho(event.target.value)
+                        }
+                        placeholder="Comuna"
+                        className="rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500"
+                      />
+                    </label>
+
+                    <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                      Región
+
+                      <input
+                        value={regionDespacho}
+                        onChange={(event) =>
+                          setRegionDespacho(event.target.value)
+                        }
+                        placeholder="Región"
+                        className="rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500"
+                      />
+                    </label>
+
+                    <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                      Persona de contacto
+
+                      <input
+                        value={contactoDespacho}
+                        onChange={(event) =>
+                          setContactoDespacho(event.target.value)
+                        }
+                        placeholder="Nombre de quien recibirá"
+                        className="rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500"
+                      />
+                    </label>
+
+                    <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                      Teléfono
+
+                      <input
+                        value={telefonoDespacho}
+                        onChange={(event) =>
+                          setTelefonoDespacho(event.target.value)
+                        }
+                        placeholder="+56 9..."
+                        className="rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500"
+                      />
+                    </label>
+
+                    <label className="grid gap-2 text-sm font-semibold text-slate-700 md:col-span-2">
+                      Observaciones
+
+                      <textarea
+                        rows={3}
+                        value={observacionEntrega}
+                        onChange={(event) =>
+                          setObservacionEntrega(event.target.value)
+                        }
+                        placeholder="Horario de recepción, acceso, piso, bodega, referencias, etc."
+                        className="rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-500"
+                      />
+                    </label>
+                  </div>
+                </div>
+              ) : null}
+
+              {modalidadEntrega ? (
+                <div className="mt-5 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={guardarSolicitudEntrega}
+                    disabled={guardandoEntrega}
+                    className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {guardandoEntrega
+                      ? "Guardando..."
+                      : modalidadEntrega === "retiro_taller"
+                        ? "Confirmar retiro"
+                        : "Enviar solicitud de despacho"}
+                  </button>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </section>
+      ) : null}
     </main>
   );
 }
