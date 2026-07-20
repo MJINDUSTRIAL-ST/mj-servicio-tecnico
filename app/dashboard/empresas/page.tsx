@@ -59,7 +59,7 @@ export default function EmpresasPage() {
 
     if (!confirmar) return;
 
-    await supabase
+    const { error: errorClientes } = await supabase
       .from("clientes")
       .update({
         empresa_id: null,
@@ -67,12 +67,22 @@ export default function EmpresasPage() {
       })
       .eq("empresa_id", empresa.id);
 
-    await supabase
+    if (errorClientes) {
+      alert("No se pudieron desasociar los clientes: " + errorClientes.message);
+      return;
+    }
+
+    const { error: errorOrdenes } = await supabase
       .from("ordenes")
       .update({
         empresa_id: null,
       })
       .eq("empresa_id", empresa.id);
+
+    if (errorOrdenes) {
+      alert("No se pudieron desasociar las órdenes: " + errorOrdenes.message);
+      return;
+    }
 
     const { error } = await supabase
       .from("empresas")
@@ -90,12 +100,12 @@ export default function EmpresasPage() {
   return (
     <div className="mx-auto max-w-6xl p-6">
       <div className="mb-6">
-        <button
-  onClick={() => (window.location.href = "/dashboard")}
-  className="mb-4 text-sm font-medium text-slate-500 transition hover:text-slate-900"
->
-  ← Volver al Dashboard
-</button>
+        <Link
+          href="/dashboard"
+          className="mb-4 inline-flex text-sm font-medium text-slate-500 transition hover:text-slate-900"
+        >
+          ← Volver al Dashboard
+        </Link>
 
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -134,12 +144,15 @@ export default function EmpresasPage() {
         ) : (
           <div className="space-y-3">
             {empresasFiltradas.map((empresa) => (
-              <div
+              <article
                 key={empresa.id}
                 className="rounded-2xl border border-slate-100 bg-white p-5 transition hover:border-blue-200 hover:bg-slate-50"
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
+                <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+                  <Link
+                    href={`/dashboard/empresas/${empresa.id}`}
+                    className="min-w-0 flex-1"
+                  >
                     <h2 className="text-xl font-bold text-slate-900">
                       {empresa.nombre}
                     </h2>
@@ -147,27 +160,38 @@ export default function EmpresasPage() {
                     <p className="mt-2 text-sm text-slate-600">
                       RUT: {empresa.rut || "-"}
                     </p>
-                  </div>
 
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setEmpresaEditando(empresa)}
-                      className="rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-100"
-                      title="Modificar empresa"
+                    <p className="mt-3 text-sm font-semibold text-blue-600">
+                      Ver ficha, contactos e historial
+                    </p>
+                  </Link>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Link
+                      href={`/dashboard/empresas/${empresa.id}`}
+                      className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
                     >
-                      ✏️
+                      Ver ficha
+                    </Link>
+
+                    <button
+                      type="button"
+                      onClick={() => setEmpresaEditando(empresa)}
+                      className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                    >
+                      Editar
                     </button>
 
                     <button
+                      type="button"
                       onClick={() => eliminarEmpresa(empresa)}
-                      className="rounded-lg border border-red-100 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-                      title="Eliminar empresa"
+                      className="rounded-lg border border-red-100 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
                     >
-                      🗑️
+                      Eliminar
                     </button>
                   </div>
                 </div>
-              </div>
+              </article>
             ))}
           </div>
         )}
@@ -230,7 +254,7 @@ function ModalEditarEmpresa({
       return;
     }
 
-    await supabase
+    const { error: errorClientes } = await supabase
       .from("clientes")
       .update({
         empresa: nombre.trim(),
@@ -238,6 +262,13 @@ function ModalEditarEmpresa({
       .eq("empresa_id", empresa.id);
 
     setGuardando(false);
+
+    if (errorClientes) {
+      alert(
+        "La empresa se actualizó, pero no se pudo actualizar el nombre en sus clientes."
+      );
+    }
+
     onGuardado(data as Empresa);
   }
 
@@ -259,7 +290,11 @@ function ModalEditarEmpresa({
             </p>
           </div>
 
-          <button onClick={onCerrar} className="text-slate-400 hover:text-black">
+          <button
+            type="button"
+            onClick={onCerrar}
+            className="text-slate-400 hover:text-black"
+          >
             ×
           </button>
         </div>
@@ -282,6 +317,7 @@ function ModalEditarEmpresa({
 
         <div className="mt-6 flex justify-end gap-3">
           <button
+            type="button"
             onClick={onCerrar}
             className="rounded-xl border px-5 py-3 font-semibold"
           >
@@ -289,6 +325,7 @@ function ModalEditarEmpresa({
           </button>
 
           <button
+            type="button"
             onClick={guardar}
             disabled={guardando}
             className="rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
