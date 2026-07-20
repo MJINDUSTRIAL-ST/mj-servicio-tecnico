@@ -115,7 +115,13 @@ type SolicitudLogistica = {
   orden_id: string | null;
   codigo_ot: string | null;
   origen: string | null;
+  recibido_por: string | null;
+  entrega_foto_url: string | null;
+  entrega_foto_path: string | null;
+  entrega_observacion: string | null;
+  entregado_at: string | null;
   created_at?: string | null;
+  updated_at?: string | null;
 };
 
 const indicePorEstado: Record<EstadoCliente, number> = {
@@ -504,6 +510,16 @@ export default function DetalleServicioClientePage() {
     return estadoCotizacion(estadoCliente);
   }, [estadoCliente]);
 
+  const entregaCompletada = useMemo(() => {
+    return Boolean(
+      solicitudLogistica &&
+        (solicitudLogistica.estado === "realizado" ||
+          solicitudLogistica.entregado_at ||
+          solicitudLogistica.entrega_foto_url ||
+          solicitudLogistica.recibido_por)
+    );
+  }, [solicitudLogistica]);
+
   useEffect(() => {
     cargarOrden();
   }, [ordenId]);
@@ -820,6 +836,18 @@ export default function DetalleServicioClientePage() {
         }))
       );
 
+      const fotosEntregaPDF = solicitudLogistica?.entrega_foto_url
+        ? [
+            {
+              url: solicitudLogistica.entrega_foto_url,
+              nombre: "Evidencia de entrega",
+              detalle: solicitudLogistica.recibido_por
+                ? `Recibido por: ${solicitudLogistica.recibido_por}`
+                : null,
+            },
+          ]
+        : [];
+
       const ultimoReporte = reportes[0];
 
       const html = `<!doctype html>
@@ -1108,6 +1136,60 @@ export default function DetalleServicioClientePage() {
             )}</p>
           </section>
           ${renderFotosPDF("Fotos de trabajo / egreso", fotosReportesPDF)}`
+        : ""
+    }
+
+    ${
+      tipo === "final" && solicitudLogistica
+        ? `<section class="section">
+            <h3>Entrega y recepción</h3>
+            <div class="grid2">
+              <div class="field">
+                <span>Modalidad</span>
+                <strong>${
+                  solicitudLogistica.tipo === "despacho"
+                    ? "Despacho"
+                    : "Retiro en taller"
+                }</strong>
+              </div>
+              <div class="field">
+                <span>Estado logístico</span>
+                <strong>${escaparHtml(
+                  etiquetaEstadoLogistica(solicitudLogistica.estado)
+                )}</strong>
+              </div>
+              <div class="field">
+                <span>Fecha programada</span>
+                <strong>${escaparHtml(
+                  formatFechaCorta(solicitudLogistica.fecha)
+                )}</strong>
+              </div>
+              <div class="field">
+                <span>Horario</span>
+                <strong>${escaparHtml(
+                  solicitudLogistica.tipo === "despacho"
+                    ? solicitudLogistica.hora || "-"
+                    : bloqueRetiroDesdeHora(solicitudLogistica.hora)
+                )}</strong>
+              </div>
+              <div class="field">
+                <span>Fecha y hora de entrega</span>
+                <strong>${escaparHtml(
+                  formatFecha(solicitudLogistica.entregado_at)
+                )}</strong>
+              </div>
+              <div class="field">
+                <span>Recibido por</span>
+                <strong>${escaparHtml(
+                  solicitudLogistica.recibido_por || "-"
+                )}</strong>
+              </div>
+            </div>
+            <p><strong>Observación de entrega:</strong><br />${textoConSaltos(
+              solicitudLogistica.entrega_observacion || "-"
+            )}</p>
+          </section>
+          ${renderFotosPDF("Evidencia de entrega", fotosEntregaPDF)}`
         : ""
     }
 
@@ -1455,7 +1537,9 @@ export default function DetalleServicioClientePage() {
           }
           texto={
             puedeDescargarFinal(estadoCliente)
-              ? "El informe técnico final ya puede ser descargado."
+              ? entregaCompletada
+                ? "El informe técnico final incluye la evidencia de entrega registrada por Logística."
+                : "El informe técnico final ya puede ser descargado."
               : "El informe final estará disponible cuando el equipo avance a trabajo, listo para entrega o entregado."
           }
           boton="Descargar informe final PDF"
@@ -1494,7 +1578,31 @@ export default function DetalleServicioClientePage() {
           </div>
 
           {solicitudLogistica ? (
-            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+            <div
+              className={`mt-5 rounded-2xl border p-5 ${
+                entregaCompletada
+                  ? "border-emerald-200 bg-emerald-50"
+                  : "border-slate-200 bg-slate-50"
+              }`}
+            >
+              {entregaCompletada ? (
+                <div className="mb-5 flex flex-col justify-between gap-3 border-b border-emerald-200 pb-4 md:flex-row md:items-center">
+                  <div>
+                    <p className="text-sm font-semibold text-emerald-700">
+                      Entrega completada
+                    </p>
+
+                    <p className="mt-1 text-sm leading-6 text-slate-600">
+                      La entrega fue registrada por el equipo de Logística.
+                    </p>
+                  </div>
+
+                  <span className="inline-flex w-fit rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">
+                    Entregado
+                  </span>
+                </div>
+              ) : null}
+
               <div className="grid gap-4 md:grid-cols-2">
                 <InfoItem
                   label="Modalidad"
@@ -1508,7 +1616,9 @@ export default function DetalleServicioClientePage() {
                 <InfoItem
                   label={
                     solicitudLogistica.tipo === "despacho"
-                      ? "Fecha de solicitud"
+                      ? solicitudLogistica.estado === "solicitado"
+                        ? "Fecha de solicitud"
+                        : "Fecha programada"
                       : "Fecha de retiro"
                   }
                   value={formatFechaCorta(solicitudLogistica.fecha)}
@@ -1521,10 +1631,8 @@ export default function DetalleServicioClientePage() {
                   />
                 ) : (
                   <InfoItem
-                    label="Estado"
-                    value={etiquetaEstadoLogistica(
-                      solicitudLogistica.estado
-                    )}
+                    label="Horario"
+                    value={solicitudLogistica.hora || "Pendiente de coordinación"}
                   />
                 )}
 
@@ -1545,17 +1653,67 @@ export default function DetalleServicioClientePage() {
                     value="Taller MJ Industrial"
                   />
                 )}
+
+                {entregaCompletada ? (
+                  <>
+                    <InfoItem
+                      label="Fecha y hora de entrega"
+                      value={formatFecha(solicitudLogistica.entregado_at)}
+                    />
+
+                    <InfoItem
+                      label="Recibido por"
+                      value={solicitudLogistica.recibido_por}
+                    />
+                  </>
+                ) : null}
               </div>
 
               {solicitudLogistica.observacion ? (
                 <InfoBlock
-                  label="Observación"
+                  label="Observación de coordinación"
                   value={solicitudLogistica.observacion}
                 />
               ) : null}
 
+              {entregaCompletada &&
+              solicitudLogistica.entrega_observacion ? (
+                <InfoBlock
+                  label="Observación de entrega"
+                  value={solicitudLogistica.entrega_observacion}
+                />
+              ) : null}
+
+              {entregaCompletada &&
+              solicitudLogistica.entrega_foto_url ? (
+                <div className="mt-5">
+                  <p className="mb-2 text-sm font-semibold text-slate-700">
+                    Foto de entrega
+                  </p>
+
+                  <a
+                    href={solicitudLogistica.entrega_foto_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full max-w-sm overflow-hidden rounded-2xl border border-emerald-200 bg-white"
+                  >
+                    <img
+                      src={solicitudLogistica.entrega_foto_url}
+                      alt="Evidencia de entrega"
+                      className="h-56 w-full object-cover"
+                    />
+
+                    <div className="p-3 text-sm font-semibold text-blue-700">
+                      Ver foto completa
+                    </div>
+                  </a>
+                </div>
+              ) : null}
+
               <p className="mt-4 text-xs leading-5 text-slate-500">
-                Para modificar esta solicitud, comunícate con MJ Industrial.
+                {entregaCompletada
+                  ? "La evidencia de entrega también se incluye en el informe técnico final."
+                  : "Para modificar esta solicitud, comunícate con MJ Industrial."}
               </p>
             </div>
           ) : estadoCliente === "Listo para entrega" ? (
