@@ -10,6 +10,8 @@ import {
 type Props = {
   ordenId?: string;
   equipos?: any[];
+  soloLectura?: boolean;
+  edicionHistorica?: boolean;
   onEstadoActualizado?: (estado: string) => void;
 };
 
@@ -203,6 +205,8 @@ function etiquetaResultado(resultado: ResultadoFinalTrabajo) {
 export default function TrabajoOT({
   ordenId,
   equipos: equiposIniciales,
+  soloLectura = false,
+  edicionHistorica = false,
   onEstadoActualizado,
 }: Props) {
   const [equipos, setEquipos] = useState<Equipo[]>([]);
@@ -266,6 +270,8 @@ export default function TrabajoOT({
     campo: K,
     valor: TrabajoEquipo[K],
   ) {
+    if (soloLectura) return;
+
     setTrabajos((prev) => ({
       ...prev,
       [equipoId]: {
@@ -277,7 +283,7 @@ export default function TrabajoOT({
   }
 
   async function agregarFotos(equipoId: string, files: FileList | null) {
-    if (!files?.length) return;
+    if (soloLectura || !files?.length) return;
 
     const actual = trabajos[equipoId] || trabajoVacio();
     const nuevasFotos: FotoEgreso[] = [];
@@ -299,6 +305,8 @@ export default function TrabajoOT({
   }
 
   function eliminarFoto(equipoId: string, fotoId: string) {
+    if (soloLectura) return;
+
     const actual = trabajos[equipoId] || trabajoVacio();
 
     actualizarCampo(
@@ -309,7 +317,7 @@ export default function TrabajoOT({
   }
 
   async function agregarDocumento(equipoId: string, file: File | null) {
-    if (!file) return;
+    if (soloLectura || !file) return;
 
     const actual = trabajos[equipoId] || trabajoVacio();
     const url = await archivoADataUrl(file);
@@ -332,6 +340,8 @@ export default function TrabajoOT({
     campo: keyof DocumentoTrabajo,
     valor: string,
   ) {
+    if (soloLectura) return;
+
     const actual = trabajos[equipoId] || trabajoVacio();
 
     actualizarCampo(
@@ -349,6 +359,8 @@ export default function TrabajoOT({
   }
 
   function eliminarDocumento(equipoId: string, documentoId: string) {
+    if (soloLectura) return;
+
     const actual = trabajos[equipoId] || trabajoVacio();
 
     actualizarCampo(
@@ -366,6 +378,8 @@ export default function TrabajoOT({
       actualizarOrden?: boolean;
     },
   ) {
+    if (soloLectura) return;
+
     const actualBase = trabajos[equipoId] || trabajoVacio();
     const actual: TrabajoEquipo = {
       ...actualBase,
@@ -428,7 +442,7 @@ export default function TrabajoOT({
         },
       } as any);
 
-      if (opciones?.actualizarOrden !== false) {
+      if (opciones?.actualizarOrden !== false && !edicionHistorica) {
         const nuevoEstado =
           actual.cotizacion_estado === "rechazada"
             ? "cerrado"
@@ -508,6 +522,16 @@ export default function TrabajoOT({
 
   return (
     <section className="space-y-5">
+      {soloLectura && (
+        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-800">
+          Trabajo guardado. Presiona Modificar etapa para habilitar cambios.
+        </div>
+      )}
+
+      <fieldset
+        disabled={soloLectura}
+        className="m-0 min-w-0 space-y-5 border-0 p-0 disabled:opacity-100"
+      >
       {equipos.map((equipo, index) => {
         const actual = trabajos[equipo.id] || trabajoVacio();
         const cotizacionPendiente = actual.cotizacion_estado === "pendiente";
@@ -631,6 +655,7 @@ export default function TrabajoOT({
                   </p>
                 )}
 
+                {!soloLectura && (
                 <button
                   type="button"
                   onClick={() => aprobarCotizacion(equipo.id)}
@@ -639,6 +664,7 @@ export default function TrabajoOT({
                 >
                   Reabrir como cotización aprobada
                 </button>
+                )}
               </div>
             )}
 
@@ -985,40 +1011,47 @@ export default function TrabajoOT({
                   </select>
                 </div>
 
-                <div className="grid gap-3 border-t border-slate-200 pt-5 md:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={() => guardarTrabajo(equipo.id)}
-                    disabled={actual.guardando}
-                    className={`rounded-xl px-5 py-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300 ${
-                      actual.guardadoOk ? "bg-green-600" : "bg-blue-600"
-                    }`}
-                  >
-                    {actual.guardando
-                      ? "Guardando..."
-                      : actual.guardadoOk
-                        ? "✓ Trabajo guardado"
-                        : "Guardar avance"}
-                  </button>
+                {!soloLectura && (
+                  <div className="grid gap-3 border-t border-slate-200 pt-5 md:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => guardarTrabajo(equipo.id)}
+                      disabled={actual.guardando}
+                      className={`rounded-xl px-5 py-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300 ${
+                        actual.guardadoOk ? "bg-green-600" : "bg-blue-600"
+                      } ${edicionHistorica ? "md:col-span-2" : ""}`}
+                    >
+                      {actual.guardando
+                        ? "Guardando..."
+                        : actual.guardadoOk
+                          ? "Trabajo guardado"
+                          : edicionHistorica
+                            ? "Guardar cambios del trabajo"
+                            : "Guardar avance"}
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() =>
-                      guardarTrabajo(equipo.id, {
-                        resultadoFinal: "listo_entrega",
-                      })
-                    }
-                    disabled={actual.guardando}
-                    className="rounded-xl bg-green-700 px-5 py-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-                  >
-                    Listo para entrega/despacho
-                  </button>
-                </div>
+                    {!edicionHistorica && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          guardarTrabajo(equipo.id, {
+                            resultadoFinal: "listo_entrega",
+                          })
+                        }
+                        disabled={actual.guardando}
+                        className="rounded-xl bg-green-700 px-5 py-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                      >
+                        Listo para entrega/despacho
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
         );
       })}
+      </fieldset>
     </section>
   );
 }

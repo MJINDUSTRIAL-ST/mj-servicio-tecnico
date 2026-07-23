@@ -746,6 +746,8 @@ function incorporarObservacionesGenerales(
 type ChecklistInteligenteProps = {
   tipoEquipoInicial?: string | null;
   equipoId?: string | null;
+  soloLectura?: boolean;
+  edicionHistorica?: boolean;
   onProgreso?: (porcentaje: number) => void;
   onGenerarDiagnostico?: (payload: {
     equipoId?: string | null;
@@ -761,6 +763,8 @@ type ChecklistInteligenteProps = {
     diagnosticoIASenior?: DiagnosticoIASenior | null;
     fuenteIA?: string;
     tecnicoACargo?: string;
+    checklistPersistido?: boolean;
+    preservarEstadoActual?: boolean;
   }) => void;
 };
 
@@ -873,6 +877,8 @@ function serializarRespuestas(respuestas: RespuestasChecklist) {
 export default function ChecklistInteligente({
   tipoEquipoInicial,
   equipoId,
+  soloLectura = false,
+  edicionHistorica = false,
   onProgreso,
   onGenerarDiagnostico,
 }: ChecklistInteligenteProps) {
@@ -976,48 +982,86 @@ export default function ChecklistInteligente({
   }, [equipoId]);
 
   useEffect(() => {
-    const base = crearRespuestasVacias(
-      tipoEquipo ? CHECKLISTS[tipoEquipo] : null,
-    );
+    let activo = true;
 
-    if (!equipoId) {
-      setRespuestas(base);
-      setOtrasObservaciones("");
-      setCargadoStorage(true);
-      return;
-    }
-
-    try {
-      const guardado = localStorage.getItem(`checklist-${equipoId}`);
-      const observacionesGuardadas = localStorage.getItem(
-        `checklist-observaciones-${equipoId}`,
+    async function cargarChecklistGuardado() {
+      const base = crearRespuestasVacias(
+        tipoEquipo ? CHECKLISTS[tipoEquipo] : null,
       );
 
-      setOtrasObservaciones(observacionesGuardadas || "");
+      setCargadoStorage(false);
 
-      if (!guardado) {
+      if (!equipoId) {
+        if (!activo) return;
         setRespuestas(base);
+        setOtrasObservaciones("");
         setCargadoStorage(true);
         return;
       }
 
-      const parsed = JSON.parse(guardado) as Record<
-        string,
-        Partial<RespuestaChecklist>
-      >;
+      let respuestasLocales: Record<string, Partial<RespuestaChecklist>> = {};
+      let observacionesLocales = "";
+
+      try {
+        const guardadoLocal = localStorage.getItem(`checklist-${equipoId}`);
+        observacionesLocales =
+          localStorage.getItem(`checklist-observaciones-${equipoId}`) || "";
+
+        if (guardadoLocal) {
+          respuestasLocales = JSON.parse(guardadoLocal) as Record<
+            string,
+            Partial<RespuestaChecklist>
+          >;
+        }
+      } catch {
+        respuestasLocales = {};
+      }
+
+      const { data, error } = await supabase
+        .from("checklists_tecnicos")
+        .select("respuestas_json,observaciones_generales")
+        .eq("orden_id", equipoId)
+        .maybeSingle();
+
+      if (!activo) return;
+
+      if (error) {
+        console.error("No se pudo cargar el checklist guardado:", error);
+      }
+
+      const respuestasSupabase =
+        data?.respuestas_json && typeof data.respuestas_json === "object"
+          ? (data.respuestas_json as Record<
+              string,
+              Partial<RespuestaChecklist>
+            >)
+          : {};
+
+      const fuenteRespuestas =
+        Object.keys(respuestasSupabase).length > 0
+          ? respuestasSupabase
+          : respuestasLocales;
 
       const mezclado: RespuestasChecklist = { ...base };
 
       Object.keys(base).forEach((itemId) => {
-        mezclado[itemId] = normalizarRespuestaGuardada(parsed[itemId]);
+        mezclado[itemId] = normalizarRespuestaGuardada(
+          fuenteRespuestas[itemId],
+        );
       });
 
       setRespuestas(mezclado);
-    } catch {
-      setRespuestas(base);
-    } finally {
+      setOtrasObservaciones(
+        data?.observaciones_generales ?? observacionesLocales,
+      );
       setCargadoStorage(true);
     }
+
+    void cargarChecklistGuardado();
+
+    return () => {
+      activo = false;
+    };
   }, [equipoId, tipoEquipo]);
 
   useEffect(() => {
@@ -1571,6 +1615,8 @@ export default function ChecklistInteligente({
         diagnosticoIASenior: data.diagnostico || null,
         fuenteIA: data.fuente || "openai",
         tecnicoACargo,
+        checklistPersistido: true,
+        preservarEstadoActual: edicionHistorica,
       });
     } catch (error) {
       console.error("Error IA, usando respaldo local:", error);
@@ -1604,6 +1650,8 @@ export default function ChecklistInteligente({
         diagnostico: diagnosticoLocal,
         observacionesGenerales: otrasObservaciones,
         tecnicoACargo,
+        checklistPersistido: true,
+        preservarEstadoActual: edicionHistorica,
       });
     } finally {
       setGenerandoIA(false);
@@ -1647,6 +1695,16 @@ export default function ChecklistInteligente({
         </div>
       </div>
 
+      {soloLectura && (
+        <div className="mb-5 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-800">
+          Checklist guardado. Presiona Modificar etapa para habilitar cambios.
+        </div>
+      )}
+
+      <fieldset
+        disabled={soloLectura}
+        className="m-0 min-w-0 border-0 p-0 disabled:cursor-default disabled:opacity-100"
+      >
       <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
         <label className="mb-2 block text-sm font-bold text-slate-700">
           Técnico a cargo
@@ -1705,7 +1763,9 @@ export default function ChecklistInteligente({
 
       <div className="space-y-4">
         {checklist.sections.map((section, sectionIndex) => {
-          const abierta = seccionesAbiertas[section.id] ?? sectionIndex === 0;
+          const abierta = soloLectura
+            ? true
+            : seccionesAbiertas[section.id] ?? sectionIndex === 0;
 
           return (
             <div
@@ -2046,8 +2106,10 @@ export default function ChecklistInteligente({
           {guardandoChecklist
             ? "Guardando checklist..."
             : generandoIA
-            ? "Generando con IA..."
-            : "Guardar equipo y generar diagnóstico"}
+              ? "Generando con IA..."
+              : edicionHistorica
+                ? "Guardar cambios y actualizar diagnóstico"
+                : "Guardar equipo y generar diagnóstico"}
         </button>
       </div>
 
@@ -2063,6 +2125,7 @@ export default function ChecklistInteligente({
           </p>
         </div>
       )}
+      </fieldset>
     </div>
   );
 }

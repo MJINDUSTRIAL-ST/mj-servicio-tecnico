@@ -10,6 +10,8 @@ import {
 
 type Props = {
   ordenId: string;
+  soloLectura?: boolean;
+  edicionHistorica?: boolean;
   onEstadoActualizado?: (estado: string) => void;
 };
 
@@ -412,7 +414,12 @@ function construirDiagnosticoAprobadoJson(
   };
 }
 
-export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
+export default function RevisionJefe({
+  ordenId,
+  soloLectura = false,
+  edicionHistorica = false,
+  onEstadoActualizado,
+}: Props) {
   const [equipos, setEquipos] = useState<EquipoRevision[]>([]);
   const [ordenInforme, setOrdenInforme] = useState<OrdenInforme | null>(null);
   const [revisiones, setRevisiones] = useState<
@@ -707,6 +714,8 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
     campo: CampoEditableRevision,
     valor: string,
   ) {
+    if (soloLectura) return;
+
     setRevisiones((prev) => ({
       ...prev,
       [equipoId]: {
@@ -720,6 +729,8 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
     equipoId: string,
     estadoFinal: "Aprobado" | "Rechazado",
   ) {
+    if (soloLectura) return;
+
     const actual = revisiones[equipoId] || revisionVacia();
 
     if (estadoFinal === "Rechazado" && !actual.motivo.trim()) {
@@ -786,37 +797,39 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
         idRevisionFinal = data.id;
       }
 
-      const nuevoEstadoEquipo =
-        estadoFinal === "Aprobado" ? "cotizacion" : "diagnostico";
+      if (!edicionHistorica) {
+        const nuevoEstadoEquipo =
+          estadoFinal === "Aprobado" ? "cotizacion" : "diagnostico";
 
-      await supabase
-        .from("ordenes")
-        .update({ estado: nuevoEstadoEquipo })
-        .eq("id", equipoId);
-
-      if (estadoFinal === "Rechazado") {
         await supabase
           .from("ordenes")
-          .update({ estado: "diagnostico" })
-          .eq("id", ordenId);
+          .update({ estado: nuevoEstadoEquipo })
+          .eq("id", equipoId);
 
-        onEstadoActualizado?.("diagnostico");
-      }
+        if (estadoFinal === "Rechazado") {
+          await supabase
+            .from("ordenes")
+            .update({ estado: "diagnostico" })
+            .eq("id", ordenId);
 
-      const todosAprobados = equipos.every((equipo) => {
-        if (equipo.id === equipoId) return estadoFinal === "Aprobado";
+          onEstadoActualizado?.("diagnostico");
+        }
 
-        const revisionEquipo = revisiones[equipo.id];
-        return revisionEquipo?.estado === "Aprobado";
-      });
+        const todosAprobados = equipos.every((equipo) => {
+          if (equipo.id === equipoId) return estadoFinal === "Aprobado";
 
-      if (todosAprobados) {
-        await supabase
-          .from("ordenes")
-          .update({ estado: "cotizacion" })
-          .eq("id", ordenId);
+          const revisionEquipo = revisiones[equipo.id];
+          return revisionEquipo?.estado === "Aprobado";
+        });
 
-        onEstadoActualizado?.("cotizacion");
+        if (todosAprobados) {
+          await supabase
+            .from("ordenes")
+            .update({ estado: "cotizacion" })
+            .eq("id", ordenId);
+
+          onEstadoActualizado?.("cotizacion");
+        }
       }
 
       setRevisiones((prev) => ({
@@ -854,6 +867,12 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
 
   return (
     <section className="space-y-5">
+      {soloLectura && (
+        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-800">
+          Revisión guardada. Presiona Modificar etapa para habilitar cambios.
+        </div>
+      )}
+
       {equipos.map((equipo, index) => {
         const actual = revisiones[equipo.id] || revisionVacia();
         const tieneDiagnostico = Boolean(
@@ -962,7 +981,9 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
                   La información viene desde el diagnóstico técnico guardado.
-                  Puedes editar procedimiento y repuestos antes de aprobar.
+                  {soloLectura
+                    ? " La revisión se encuentra bloqueada."
+                    : " Puedes editar procedimiento y repuestos antes de aprobar."}
                 </p>
               </div>
 
@@ -973,12 +994,13 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
 
                 <textarea
                   value={actual.motivo}
+                  disabled={soloLectura}
                   onChange={(event) =>
                     actualizarCampo(equipo.id, "motivo", event.target.value)
                   }
                   rows={3}
                   placeholder="Ejemplo: Se aprueba diagnóstico. Validar disponibilidad de repuestos antes de cotizar."
-                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none disabled:cursor-default disabled:bg-slate-50 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
               </div>
 
@@ -990,10 +1012,11 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
                 <input
                   type="number"
                   value={actual.horas}
+                  disabled={soloLectura}
                   onChange={(event) =>
                     actualizarCampo(equipo.id, "horas", event.target.value)
                   }
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none disabled:cursor-default disabled:bg-slate-50 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
               </div>
 
@@ -1004,6 +1027,7 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
 
                 <textarea
                   value={actual.procedimiento}
+                  disabled={soloLectura}
                   onChange={(event) =>
                     actualizarCampo(
                       equipo.id,
@@ -1012,7 +1036,7 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
                     )
                   }
                   rows={7}
-                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none disabled:cursor-default disabled:bg-slate-50 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
               </div>
 
@@ -1023,40 +1047,49 @@ export default function RevisionJefe({ ordenId, onEstadoActualizado }: Props) {
 
                 <textarea
                   value={actual.repuestos}
+                  disabled={soloLectura}
                   onChange={(event) =>
                     actualizarCampo(equipo.id, "repuestos", event.target.value)
                   }
                   rows={5}
-                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none disabled:cursor-default disabled:bg-slate-50 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
               </div>
 
               <div className="grid grid-cols-1 gap-3 border-t border-slate-200 pt-5 md:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => guardar(equipo.id, "Aprobado")}
-                  disabled={actual.guardando || !tieneDiagnostico}
-                  className="rounded-xl bg-green-600 px-5 py-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {actual.guardando
-                    ? "Guardando..."
-                    : actual.guardadoOk && actual.estado === "Aprobado"
-                      ? "✓ Aprobado"
-                      : "Aprobar diagnóstico"}
-                </button>
+                {!soloLectura && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => guardar(equipo.id, "Aprobado")}
+                      disabled={actual.guardando || !tieneDiagnostico}
+                      className="rounded-xl bg-green-600 px-5 py-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      {actual.guardando
+                        ? "Guardando..."
+                        : actual.guardadoOk && actual.estado === "Aprobado"
+                          ? "Aprobado"
+                          : edicionHistorica
+                            ? "Guardar revisión aprobada"
+                            : "Aprobar diagnóstico"}
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={() => guardar(equipo.id, "Rechazado")}
-                  disabled={actual.guardando}
-                  className="rounded-xl bg-red-600 px-5 py-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {actual.guardando
-                    ? "Guardando..."
-                    : actual.guardadoOk && actual.estado === "Rechazado"
-                      ? "✓ Rechazado"
-                      : "Rechazar diagnóstico"}
-                </button>
+                    <button
+                      type="button"
+                      onClick={() => guardar(equipo.id, "Rechazado")}
+                      disabled={actual.guardando}
+                      className="rounded-xl bg-red-600 px-5 py-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      {actual.guardando
+                        ? "Guardando..."
+                        : actual.guardadoOk && actual.estado === "Rechazado"
+                          ? "Rechazado"
+                          : edicionHistorica
+                            ? "Guardar revisión rechazada"
+                            : "Rechazar diagnóstico"}
+                    </button>
+                  </>
+                )}
 
                 {actual.estado === "Aprobado" && (
                   <button

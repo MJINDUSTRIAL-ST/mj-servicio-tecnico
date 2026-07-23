@@ -9,6 +9,8 @@ import {
 
 type Props = {
   ordenId: string;
+  soloLectura?: boolean;
+  edicionHistorica?: boolean;
   onEstadoActualizado?: (estado: string) => void;
 };
 
@@ -107,6 +109,8 @@ ${repuestos}`;
 
 export default function DiagnosticoTecnico({
   ordenId,
+  soloLectura = false,
+  edicionHistorica = false,
   onEstadoActualizado,
 }: Props) {
   const [equipos, setEquipos] = useState<EquipoDiagnostico[]>([]);
@@ -184,6 +188,8 @@ export default function DiagnosticoTecnico({
     campo: "hallazgos" | "procedimiento" | "repuestos",
     valor: string
   ) {
+    if (soloLectura) return;
+
     setDiagnosticos((prev) => ({
       ...prev,
       [equipoId]: {
@@ -194,6 +200,8 @@ export default function DiagnosticoTecnico({
   }
 
   async function actualizarTecnicoACargo(equipoId: string, valor: string) {
+    if (soloLectura) return;
+
     setDiagnosticos((prev) => ({
       ...prev,
       [equipoId]: {
@@ -213,6 +221,8 @@ export default function DiagnosticoTecnico({
   }
 
   async function guardar(equipoId: string) {
+    if (soloLectura) return;
+
     const actual = diagnosticos[equipoId] || diagnosticoVacio();
 
     setDiagnosticos((prev) => ({
@@ -268,27 +278,29 @@ export default function DiagnosticoTecnico({
         }));
       }
 
-      await supabase
-        .from("ordenes")
-        .update({
-          estado: "revision",
-          tecnico_a_cargo: actual.tecnicoACargo || null,
-        })
-        .eq("id", equipoId);
-
-      const todosConDiagnostico = equipos.every((equipo) => {
-        if (equipo.id === equipoId) return true;
-        const diagnostico = diagnosticos[equipo.id];
-        return Boolean(diagnostico?.idDiagnostico);
-      });
-
-      if (todosConDiagnostico) {
+      if (!edicionHistorica) {
         await supabase
           .from("ordenes")
-          .update({ estado: "revision" })
-          .eq("id", ordenId);
+          .update({
+            estado: "revision",
+            tecnico_a_cargo: actual.tecnicoACargo || null,
+          })
+          .eq("id", equipoId);
 
-        onEstadoActualizado?.("revision");
+        const todosConDiagnostico = equipos.every((equipo) => {
+          if (equipo.id === equipoId) return true;
+          const diagnostico = diagnosticos[equipo.id];
+          return Boolean(diagnostico?.idDiagnostico);
+        });
+
+        if (todosConDiagnostico) {
+          await supabase
+            .from("ordenes")
+            .update({ estado: "revision" })
+            .eq("id", ordenId);
+
+          onEstadoActualizado?.("revision");
+        }
       }
 
       setDiagnosticos((prev) => ({
@@ -324,6 +336,12 @@ export default function DiagnosticoTecnico({
 
   return (
     <section className="space-y-5">
+      {soloLectura && (
+        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-800">
+          Diagnóstico guardado. Presiona Modificar etapa para habilitar cambios.
+        </div>
+      )}
+
       {equipos.map((equipo, index) => {
         const actual = diagnosticos[equipo.id] || diagnosticoVacio();
 
@@ -359,20 +377,24 @@ export default function DiagnosticoTecnico({
                 )}
               </div>
 
-              <button
-                type="button"
-                onClick={() => guardar(equipo.id)}
-                disabled={actual.guardando}
-                className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                {actual.guardando
-                  ? "Guardando..."
-                  : actual.guardadoOk
-                  ? "✓ Guardado"
-                  : actual.idDiagnostico
-                  ? "Modificar diagnóstico"
-                  : "Guardar diagnóstico"}
-              </button>
+              {!soloLectura && (
+                <button
+                  type="button"
+                  onClick={() => guardar(equipo.id)}
+                  disabled={actual.guardando}
+                  className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {actual.guardando
+                    ? "Guardando..."
+                    : actual.guardadoOk
+                      ? "Guardado"
+                      : edicionHistorica
+                        ? "Guardar cambios"
+                        : actual.idDiagnostico
+                          ? "Guardar y avanzar a Revisión"
+                          : "Guardar diagnóstico"}
+                </button>
+              )}
             </div>
 
             <div className="space-y-4">
@@ -383,10 +405,11 @@ export default function DiagnosticoTecnico({
 
                 <select
                   value={actual.tecnicoACargo}
+                  disabled={soloLectura}
                   onChange={(event) =>
                     actualizarTecnicoACargo(equipo.id, event.target.value)
                   }
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 outline-none disabled:cursor-default disabled:bg-slate-50 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 >
                   <option value="">Seleccionar técnico</option>
                   {TECNICOS_MJ.map((tecnico) => (
@@ -408,11 +431,12 @@ export default function DiagnosticoTecnico({
 
                 <textarea
                   value={actual.hallazgos}
+                  disabled={soloLectura}
                   onChange={(event) =>
                     actualizarCampo(equipo.id, "hallazgos", event.target.value)
                   }
                   rows={5}
-                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none disabled:cursor-default disabled:bg-slate-50 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
               </div>
 
@@ -423,6 +447,7 @@ export default function DiagnosticoTecnico({
 
                 <textarea
                   value={actual.procedimiento}
+                  disabled={soloLectura}
                   onChange={(event) =>
                     actualizarCampo(
                       equipo.id,
@@ -431,7 +456,7 @@ export default function DiagnosticoTecnico({
                     )
                   }
                   rows={4}
-                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none disabled:cursor-default disabled:bg-slate-50 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
               </div>
 
@@ -442,11 +467,12 @@ export default function DiagnosticoTecnico({
 
                 <textarea
                   value={actual.repuestos}
+                  disabled={soloLectura}
                   onChange={(event) =>
                     actualizarCampo(equipo.id, "repuestos", event.target.value)
                   }
                   rows={4}
-                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none disabled:cursor-default disabled:bg-slate-50 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
               </div>
             </div>

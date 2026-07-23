@@ -6,6 +6,8 @@ import { obtenerEquipoTrabajo } from "../lib/equipoTrabajoStore";
 
 type Props = {
   ordenId: string;
+  soloLectura?: boolean;
+  edicionHistorica?: boolean;
   onEstadoActualizado?: (estado: string) => void;
 };
 
@@ -281,6 +283,8 @@ function fechaActualCL() {
 
 export default function CotizacionInterna({
   ordenId,
+  soloLectura = false,
+  edicionHistorica = false,
   onEstadoActualizado,
 }: Props) {
   const [ordenInfo, setOrdenInfo] = useState<OrdenInfo | null>(null);
@@ -489,6 +493,8 @@ export default function CotizacionInterna({
   }
 
   function agregarItem(equipoId: string, tipo: TipoItem = "otro") {
+    if (soloLectura) return;
+
     setItems((prev) => [
       ...prev,
       {
@@ -504,6 +510,8 @@ export default function CotizacionInterna({
   }
 
   function eliminarItem(itemId: string) {
+    if (soloLectura) return;
+
     setItems((prev) => prev.filter((item) => item.id !== itemId));
     setGuardadoOk(false);
   }
@@ -513,6 +521,8 @@ export default function CotizacionInterna({
     campo: keyof ItemCotizacion,
     valor: string | number,
   ) {
+    if (soloLectura) return;
+
     setItems((prev) =>
       prev.map((item) => {
         if (item.id !== itemId) return item;
@@ -551,7 +561,7 @@ export default function CotizacionInterna({
   }
 
   async function guardarLocal() {
-    if (!ordenId) return;
+    if (!ordenId || soloLectura) return;
 
     setGuardando(true);
 
@@ -596,29 +606,32 @@ export default function CotizacionInterna({
       );
     }
 
-    const { error } = await supabase
-      .from("ordenes")
-      .update({ estado: "trabajo" })
-      .eq("id", ordenId);
+    if (!edicionHistorica) {
+      const { error } = await supabase
+        .from("ordenes")
+        .update({ estado: "trabajo" })
+        .eq("id", ordenId);
 
-    await supabase
-      .from("ordenes")
-      .update({ estado: "trabajo" })
-      .eq("orden_padre_id", ordenId);
+      await supabase
+        .from("ordenes")
+        .update({ estado: "trabajo" })
+        .eq("orden_padre_id", ordenId);
 
-    setGuardando(false);
+      if (error) {
+        setGuardando(false);
+        alert("No se pudo actualizar la OT a Trabajo");
+        return;
+      }
 
-    if (error) {
-      alert("No se pudo actualizar la OT a Trabajo");
-      return;
+      onEstadoActualizado?.("trabajo");
     }
 
+    setGuardando(false);
     setGuardadoOk(true);
-    onEstadoActualizado?.("trabajo");
   }
 
   function regenerarDesdeFlujo() {
-    if (!ordenId) return;
+    if (!ordenId || soloLectura) return;
 
     const confirmar = window.confirm(
       "Esto volverá a cargar la cotización desde la revisión aprobada y perderá cambios no guardados en esta pantalla. ¿Continuar?",
@@ -1174,13 +1187,15 @@ export default function CotizacionInterna({
         </div>
 
         <div className="headerActions">
-          <button
-            type="button"
-            onClick={regenerarDesdeFlujo}
-            className="secondaryTop"
-          >
-            Regenerar desde revisión
-          </button>
+          {!soloLectura && (
+            <button
+              type="button"
+              onClick={regenerarDesdeFlujo}
+              className="secondaryTop"
+            >
+              Regenerar desde revisión
+            </button>
+          )}
 
           <button
             type="button"
@@ -1190,21 +1205,32 @@ export default function CotizacionInterna({
             Imprimir / Guardar PDF
           </button>
 
-          <button
-            type="button"
-            onClick={guardarLocal}
-            disabled={guardando}
-            className={guardadoOk ? "guardado" : ""}
-          >
-            {guardando
-              ? "Guardando..."
-              : guardadoOk
-                ? "✓ Cotización guardada"
-                : "Guardar cotización"}
-          </button>
+          {!soloLectura && (
+            <button
+              type="button"
+              onClick={guardarLocal}
+              disabled={guardando}
+              className={guardadoOk ? "guardado" : ""}
+            >
+              {guardando
+                ? "Guardando..."
+                : guardadoOk
+                  ? "Cotización guardada"
+                  : edicionHistorica
+                    ? "Guardar cambios"
+                    : "Guardar cotización y avanzar a Trabajo"}
+            </button>
+          )}
         </div>
       </div>
 
+      {soloLectura && (
+        <div className="readOnlyNotice">
+          Cotización guardada. Presiona Modificar etapa para habilitar cambios.
+        </div>
+      )}
+
+      <fieldset disabled={soloLectura} className="contentFieldset">
       <div className="ivaBox">
         <label>
           <input
@@ -1422,6 +1448,7 @@ export default function CotizacionInterna({
           <strong>{formatearMoneda(totalFinal)}</strong>
         </div>
       </div>
+      </fieldset>
 
       <style jsx>{`
         .card {
@@ -1430,6 +1457,30 @@ export default function CotizacionInterna({
           border-radius: 18px;
           border: 1px solid #e2e8f0;
           margin-bottom: 18px;
+        }
+
+        .contentFieldset {
+          min-width: 0;
+          margin: 0;
+          padding: 0;
+          border: 0;
+        }
+
+        .readOnlyNotice {
+          margin-bottom: 16px;
+          border: 1px solid #bbf7d0;
+          border-radius: 12px;
+          background: #f0fdf4;
+          color: #166534;
+          padding: 12px 14px;
+          font-size: 13px;
+          font-weight: 800;
+        }
+
+        .contentFieldset:disabled input,
+        .contentFieldset:disabled select,
+        .contentFieldset:disabled button {
+          cursor: default;
         }
 
         .header {

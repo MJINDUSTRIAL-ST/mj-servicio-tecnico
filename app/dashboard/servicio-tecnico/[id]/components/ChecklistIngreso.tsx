@@ -5,6 +5,7 @@ import { supabase } from "../../../../lib/supabase";
 
 type Props = {
   ordenId: string;
+  soloLectura?: boolean;
 };
 
 type ChecklistIngresoJson = Record<string, boolean>;
@@ -17,15 +18,27 @@ type ItemIngreso = {
 
 const ITEMS_INGRESO: ItemIngreso[] = [
   { id: "equipo_limpio", label: "Equipo limpio", grupo: "Recepción" },
-  { id: "cable_alimentacion", label: "Cable de alimentación", grupo: "Recepción" },
+  {
+    id: "cable_alimentacion",
+    label: "Cable de alimentación",
+    grupo: "Recepción",
+  },
   { id: "cadena", label: "Cadena", grupo: "Recepción" },
   { id: "manual_recibido", label: "Manual recibido", grupo: "Recepción" },
   { id: "equipo_energiza", label: "Equipo energiza", grupo: "Recepción" },
-  { id: "accesorios_completos", label: "Accesorios completos", grupo: "Accesorios" },
+  {
+    id: "accesorios_completos",
+    label: "Accesorios completos",
+    grupo: "Accesorios",
+  },
   { id: "gancho", label: "Gancho", grupo: "Accesorios" },
   { id: "control_remoto", label: "Control remoto", grupo: "Accesorios" },
   { id: "embalaje", label: "Embalaje", grupo: "Accesorios" },
-  { id: "fotografias_tomadas", label: "Fotografías tomadas", grupo: "Evidencia" },
+  {
+    id: "fotografias_tomadas",
+    label: "Fotografías tomadas",
+    grupo: "Evidencia",
+  },
 ];
 
 function crearChecklistVacio() {
@@ -35,7 +48,10 @@ function crearChecklistVacio() {
   }, {});
 }
 
-export default function ChecklistIngreso({ ordenId }: Props) {
+export default function ChecklistIngreso({
+  ordenId,
+  soloLectura = false,
+}: Props) {
   const [valores, setValores] = useState<ChecklistIngresoJson>(() =>
     crearChecklistVacio(),
   );
@@ -76,7 +92,8 @@ export default function ChecklistIngreso({ ordenId }: Props) {
     }
 
     const checklistGuardado =
-      data?.checklist_ingreso_json && typeof data.checklist_ingreso_json === "object"
+      data?.checklist_ingreso_json &&
+      typeof data.checklist_ingreso_json === "object"
         ? data.checklist_ingreso_json
         : {};
 
@@ -89,6 +106,8 @@ export default function ChecklistIngreso({ ordenId }: Props) {
   }
 
   async function guardarChecklist(nuevoValor: ChecklistIngresoJson) {
+    if (soloLectura) return;
+
     setGuardando(true);
     setGuardado(false);
     setError("");
@@ -101,7 +120,9 @@ export default function ChecklistIngreso({ ordenId }: Props) {
     setGuardando(false);
 
     if (errorGuardar) {
-      setError(errorGuardar.message || "No se pudo guardar el checklist de ingreso.");
+      setError(
+        errorGuardar.message || "No se pudo guardar el checklist de ingreso.",
+      );
       return;
     }
 
@@ -113,25 +134,28 @@ export default function ChecklistIngreso({ ordenId }: Props) {
   }
 
   function cambiarItem(itemId: string) {
+    if (soloLectura) return;
+
     const nuevoValor = {
       ...valores,
       [itemId]: !valores[itemId],
     };
 
     setValores(nuevoValor);
-    guardarChecklist(nuevoValor);
+    void guardarChecklist(nuevoValor);
   }
 
   const totalMarcados = Object.values(valores).filter(Boolean).length;
 
   return (
-    <section className="card">
+    <section className={`card ${soloLectura ? "readOnly" : ""}`}>
       <div className="header">
         <div>
           <h2>Checklist de ingreso</h2>
           <p>
-            Registro rápido de recepción. Se guarda automáticamente al marcar o
-            desmarcar cada ítem.
+            {soloLectura
+              ? "Este registro de recepción ya fue guardado y se encuentra bloqueado."
+              : "Registro rápido de recepción. Se guarda automáticamente al marcar o desmarcar cada ítem."}
           </p>
         </div>
 
@@ -150,11 +174,15 @@ export default function ChecklistIngreso({ ordenId }: Props) {
                 <h3>{grupo}</h3>
 
                 {items.map((item) => (
-                  <label key={item.id} className="item">
+                  <label
+                    key={item.id}
+                    className={`item ${soloLectura ? "itemReadOnly" : ""}`}
+                  >
                     <input
                       type="checkbox"
                       checked={Boolean(valores[item.id])}
                       onChange={() => cambiarItem(item.id)}
+                      disabled={soloLectura || guardando}
                     />
                     <span>{item.label}</span>
                   </label>
@@ -164,8 +192,9 @@ export default function ChecklistIngreso({ ordenId }: Props) {
           </div>
 
           <div className="estadoGuardado">
-            {guardando && <span>Guardando...</span>}
-            {guardado && <strong>Guardado</strong>}
+            {soloLectura && <strong>Etapa guardada</strong>}
+            {!soloLectura && guardando && <span>Guardando...</span>}
+            {!soloLectura && guardado && <strong>Guardado</strong>}
             {error && <em>{error}</em>}
           </div>
         </>
@@ -178,6 +207,10 @@ export default function ChecklistIngreso({ ordenId }: Props) {
           border-radius: 18px;
           padding: 18px;
           margin-top: 18px;
+        }
+
+        .card.readOnly {
+          background: #f8fafc;
         }
 
         .header {
@@ -242,10 +275,19 @@ export default function ChecklistIngreso({ ordenId }: Props) {
           cursor: pointer;
         }
 
+        .itemReadOnly {
+          cursor: default;
+        }
+
         input {
           width: 16px;
           height: 16px;
           accent-color: #2563eb;
+        }
+
+        input:disabled {
+          opacity: 1;
+          cursor: default;
         }
 
         .estadoGuardado {
