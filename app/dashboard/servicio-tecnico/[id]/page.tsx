@@ -111,6 +111,24 @@ const ETAPAS = [
   "Entregado",
 ];
 
+type TabOT =
+  | "detalle"
+  | "checklist"
+  | "diagnostico"
+  | "revision"
+  | "cotizacion"
+  | "trabajo"
+  | "reportes";
+
+const INDICE_ETAPA_POR_TAB: Record<Exclude<TabOT, "reportes">, number> = {
+  detalle: 0,
+  checklist: 1,
+  diagnostico: 2,
+  revision: 3,
+  cotizacion: 4,
+  trabajo: 5,
+};
+
 function normalizarEstado(estado?: string | null) {
   if (!estado) return "Ingreso";
 
@@ -152,6 +170,44 @@ function normalizarEstado(estado?: string | null) {
   if (e.includes("checklist")) return "Checklist";
 
   return "Ingreso";
+}
+
+function tabDesdeEstado(estado: string): TabOT {
+  const estadoNormal = normalizarEstado(estado);
+
+  if (estadoNormal === "Checklist") return "checklist";
+  if (estadoNormal === "Diagnóstico") return "diagnostico";
+  if (estadoNormal === "Revisión") return "revision";
+  if (estadoNormal === "Cotización") return "cotizacion";
+  if (
+    estadoNormal === "Trabajo" ||
+    estadoNormal === "Listo" ||
+    estadoNormal === "Entregado"
+  ) {
+    return "trabajo";
+  }
+
+  return "detalle";
+}
+
+function calcularEstadoActualDesdeDatos(
+  ordenData: Orden,
+  equiposData: EquipoLote[],
+) {
+  const esLote =
+    Number(ordenData?.cantidad_equipos || 1) > 1 || equiposData.length > 0;
+
+  if (!esLote || equiposData.length === 0) {
+    return normalizarEstado(ordenData.estado);
+  }
+
+  const indices = equiposData.map((equipo) => {
+    const estado = normalizarEstado(equipo.estado);
+    const index = ETAPAS.indexOf(estado);
+    return index >= 0 ? index : 0;
+  });
+
+  return ETAPAS[Math.min(...indices)] || normalizarEstado(ordenData.estado);
 }
 
 function badgeEstado(estado: string) {
@@ -650,6 +706,55 @@ function AvisoLote({ equipos }: { equipos: EquipoLote[] }) {
   );
 }
 
+function ControlEtapaGuardada({
+  titulo,
+  enEdicion,
+  onCambiar,
+}: {
+  titulo: string;
+  enEdicion: boolean;
+  onCambiar: () => void;
+}) {
+  return (
+    <div
+      className={`mb-4 flex flex-col gap-3 rounded-2xl border p-4 md:flex-row md:items-center md:justify-between ${
+        enEdicion
+          ? "border-amber-200 bg-amber-50"
+          : "border-green-200 bg-green-50"
+      }`}
+    >
+      <div>
+        <p
+          className={`text-sm font-bold ${
+            enEdicion ? "text-amber-900" : "text-green-900"
+          }`}
+        >
+          {enEdicion ? `Modificando ${titulo}` : `${titulo} guardado`}
+        </p>
+        <p
+          className={`mt-1 text-xs ${
+            enEdicion ? "text-amber-800" : "text-green-800"
+          }`}
+        >
+          {enEdicion
+            ? "Los cambios se guardarán sin modificar la etapa actual de la OT."
+            : "La información está bloqueada para evitar cambios accidentales."}
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={onCambiar}
+        className={`rounded-xl px-4 py-2 text-sm font-bold text-white ${
+          enEdicion ? "bg-slate-700" : "bg-blue-600"
+        }`}
+      >
+        {enEdicion ? "Terminar edición" : "Modificar etapa"}
+      </button>
+    </div>
+  );
+}
+
 export default function DetalleOrdenPage() {
   const params = useParams();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
@@ -665,22 +770,17 @@ export default function DetalleOrdenPage() {
   const [fotoModal, setFotoModal] = useState<string | null>(null);
   const [eliminandoFotoId, setEliminandoFotoId] = useState<string | null>(null);
   const [generandoPdf, setGenerandoPdf] = useState(false);
-  const [tab, setTab] = useState<
-    | "detalle"
-    | "checklist"
-    | "diagnostico"
-    | "revision"
-    | "cotizacion"
-    | "trabajo"
-    | "reportes"
-  >("detalle");
+  const [tab, setTab] = useState<TabOT>("detalle");
+  const [etapasEditando, setEtapasEditando] = useState<
+    Record<string, boolean>
+  >({});
   const [eventoLogistica, setEventoLogistica] =
     useState<EventoLogisticaOT | null>(null);
   const [formularioLogistica, setFormularioLogistica] =
     useState<FormularioLogisticaListo>(() => formularioLogisticaInicial());
   const [creandoSolicitudLogistica, setCreandoSolicitudLogistica] =
     useState(false);
-      const [notificandoCliente, setNotificandoCliente] = useState(false);
+  const [notificandoCliente, setNotificandoCliente] = useState(false);
 
   const fotosIngreso = useMemo(() => {
     const fotosDesdeOrden = normalizarFotosIngreso(orden?.fotos_estado_inicial);
@@ -734,6 +834,33 @@ export default function DetalleOrdenPage() {
     return index >= 0 ? index : 0;
   }, [estadoActual]);
 
+  function cambiarTabSeguro(nuevaTab: TabOT) {
+    if (nuevaTab === "reportes") {
+      setTab(nuevaTab);
+      return;
+    }
+
+    const indiceDestino = INDICE_ETAPA_POR_TAB[nuevaTab];
+
+    if (indiceDestino > etapaActualIndex) {
+      alert("Esta etapa todavía no está disponible para la OT.");
+      return;
+    }
+
+    setTab(nuevaTab);
+  }
+
+  function etapaEnEdicion(clave: string) {
+    return Boolean(etapasEditando[clave]);
+  }
+
+  function alternarEdicionEtapa(clave: string) {
+    setEtapasEditando((prev) => ({
+      ...prev,
+      [clave]: !prev[clave],
+    }));
+  }
+
   useEffect(() => {
     cargarDatos();
   }, [id]);
@@ -747,7 +874,7 @@ export default function DetalleOrdenPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  async function cargarDatos() {
+  async function cargarDatos(mantenerTab = false) {
     if (!id) {
       setError("No se encontró el ID de la orden");
       setLoading(false);
@@ -858,12 +985,24 @@ export default function DetalleOrdenPage() {
       .limit(1)
       .maybeSingle();
 
-    setEventoLogistica((eventoLogisticaData as EventoLogisticaOT) || null);
+    const ordenNormalizada = ordenData as Orden;
+    const equiposNormalizados = (equiposData || []) as EquipoLote[];
+    const estadoCargado = calcularEstadoActualDesdeDatos(
+      ordenNormalizada,
+      equiposNormalizados,
+    );
 
-    setOrden(ordenData as Orden);
-    setEquiposLote((equiposData || []) as EquipoLote[]);
+    setEventoLogistica((eventoLogisticaData as EventoLogisticaOT) || null);
+    setOrden(ordenNormalizada);
+    setEquiposLote(equiposNormalizados);
     setDocumentosIngreso((documentosData || []) as OrdenDocumento[]);
     setReportes(reportesNormalizados);
+
+    if (!mantenerTab) {
+      setTab(tabDesdeEstado(estadoCargado));
+      setEtapasEditando({});
+    }
+
     setLoading(false);
   }
 
@@ -1410,9 +1549,14 @@ export default function DetalleOrdenPage() {
 
     const equipoId = payload?.equipoId || orden.id;
     const diagnosticoIA = payload?.diagnostico;
+    const preservarEstadoActual = Boolean(payload?.preservarEstadoActual);
 
     try {
-      if (payload?.respuestas && payload?.checklist) {
+      if (
+        payload?.respuestas &&
+        payload?.checklist &&
+        !payload?.checklistPersistido
+      ) {
         await guardarChecklistTecnicoEnSupabase({
           ...payload,
           equipoId,
@@ -1492,8 +1636,14 @@ export default function DetalleOrdenPage() {
       }
     }
 
+    if (preservarEstadoActual) {
+      alert("Checklist y diagnóstico actualizados sin cambiar la etapa actual de la OT.");
+      await cargarDatos(true);
+      return;
+    }
+
     const datosRevisionEquipo: Record<string, any> = {
-      estado: "Revisión",
+      estado: "Diagnóstico",
     };
 
     if (payload?.diagnosticoIASenior) {
@@ -1525,18 +1675,19 @@ export default function DetalleOrdenPage() {
     }
 
     setOrden((prev) => {
-  if (!prev) return prev;
-  return { ...prev, estado: "Diagnóstico" };
-});
+      if (!prev) return prev;
+      return { ...prev, estado: "Diagnóstico" };
+    });
 
     setEquiposLote((prev) =>
-  prev.map((equipo) =>
-    equipo.id === equipoId ? { ...equipo, estado: "Diagnóstico" } : equipo,
-  ),
-);
+      prev.map((equipo) =>
+        equipo.id === equipoId
+          ? { ...equipo, estado: "Diagnóstico" }
+          : equipo,
+      ),
+    );
 
-setTab("diagnostico");
-
+    setTab("diagnostico");
     await cargarDatos();
   }
 
@@ -1688,10 +1839,21 @@ setTab("diagnostico");
 
           <TimelineOT etapas={ETAPAS} etapaActualIndex={etapaActualIndex} />
 
-          <TabsOT tab={tab} onChange={setTab} />
+          <TabsOT
+            tab={tab}
+            onChange={(nuevaTab) => cambiarTabSeguro(nuevaTab as TabOT)}
+          />
 
           {tab === "detalle" && (
             <>
+              {etapaActualIndex > 0 && (
+                <ControlEtapaGuardada
+                  titulo="Ingreso"
+                  enEdicion={etapaEnEdicion("ingreso")}
+                  onCambiar={() => alternarEdicionEtapa("ingreso")}
+                />
+              )}
+
               <section className="twoColumns">
                 <DetalleCliente
                   ordenId={orden.id}
@@ -1735,79 +1897,173 @@ setTab("diagnostico");
                     }}
                   />
 
-                  <ChecklistIngreso ordenId={orden.id} />
+                  <ChecklistIngreso
+                    ordenId={orden.id}
+                    soloLectura={
+                      etapaActualIndex > 0 && !etapaEnEdicion("ingreso")
+                    }
+                  />
 
-                  <div className="ingresoActions">
-                    <button
-                      type="button"
-                      className="guardarIngreso"
-                      onClick={guardarIngresoYAvanzar}
-                    >
-                      Guardar ingreso y avanzar a Checklist
-                    </button>
-                  </div>
+                  {etapaActualIndex === 0 && (
+                    <div className="ingresoActions">
+                      <button
+                        type="button"
+                        className="guardarIngreso"
+                        onClick={guardarIngresoYAvanzar}
+                      >
+                        Guardar ingreso y avanzar a Checklist
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
             </>
           )}
 
-          {tab === "checklist" &&
-            (esOtMadreLote ? (
-              <ChecklistLote equipos={equiposLote} ordenId={orden.id} />
-            ) : (
-              <ChecklistInteligente
-                equipoId={orden.id}
-                tipoEquipoInicial={orden.equipo}
-                onGenerarDiagnostico={avanzarADiagnostico}
-              />
-            ))}
+          {tab === "checklist" && (
+            <>
+              {etapaActualIndex > 1 && (
+                <ControlEtapaGuardada
+                  titulo="Checklist"
+                  enEdicion={etapaEnEdicion("checklist")}
+                  onCambiar={() => alternarEdicionEtapa("checklist")}
+                />
+              )}
+
+              {esOtMadreLote ? (
+                <div
+                  className={
+                    etapaActualIndex > 1 && !etapaEnEdicion("checklist")
+                      ? "stageReadOnly"
+                      : ""
+                  }
+                >
+                  <ChecklistLote equipos={equiposLote} ordenId={orden.id} />
+                </div>
+              ) : (
+                <ChecklistInteligente
+                  equipoId={orden.id}
+                  tipoEquipoInicial={orden.equipo}
+                  soloLectura={
+                    etapaActualIndex > 1 && !etapaEnEdicion("checklist")
+                  }
+                  edicionHistorica={etapaActualIndex > 1}
+                  onGenerarDiagnostico={avanzarADiagnostico}
+                />
+              )}
+            </>
+          )}
 
           {tab === "diagnostico" && (
-            <DiagnosticoTecnico
-              ordenId={orden.id}
-              onEstadoActualizado={(estado) => {
-                setOrden((prev) => {
-                  if (!prev) return prev;
-                  return { ...prev, estado };
-                });
-              }}
-            />
+            <>
+              {etapaActualIndex > 2 && (
+                <ControlEtapaGuardada
+                  titulo="Diagnóstico"
+                  enEdicion={etapaEnEdicion("diagnostico")}
+                  onCambiar={() => alternarEdicionEtapa("diagnostico")}
+                />
+              )}
+
+              <DiagnosticoTecnico
+                ordenId={orden.id}
+                soloLectura={
+                  etapaActualIndex > 2 && !etapaEnEdicion("diagnostico")
+                }
+                edicionHistorica={etapaActualIndex > 2}
+                onEstadoActualizado={(estado) => {
+                  setOrden((prev) => {
+                    if (!prev) return prev;
+                    return { ...prev, estado };
+                  });
+                  setTab(tabDesdeEstado(estado));
+                }}
+              />
+            </>
           )}
 
           {tab === "revision" && (
-            <RevisionJefe
-              ordenId={orden.id}
-              onEstadoActualizado={(estado) => {
-                setOrden((prev) => {
-                  if (!prev) return prev;
-                  return { ...prev, estado };
-                });
-              }}
-            />
+            <>
+              {etapaActualIndex > 3 && (
+                <ControlEtapaGuardada
+                  titulo="Revisión"
+                  enEdicion={etapaEnEdicion("revision")}
+                  onCambiar={() => alternarEdicionEtapa("revision")}
+                />
+              )}
+
+              <RevisionJefe
+                ordenId={orden.id}
+                soloLectura={
+                  etapaActualIndex > 3 && !etapaEnEdicion("revision")
+                }
+                edicionHistorica={etapaActualIndex > 3}
+                onEstadoActualizado={(estado) => {
+                  setOrden((prev) => {
+                    if (!prev) return prev;
+                    return { ...prev, estado };
+                  });
+                  setTab(tabDesdeEstado(estado));
+                }}
+              />
+            </>
           )}
 
           {tab === "cotizacion" && (
-            <CotizacionInterna
-              ordenId={orden.id}
-              onEstadoActualizado={(estado) => {
-                setOrden((prev) => {
-                  if (!prev) return prev;
-                  return { ...prev, estado };
-                });
+            <>
+              {etapaActualIndex > 4 && (
+                <ControlEtapaGuardada
+                  titulo="Cotización interna"
+                  enEdicion={etapaEnEdicion("cotizacion")}
+                  onCambiar={() => alternarEdicionEtapa("cotizacion")}
+                />
+              )}
 
-                setEquiposLote((prev) =>
-                  prev.map((equipo) => ({
-                    ...equipo,
-                    estado,
-                  })),
-                );
-              }}
-            />
+              <CotizacionInterna
+                ordenId={orden.id}
+                soloLectura={
+                  etapaActualIndex > 4 && !etapaEnEdicion("cotizacion")
+                }
+                edicionHistorica={etapaActualIndex > 4}
+                onEstadoActualizado={(estado) => {
+                  setOrden((prev) => {
+                    if (!prev) return prev;
+                    return { ...prev, estado };
+                  });
+
+                  setEquiposLote((prev) =>
+                    prev.map((equipo) => ({
+                      ...equipo,
+                      estado,
+                    })),
+                  );
+
+                  setTab(tabDesdeEstado(estado));
+                }}
+              />
+            </>
           )}
 
-          {tab === "trabajo" &&
-            (estadoActual === "Listo" || estadoActual === "Entregado" ? (
-              <section className="listoCard">
+          {tab === "trabajo" && (
+            <>
+              {etapaActualIndex > 5 && (
+                <ControlEtapaGuardada
+                  titulo="Trabajo"
+                  enEdicion={etapaEnEdicion("trabajo")}
+                  onCambiar={() => alternarEdicionEtapa("trabajo")}
+                />
+              )}
+
+              {estadoActual === "Listo" || estadoActual === "Entregado" ? (
+                <>
+                  <TrabajoOT
+                    ordenId={orden.id}
+                    soloLectura={
+                      etapaActualIndex > 5 && !etapaEnEdicion("trabajo")
+                    }
+                    edicionHistorica={etapaActualIndex > 5}
+                  />
+
+                  <section className="listoCard">
                 <div className="listoHeader">
                   <div>
                     <span className="listoEyebrow">Etapa Listo</span>
@@ -2026,25 +2282,32 @@ setTab("diagnostico");
                     </button>
                   </div>
                 )}
-              </section>
-            ) : (
-              <TrabajoOT
-                ordenId={orden.id}
-                onEstadoActualizado={(estado) => {
-                  setOrden((prev) => {
-                    if (!prev) return prev;
-                    return { ...prev, estado };
-                  });
-
-                  const estadoNormalizado = normalizarEstado(estado);
-
-                  if (estadoNormalizado === "Listo") {
-                    setTab("trabajo");
-                    cargarDatos();
+                  </section>
+                </>
+              ) : (
+                <TrabajoOT
+                  ordenId={orden.id}
+                  soloLectura={
+                    etapaActualIndex > 5 && !etapaEnEdicion("trabajo")
                   }
-                }}
-              />
-            ))}
+                  edicionHistorica={etapaActualIndex > 5}
+                  onEstadoActualizado={(estado) => {
+                    setOrden((prev) => {
+                      if (!prev) return prev;
+                      return { ...prev, estado };
+                    });
+
+                    const estadoNormalizado = normalizarEstado(estado);
+
+                    if (estadoNormalizado === "Listo") {
+                      setTab("trabajo");
+                      void cargarDatos();
+                    }
+                  }}
+                />
+              )}
+            </>
+          )}
 
           {tab === "reportes" && (
             <>
@@ -2084,6 +2347,11 @@ setTab("diagnostico");
           grid-template-columns: 1fr 1fr;
           gap: 18px;
           margin-bottom: 18px;
+        }
+
+        .stageReadOnly {
+          pointer-events: none;
+          opacity: 0.88;
         }
 
         .listoCard {
