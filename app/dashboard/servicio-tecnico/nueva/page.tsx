@@ -26,8 +26,45 @@ type DocumentoOrden = {
 
 type TipoIngreso = "individual" | "lote";
 
+const VALOR_EQUIPO_OTRO = "__otro__";
+const PREFIJO_EQUIPO_OTRO = "Otro / Trabajo especial";
+
+function esEquipoOtro(valor?: string | null) {
+  if (!valor) return false;
+
+  const texto = valor.trim().toLowerCase();
+
+  return (
+    texto === VALOR_EQUIPO_OTRO ||
+    texto === PREFIJO_EQUIPO_OTRO.toLowerCase() ||
+    texto.startsWith(`${PREFIJO_EQUIPO_OTRO.toLowerCase()}:`)
+  );
+}
+
+function extraerNombreEquipoOtro(valor?: string | null) {
+  if (!valor || !esEquipoOtro(valor)) return "";
+
+  const partes = valor.split(":");
+
+  if (partes.length < 2) return "";
+
+  return partes.slice(1).join(":").trim();
+}
+
+function resolverNombreEquipo(
+  seleccion: string,
+  nombreOtro: string,
+) {
+  if (seleccion === VALOR_EQUIPO_OTRO || esEquipoOtro(seleccion)) {
+    return `${PREFIJO_EQUIPO_OTRO}: ${nombreOtro.trim()}`;
+  }
+
+  return seleccion.trim();
+}
+
 type EquipoLote = {
   equipo: string;
+  equipo_otro: string;
   marca: string;
   modelo: string;
   numero_serie: string;
@@ -40,6 +77,7 @@ type EquipoLote = {
 function crearEquipoLote(): EquipoLote {
   return {
     equipo: "",
+    equipo_otro: "",
     marca: "",
     modelo: "",
     numero_serie: "",
@@ -72,6 +110,7 @@ function NuevaOrdenContenido() {
   ]);
 
   const [equipo, setEquipo] = useState("");
+  const [nombreEquipoOtro, setNombreEquipoOtro] = useState("");
   const [marca, setMarca] = useState("");
   const [modelo, setModelo] = useState("");
   const [numeroSerie, setNumeroSerie] = useState("");
@@ -152,7 +191,16 @@ function NuevaOrdenContenido() {
     setTecnicoIngreso(orden.tecnico_ingreso || "");
     setTipoIngreso(orden.es_lote ? "lote" : "individual");
     setCantidadEquipos(orden.cantidad_equipos || 2);
-    setEquipo(orden.equipo || "");
+    const equipoGuardado = orden.equipo || "";
+
+    if (esEquipoOtro(equipoGuardado)) {
+      setEquipo(VALOR_EQUIPO_OTRO);
+      setNombreEquipoOtro(extraerNombreEquipoOtro(equipoGuardado));
+    } else {
+      setEquipo(equipoGuardado);
+      setNombreEquipoOtro("");
+    }
+
     setMarca(orden.marca || "");
     setModelo(orden.modelo || "");
     setNumeroSerie(orden.numero_serie || "");
@@ -185,8 +233,14 @@ function NuevaOrdenContenido() {
 
       const equiposEditables =
         hijos && hijos.length > 0
-          ? hijos.map((hijo) => ({
-              equipo: hijo.equipo || "",
+          ? hijos.map((hijo) => {
+              const equipoGuardadoHijo = hijo.equipo || "";
+
+              return {
+              equipo: esEquipoOtro(equipoGuardadoHijo)
+                ? VALOR_EQUIPO_OTRO
+                : equipoGuardadoHijo,
+              equipo_otro: extraerNombreEquipoOtro(equipoGuardadoHijo),
               marca: hijo.marca || "",
               modelo: hijo.modelo || "",
               numero_serie: hijo.numero_serie || "",
@@ -194,7 +248,8 @@ function NuevaOrdenContenido() {
               problema_reportado: hijo.problema_reportado || "",
               observaciones_iniciales: hijo.observaciones_iniciales || "",
               fotos: [],
-            }))
+            };
+            })
           : [crearEquipoLote(), crearEquipoLote()];
 
       setEquiposLote(equiposEditables);
@@ -391,11 +446,25 @@ function NuevaOrdenContenido() {
       return;
     }
 
+    const equipoFinalIndividual =
+      tipoIngreso === "individual"
+        ? resolverNombreEquipo(equipo, nombreEquipoOtro)
+        : "";
+
     if (
       tipoIngreso === "individual" &&
       (!equipo.trim() || !problemaReportado.trim())
     ) {
       alert("Completa tipo de equipo y problema reportado");
+      return;
+    }
+
+    if (
+      tipoIngreso === "individual" &&
+      equipo === VALOR_EQUIPO_OTRO &&
+      !nombreEquipoOtro.trim()
+    ) {
+      alert("Ingresa el nombre del equipo o trabajo especial");
       return;
     }
 
@@ -407,6 +476,30 @@ function NuevaOrdenContenido() {
     if (tipoIngreso === "lote" && cantidadEquipos < 2) {
       alert("El lote debe tener al menos 2 equipos");
       return;
+    }
+
+    if (tipoIngreso === "lote") {
+      const indiceIncompleto = equiposLote.findIndex((item) => {
+        if (!item.equipo.trim()) return true;
+
+        if (
+          item.equipo === VALOR_EQUIPO_OTRO &&
+          !item.equipo_otro.trim()
+        ) {
+          return true;
+        }
+
+        return false;
+      });
+
+      if (indiceIncompleto >= 0) {
+        alert(
+          `Completa el tipo o nombre especial del equipo ${
+            indiceIncompleto + 1
+          }`,
+        );
+        return;
+      }
     }
 
     setGuardando(true);
@@ -429,7 +522,7 @@ function NuevaOrdenContenido() {
             equipo:
               tipoIngreso === "lote"
                 ? `Lote de ${cantidadEquipos} equipos`
-                : equipo,
+                : equipoFinalIndividual,
             prioridad,
             marca: tipoIngreso === "lote" ? "" : marca,
             modelo: tipoIngreso === "lote" ? "" : modelo,
@@ -467,7 +560,10 @@ function NuevaOrdenContenido() {
               .from("ordenes")
               .update({
                 ...datosClienteOrden,
-                equipo: item.equipo,
+                equipo: resolverNombreEquipo(
+                  item.equipo,
+                  item.equipo_otro,
+                ),
                 marca: item.marca,
                 modelo: item.modelo,
                 numero_serie: item.numero_serie,
@@ -495,7 +591,7 @@ function NuevaOrdenContenido() {
               codigo,
               ...datosClienteOrden,
               tecnico_ingreso: tecnicoIngreso,
-              equipo,
+              equipo: equipoFinalIndividual,
               estado: "Ingreso",
               prioridad,
               marca,
@@ -583,7 +679,9 @@ function NuevaOrdenContenido() {
             codigo: codigoHijo,
             ...datosClienteOrden,
             tecnico_ingreso: tecnicoIngreso,
-            equipo: item.equipo.trim() || equipo,
+            equipo:
+              resolverNombreEquipo(item.equipo, item.equipo_otro) ||
+              equipoFinalIndividual,
             estado: "Ingreso",
             prioridad,
             marca: item.marca.trim() || marca,
@@ -816,7 +914,27 @@ function NuevaOrdenContenido() {
                     <option value="Transpaleta eléctrica">
                       Transpaleta eléctrica
                     </option>
+                    <option value={VALOR_EQUIPO_OTRO}>
+                      Otro / Trabajo especial
+                    </option>
                   </select>
+
+                  {equipo === VALOR_EQUIPO_OTRO ? (
+                    <div className="mt-3">
+                      <InputTexto
+                        label="Nombre del equipo o trabajo especial *"
+                        value={nombreEquipoOtro}
+                        setValue={setNombreEquipoOtro}
+                        placeholder="Ej: Carro porta polipasto, estructura especial..."
+                        required
+                      />
+
+                      <p className="mt-2 text-xs text-slate-500">
+                        Este tipo utilizará un checklist personalizado sin
+                        componentes predeterminados.
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
 
                 <InputTexto
@@ -928,7 +1046,28 @@ function NuevaOrdenContenido() {
                         <option value="Transpaleta eléctrica">
                           Transpaleta eléctrica
                         </option>
+                        <option value={VALOR_EQUIPO_OTRO}>
+                          Otro / Trabajo especial
+                        </option>
                       </select>
+
+                      {item.equipo === VALOR_EQUIPO_OTRO ? (
+                        <div className="mt-3">
+                          <InputTexto
+                            label="Nombre del equipo o trabajo especial"
+                            value={item.equipo_otro}
+                            setValue={(value) =>
+                              actualizarEquipoLote(
+                                index,
+                                "equipo_otro",
+                                value,
+                              )
+                            }
+                            placeholder="Ej: Estructura de izaje especial"
+                            required
+                          />
+                        </div>
+                      ) : null}
                     </div>
 
                     <InputTexto

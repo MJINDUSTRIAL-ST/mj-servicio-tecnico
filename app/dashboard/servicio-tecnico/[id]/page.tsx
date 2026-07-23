@@ -15,6 +15,7 @@ import Reportes from "./components/Reportes";
 import ModalFoto from "./components/ModalFoto";
 import ProblemaOT from "./components/ProblemaOT";
 import ChecklistIngreso from "./components/ChecklistIngreso";
+import ChecklistEspecial from "./components/ChecklistEspecial";
 import ChecklistInteligente from "./components/ChecklistInteligente";
 import ChecklistLote from "./components/ChecklistLote";
 import DiagnosticoTecnico from "./components/DiagnosticoTecnico";
@@ -128,6 +129,22 @@ const INDICE_ETAPA_POR_TAB: Record<Exclude<TabOT, "reportes">, number> = {
   cotizacion: 4,
   trabajo: 5,
 };
+
+function esEquipoEspecial(equipo?: string | null) {
+  if (!equipo) return false;
+
+  const texto = equipo
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  return (
+    texto === "otro" ||
+    texto === "otro / trabajo especial" ||
+    texto.startsWith("otro / trabajo especial:")
+  );
+}
 
 function normalizarEstado(estado?: string | null) {
   if (!estado) return "Ingreso";
@@ -1940,6 +1957,17 @@ export default function DetalleOrdenPage() {
                 >
                   <ChecklistLote equipos={equiposLote} ordenId={orden.id} />
                 </div>
+              ) : esEquipoEspecial(orden.equipo) ? (
+                <ChecklistEspecial
+                  ordenId={orden.id}
+                  nombreEquipo={orden.equipo}
+                  problemaReportado={orden.problema_reportado}
+                  soloLectura={
+                    etapaActualIndex > 1 && !etapaEnEdicion("checklist")
+                  }
+                  edicionHistorica={etapaActualIndex > 1}
+                  onGenerarDiagnostico={avanzarADiagnostico}
+                />
               ) : (
                 <ChecklistInteligente
                   equipoId={orden.id}
