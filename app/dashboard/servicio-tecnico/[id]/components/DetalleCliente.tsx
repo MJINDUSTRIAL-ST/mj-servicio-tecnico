@@ -37,6 +37,15 @@ function Campo({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
+function mismosIds(a: string[], b: string[]) {
+  if (a.length !== b.length) return false;
+
+  const ordenA = [...a].sort();
+  const ordenB = [...b].sort();
+
+  return ordenA.every((id, index) => id === ordenB[index]);
+}
+
 export default function DetalleCliente({
   ordenId,
   cliente,
@@ -54,67 +63,31 @@ export default function DetalleCliente({
   const [clienteSolicitanteId, setClienteSolicitanteId] = useState<
     string | null
   >(null);
+  const [idsAccesoOriginales, setIdsAccesoOriginales] = useState<string[]>([]);
+  const [idsSeleccionados, setIdsSeleccionados] = useState<string[]>([]);
   const [clienteSeleccionado, setClienteSeleccionado] = useState("");
+  const [mensajeGuardado, setMensajeGuardado] = useState("");
 
   useEffect(() => {
-    cargarResumen();
+    cargarDatosAcceso(false);
   }, [ordenId, email]);
 
-  async function cargarResumen() {
-    const { data: ordenData } = await supabase
-      .from("ordenes")
-      .select("empresa_id,cliente,cliente_email")
-      .eq("id", ordenId)
-      .maybeSingle();
-
-    const ordenActual = (ordenData || {}) as OrdenCliente;
-
-    let nombreEmpresa: string | null = null;
-    let solicitante: ClienteAcceso | null = null;
-
-    if (ordenActual.empresa_id) {
-      const { data: empresaData } = await supabase
-        .from("empresas")
-        .select("nombre")
-        .eq("id", ordenActual.empresa_id)
-        .maybeSingle();
-
-      nombreEmpresa = empresaData?.nombre || null;
+  async function cargarDatosAcceso(prepararEdicion: boolean) {
+    if (prepararEdicion) {
+      setCargando(true);
     }
-
-    const emailSolicitante = (
-      ordenActual.cliente_email ||
-      email ||
-      ""
-    )
-      .trim()
-      .toLowerCase();
-
-    if (emailSolicitante) {
-      const { data: solicitanteData } = await supabase
-        .from("clientes")
-        .select("id,nombre,email,telefono,empresa,empresa_id")
-        .eq("email", emailSolicitante)
-        .maybeSingle();
-
-      solicitante = (solicitanteData as ClienteAcceso | null) || null;
-    }
-
-    if (!nombreEmpresa && solicitante?.empresa) {
-      nombreEmpresa = solicitante.empresa;
-    }
-
-    setEmpresaNombre(nombreEmpresa);
-    setClienteSolicitanteId(solicitante?.id || null);
-  }
-
-  async function cargarAccesos() {
-    setCargando(true);
 
     const [
+      { data: ordenData, error: ordenError },
       { data: clientesData, error: clientesError },
       { data: accesosData, error: accesosError },
     ] = await Promise.all([
+      supabase
+        .from("ordenes")
+        .select("empresa_id,cliente,cliente_email")
+        .eq("id", ordenId)
+        .maybeSingle(),
+
       supabase
         .from("clientes")
         .select("id,nombre,email,telefono,empresa,empresa_id")
@@ -126,117 +99,192 @@ export default function DetalleCliente({
         .eq("orden_id", ordenId),
     ]);
 
-    if (clientesError || accesosError) {
+    if (ordenError || clientesError || accesosError) {
       alert(
-        clientesError?.message ||
+        ordenError?.message ||
+          clientesError?.message ||
           accesosError?.message ||
           "No se pudieron cargar los accesos."
       );
+
       setCargando(false);
       return;
     }
 
+    const ordenActual = (ordenData || {}) as OrdenCliente;
     const clientesLista = (clientesData || []) as ClienteAcceso[];
-    const idsAcceso = new Set(
-      (accesosData || []).map(
-        (acceso: { cliente_id: string }) => acceso.cliente_id
+
+    const emailSolicitante = (
+      ordenActual.cliente_email ||
+      email ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+    const solicitante =
+      clientesLista.find(
+        (item) => item.email?.trim().toLowerCase() === emailSolicitante
+      ) || null;
+
+    const solicitanteId = solicitante?.id || null;
+
+    const idsExtras: string[] = Array.from(
+      new Set<string>(
+        ((accesosData || []) as Array<{ cliente_id: string }>).map(
+          (acceso) => acceso.cliente_id
+        )
       )
     );
 
-    let solicitanteId = clienteSolicitanteId;
-
-    if (!solicitanteId && email) {
-      const emailLimpio = email.trim().toLowerCase();
-      const solicitante = clientesLista.find(
-        (item) => item.email?.trim().toLowerCase() === emailLimpio
-      );
-      solicitanteId = solicitante?.id || null;
-      setClienteSolicitanteId(solicitanteId);
-    }
-
-    const accesoActual = clientesLista.filter(
-      (item) => idsAcceso.has(item.id) || item.id === solicitanteId
+    const idsVisibles: string[] = Array.from(
+      new Set<string>([
+        ...idsExtras,
+        ...(solicitanteId ? [solicitanteId] : []),
+      ])
     );
 
+    let nombreEmpresa: string | null = null;
+
+    if (ordenActual.empresa_id) {
+      const { data: empresaData } = await supabase
+        .from("empresas")
+        .select("nombre")
+        .eq("id", ordenActual.empresa_id)
+        .maybeSingle();
+
+      nombreEmpresa = empresaData?.nombre || null;
+    }
+
+    if (!nombreEmpresa && solicitante?.empresa) {
+      nombreEmpresa = solicitante.empresa;
+    }
+
+    const accesoActual = clientesLista.filter((item) =>
+      idsVisibles.includes(item.id)
+    );
+
+    setEmpresaNombre(nombreEmpresa);
     setTodosClientes(clientesLista);
+    setClienteSolicitanteId(solicitanteId);
+    setIdsAccesoOriginales(idsExtras);
     setClientesConAcceso(accesoActual);
+
+    if (prepararEdicion) {
+      setIdsSeleccionados(idsVisibles);
+      setClienteSeleccionado("");
+    }
+
     setCargando(false);
   }
 
   async function abrirGestionAccesos() {
+    setMensajeGuardado("");
     setModalAbierto(true);
-    setClienteSeleccionado("");
-    await cargarAccesos();
+    await cargarDatosAcceso(true);
   }
 
-  async function agregarAcceso() {
+  function agregarALista() {
     if (!clienteSeleccionado) {
       alert("Selecciona un cliente.");
       return;
     }
 
-    if (clienteSeleccionado === clienteSolicitanteId) {
-      alert("El cliente solicitante ya tiene acceso a la OT.");
+    if (idsSeleccionados.includes(clienteSeleccionado)) {
+      alert("Este cliente ya está en la lista.");
       return;
     }
 
-    if (clientesConAcceso.some((item) => item.id === clienteSeleccionado)) {
-      alert("Este cliente ya tiene acceso a la OT.");
+    setIdsSeleccionados((prev) => [...prev, clienteSeleccionado]);
+    setClienteSeleccionado("");
+  }
+
+  function quitarDeLista(clienteId: string) {
+    if (clienteId === clienteSolicitanteId) {
+      alert("No se puede quitar al cliente solicitante.");
+      return;
+    }
+
+    setIdsSeleccionados((prev) => prev.filter((id) => id !== clienteId));
+  }
+
+  async function guardarAccesos() {
+    const seleccionadosExtras = idsSeleccionados.filter(
+      (id) => id !== clienteSolicitanteId
+    );
+
+    const idsAgregar = seleccionadosExtras.filter(
+      (id) => !idsAccesoOriginales.includes(id)
+    );
+
+    const idsQuitar = idsAccesoOriginales.filter(
+      (id) => !seleccionadosExtras.includes(id)
+    );
+
+    if (idsAgregar.length === 0 && idsQuitar.length === 0) {
+      setModalAbierto(false);
       return;
     }
 
     setGuardando(true);
 
-    const { error } = await supabase.from("orden_clientes_acceso").insert({
-      orden_id: ordenId,
-      cliente_id: clienteSeleccionado,
-    });
+    if (idsAgregar.length > 0) {
+      const { error: errorAgregar } = await supabase
+        .from("orden_clientes_acceso")
+        .insert(
+          idsAgregar.map((clienteId) => ({
+            orden_id: ordenId,
+            cliente_id: clienteId,
+          }))
+        );
+
+      if (errorAgregar) {
+        setGuardando(false);
+        alert("No se pudieron guardar los nuevos accesos: " + errorAgregar.message);
+        return;
+      }
+    }
+
+    if (idsQuitar.length > 0) {
+      const { error: errorQuitar } = await supabase
+        .from("orden_clientes_acceso")
+        .delete()
+        .eq("orden_id", ordenId)
+        .in("cliente_id", idsQuitar);
+
+      if (errorQuitar) {
+        setGuardando(false);
+        alert("No se pudieron quitar algunos accesos: " + errorQuitar.message);
+        return;
+      }
+    }
+
+    await cargarDatosAcceso(false);
 
     setGuardando(false);
+    setModalAbierto(false);
+    setMensajeGuardado("Accesos guardados correctamente.");
 
-    if (error) {
-      alert("No se pudo otorgar acceso: " + error.message);
-      return;
-    }
-
-    setClienteSeleccionado("");
-    await cargarAccesos();
+    window.setTimeout(() => {
+      setMensajeGuardado("");
+    }, 4000);
   }
 
-  async function quitarAcceso(clienteId: string) {
-    if (clienteId === clienteSolicitanteId) {
-      alert("No se puede quitar el acceso del cliente solicitante.");
-      return;
-    }
-
-    const confirmar = window.confirm(
-      "¿Quitar el acceso de este cliente a la OT?"
-    );
-
-    if (!confirmar) return;
-
-    const { error } = await supabase
-      .from("orden_clientes_acceso")
-      .delete()
-      .eq("orden_id", ordenId)
-      .eq("cliente_id", clienteId);
-
-    if (error) {
-      alert("No se pudo quitar el acceso: " + error.message);
-      return;
-    }
-
-    await cargarAccesos();
-  }
+  const clientesSeleccionados = useMemo(() => {
+    return todosClientes.filter((item) => idsSeleccionados.includes(item.id));
+  }, [todosClientes, idsSeleccionados]);
 
   const clientesDisponibles = useMemo(() => {
-    const idsConAcceso = new Set(clientesConAcceso.map((item) => item.id));
+    return todosClientes.filter((item) => !idsSeleccionados.includes(item.id));
+  }, [todosClientes, idsSeleccionados]);
 
-    return todosClientes.filter(
-      (item) =>
-        item.id !== clienteSolicitanteId && !idsConAcceso.has(item.id)
-    );
-  }, [todosClientes, clientesConAcceso, clienteSolicitanteId]);
+  const idsSeleccionadosExtras = useMemo(() => {
+    return idsSeleccionados.filter((id) => id !== clienteSolicitanteId);
+  }, [idsSeleccionados, clienteSolicitanteId]);
+
+  const hayCambios = useMemo(() => {
+    return !mismosIds(idsAccesoOriginales, idsSeleccionadosExtras);
+  }, [idsAccesoOriginales, idsSeleccionadosExtras]);
 
   return (
     <>
@@ -269,6 +317,32 @@ export default function DetalleCliente({
           <Campo label="Email" value={email} />
           <Campo label="Empresa" value={empresaNombre} />
         </div>
+
+        <div className="accessSummary">
+          <div className="accessSummaryHeader">
+            <span>Acceso al portal</span>
+            <strong>{clientesConAcceso.length}</strong>
+          </div>
+
+          {clientesConAcceso.length === 0 ? (
+            <p className="accessSummaryEmpty">
+              No se pudo identificar un cliente con acceso.
+            </p>
+          ) : (
+            <div className="accessChips">
+              {clientesConAcceso.map((item) => (
+                <span key={item.id}>
+                  {item.nombre}
+                  {item.id === clienteSolicitanteId ? " · Solicitante" : ""}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {mensajeGuardado ? (
+          <div className="successMessage">{mensajeGuardado}</div>
+        ) : null}
       </section>
 
       {modalAbierto ? (
@@ -279,8 +353,7 @@ export default function DetalleCliente({
                 <p className="eyebrow">Acceso al portal cliente</p>
                 <h3>Gestionar accesos a la OT</h3>
                 <p className="modalDescription">
-                  Agrega clientes previamente creados para que puedan ver esta
-                  orden desde su portal.
+                  Agrega o quita clientes y luego presiona Guardar accesos.
                 </p>
               </div>
 
@@ -298,16 +371,19 @@ export default function DetalleCliente({
             ) : (
               <>
                 <section className="accessSection">
-                  <h4>Clientes con acceso</h4>
+                  <h4>Clientes que tendrán acceso</h4>
 
-                  {clientesConAcceso.length === 0 ? (
+                  {clientesSeleccionados.length === 0 ? (
                     <p className="emptyText">
-                      No hay clientes adicionales con acceso.
+                      No hay clientes seleccionados.
                     </p>
                   ) : (
                     <div className="accessList">
-                      {clientesConAcceso.map((item) => {
+                      {clientesSeleccionados.map((item) => {
                         const esSolicitante = item.id === clienteSolicitanteId;
+                        const esNuevo =
+                          !esSolicitante &&
+                          !idsAccesoOriginales.includes(item.id);
 
                         return (
                           <article key={item.id} className="accessItem">
@@ -317,6 +393,8 @@ export default function DetalleCliente({
 
                                 {esSolicitante ? (
                                   <span>Solicitante</span>
+                                ) : esNuevo ? (
+                                  <span>Por guardar</span>
                                 ) : (
                                   <span>Acceso adicional</span>
                                 )}
@@ -332,9 +410,9 @@ export default function DetalleCliente({
                               <button
                                 type="button"
                                 className="removeButton"
-                                onClick={() => quitarAcceso(item.id)}
+                                onClick={() => quitarDeLista(item.id)}
                               >
-                                Quitar acceso
+                                Quitar
                               </button>
                             ) : null}
                           </article>
@@ -367,19 +445,44 @@ export default function DetalleCliente({
 
                     <button
                       type="button"
-                      onClick={agregarAcceso}
-                      disabled={guardando || !clienteSeleccionado}
+                      className="addButton"
+                      onClick={agregarALista}
+                      disabled={!clienteSeleccionado}
                     >
-                      {guardando ? "Guardando..." : "Otorgar acceso"}
+                      Agregar a la lista
                     </button>
                   </div>
 
                   {clientesDisponibles.length === 0 ? (
                     <p className="emptyText">
-                      Todos los clientes disponibles ya tienen acceso.
+                      Todos los clientes disponibles ya están en la lista.
                     </p>
                   ) : null}
                 </section>
+
+                <div className="modalActions">
+                  <button
+                    type="button"
+                    className="cancelButton"
+                    onClick={() => setModalAbierto(false)}
+                    disabled={guardando}
+                  >
+                    Cancelar
+                  </button>
+
+                  <button
+                    type="button"
+                    className="saveButton"
+                    onClick={guardarAccesos}
+                    disabled={guardando || !hayCambios}
+                  >
+                    {guardando
+                      ? "Guardando..."
+                      : hayCambios
+                      ? "Guardar accesos"
+                      : "Sin cambios"}
+                  </button>
+                </div>
               </>
             )}
           </div>
@@ -459,6 +562,72 @@ export default function DetalleCliente({
           font-weight: 600;
           min-width: 0;
           word-break: break-word;
+        }
+
+        .accessSummary {
+          margin-top: 16px;
+          border-radius: 14px;
+          border: 1px solid #dbeafe;
+          background: #f8fbff;
+          padding: 13px;
+        }
+
+        .accessSummaryHeader {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .accessSummaryHeader span {
+          color: #475569;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .accessSummaryHeader strong {
+          display: inline-flex;
+          min-width: 28px;
+          height: 28px;
+          align-items: center;
+          justify-content: center;
+          border-radius: 999px;
+          background: #dbeafe;
+          color: #1d4ed8;
+          font-size: 12px;
+        }
+
+        .accessSummaryEmpty {
+          margin: 10px 0 0;
+          color: #64748b;
+          font-size: 12px;
+        }
+
+        .accessChips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 7px;
+          margin-top: 10px;
+        }
+
+        .accessChips span {
+          border-radius: 999px;
+          background: white;
+          border: 1px solid #bfdbfe;
+          color: #1e40af;
+          padding: 5px 9px;
+          font-size: 11px;
+          font-weight: 800;
+        }
+
+        .successMessage {
+          margin-top: 12px;
+          border-radius: 12px;
+          background: #dcfce7;
+          color: #166534;
+          padding: 10px 12px;
+          font-size: 12px;
+          font-weight: 800;
         }
 
         .modalOverlay {
@@ -604,6 +773,31 @@ export default function DetalleCliente({
           color: #0f172a;
         }
 
+        .addButton {
+          background: #eff6ff;
+          color: #1d4ed8;
+          border: 1px solid #bfdbfe;
+        }
+
+        .modalActions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 10px;
+          margin-top: 18px;
+          border-top: 1px solid #e2e8f0;
+          padding-top: 16px;
+        }
+
+        .cancelButton {
+          background: #f1f5f9;
+          color: #334155;
+        }
+
+        .saveButton {
+          background: #2563eb;
+          color: white;
+        }
+
         @media (max-width: 680px) {
           .header,
           .accessItem {
@@ -622,6 +816,14 @@ export default function DetalleCliente({
 
           .addRow {
             grid-template-columns: 1fr;
+          }
+
+          .modalActions {
+            flex-direction: column-reverse;
+          }
+
+          .modalActions button {
+            width: 100%;
           }
         }
       `}</style>
