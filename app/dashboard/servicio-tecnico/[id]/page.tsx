@@ -1654,6 +1654,7 @@ export default function DetalleOrdenPage() {
     }
 
     if (preservarEstadoActual) {
+      setEtapasEditando((prev) => ({ ...prev, checklist: false }));
       alert("Checklist y diagnóstico actualizados sin cambiar la etapa actual de la OT.");
       await cargarDatos(true);
       return;
