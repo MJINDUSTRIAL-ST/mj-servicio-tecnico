@@ -611,12 +611,58 @@ function convertirDiagnosticoIASeniorAFormatoMJ(
     respuesta: RespuestaChecklist;
   }>,
 ): DiagnosticoGeneradoMJ {
-  return crearDiagnosticoVisibleTecnicoDesdeChecklist(
-    tipoEquipo,
-    checklist,
-    itemsMalosActuales,
-    diagnostico,
+  const textoTecnicoIA = textoSeguro(diagnostico.textoTecnicoNatural);
+
+  const hallazgosEstructurados = formatearHallazgosSenior(diagnostico);
+
+  const diagnosticoTecnico =
+    textoTecnicoIA ||
+    (hallazgosEstructurados !==
+    "Sin hallazgos técnicos estructurados informados por IA."
+      ? hallazgosEstructurados
+      : crearHallazgoTecnicoNatural(
+          tipoEquipo,
+          checklist,
+          itemsMalosActuales,
+          diagnostico,
+        ));
+
+  const procedimientosIA = formatearProcedimientoSenior(diagnostico);
+
+  const procedimientoRecomendado =
+    procedimientosIA.length > 0
+      ? procedimientosIA
+      : crearProcedimientoTecnicoNatural(itemsMalosActuales);
+
+  const repuestosChecklist =
+    crearRepuestosTecnicoNatural(itemsMalosActuales);
+
+  const conclusion = textoSeguro(
+    diagnostico.resumenEjecutivo?.conclusion,
   );
+
+  const resumen = unirLineas([
+    diagnosticoTecnico,
+    conclusion &&
+    !normalizarTextoMJ(diagnosticoTecnico).includes(
+      normalizarTextoMJ(conclusion),
+    )
+      ? conclusion
+      : "",
+  ]).replace(/\n/g, " ");
+
+  return {
+    tipoEquipo,
+    nombreEquipo: checklist.nombre,
+    resumen,
+    diagnosticoTecnico,
+    procedimientoRecomendado: procedimientoRecomendado as any,
+    repuestosSugeridos: repuestosChecklist as any,
+    criticidad: criticidadDesdeDiagnosticoSenior(diagnostico),
+    requiereRetiroServicio:
+      requiereRetiroDesdeDiagnosticoSenior(diagnostico),
+    itemsMalos: itemsMalosActuales as any,
+  };
 }
 
 function convertirResultadoAnteriorAFormatoMJ(

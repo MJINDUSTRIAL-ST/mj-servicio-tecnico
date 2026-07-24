@@ -1,29 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
+import {
+  buscarConocimientoRelevante,
+  prepararConocimientoParaOpenAI,
+} from "./biblioteca";
+import type {
+  ConocimientoSeleccionado,
+  ItemDiagnosticoBiblioteca,
+} from "./biblioteca";
 
 export const runtime = "nodejs";
 
 type EstadoChecklist = "bueno" | "regular" | "malo";
 
-type ChecklistItemNormalizado = {
-  id: string;
-  nombre: string;
-  estado: EstadoChecklist;
+type ChecklistItemNormalizado = ItemDiagnosticoBiblioteca & {
   categoria: string;
-  observacion: string;
-  acciones: string[];
-  repuestoNombre: string;
-  repuestoCantidad: string;
-  afectaSeguridad: boolean;
+  accionOtro: string;
 };
 
 type PayloadDiagnosticoIA = {
   ordenId?: string | null;
   equipoId?: string | null;
+
   equipo?: {
     tipo?: string | null;
     tipoEquipo?: string | null;
+    equipo?: string | null;
     marca?: string | null;
     modelo?: string | null;
     serie?: string | null;
@@ -34,19 +37,40 @@ type PayloadDiagnosticoIA = {
     nombreChecklist?: string | null;
     descripcionChecklist?: string | null;
   } | null;
+
   checklist?: any;
+
   respuestas?: Record<string, any> | null;
+
   itemsMalos?: any[] | null;
+
   problemaReportado?: string | null;
+
   observacionesIngreso?: string | null;
+
   observaciones?: string | null;
+
+  tecnicoACargo?: string | null;
+
+  tecnico_a_cargo?: string | null;
 };
 
-const MODELO_DIAGNOSTICO = process.env.OPENAI_MODEL_DIAGNOSTICO || "gpt-4o-mini";
+type RiesgoDiagnostico = {
+  nivel: "bajo" | "medio" | "alto" | "critico";
+  clasificacion: "Apto" | "Apto con observaciones" | "No Apto";
+  justificacion: string;
+};
+
+const MODELO_DIAGNOSTICO =
+  process.env.OPENAI_MODEL_DIAGNOSTICO || "gpt-4o-mini";
 
 function crearOpenAI() {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
+
+  if (!apiKey) {
+    return null;
+  }
+
   return new OpenAI({ apiKey });
 }
 
@@ -54,7 +78,9 @@ function crearSupabaseAdmin() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!supabaseUrl || !supabaseServiceKey) return null;
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return null;
+  }
 
   return createClient(supabaseUrl, supabaseServiceKey, {
     auth: {
@@ -65,7 +91,10 @@ function crearSupabaseAdmin() {
 }
 
 function textoSeguro(valor: unknown): string {
-  if (valor === null || valor === undefined) return "";
+  if (valor === null || valor === undefined) {
+    return "";
+  }
+
   return String(valor).trim();
 }
 
@@ -76,22 +105,95 @@ function normalizarTexto(valor: unknown): string {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+function normalizarListaTexto(valor: unknown): string[] {
+  if (!Array.isArray(valor)) {
+    return [];
+  }
+
+  return valor.map((registro) => textoSeguro(registro)).filter(Boolean);
+}
+
 function normalizarEstado(valor: unknown): EstadoChecklist | null {
   const texto = normalizarTexto(valor);
 
-  if (["bueno", "bien", "ok", "correcto", "aprobado"].includes(texto)) {
+  if (
+    [
+      "bueno",
+      "bien",
+      "ok",
+      "correcto",
+      "aprobado",
+      "operativo",
+    ].includes(texto)
+  ) {
     return "bueno";
   }
 
-  if (["regular", "observado", "observacion", "con observacion"].includes(texto)) {
+  if (
+    [
+      "regular",
+      "observado",
+      "observacion",
+      "con observacion",
+    ].includes(texto)
+  ) {
     return "regular";
   }
 
-  if (["malo", "mal", "deficiente", "rechazado", "critico", "critica"].includes(texto)) {
+  if (
+    [
+      "malo",
+      "mal",
+      "deficiente",
+      "rechazado",
+      "critico",
+      "critica",
+      "no operativo",
+    ].includes(texto)
+  ) {
     return "malo";
   }
 
   return null;
+}
+
+function normalizarCriticidad(
+  valor: unknown,
+): "baja" | "media" | "alta" | "critica" | undefined {
+  const texto = normalizarTexto(valor);
+
+  if (texto === "baja") return "baja";
+  if (texto === "media") return "media";
+  if (texto === "alta") return "alta";
+  if (texto === "critica" || texto === "critico") return "critica";
+
+  return undefined;
+}
+
+function normalizarTipoEquipo(valor: unknown): string {
+  const texto = normalizarTexto(valor).trim();
+
+  const equivalencias: Record<string, string> = {
+    "tecle electrico": "tecle_electrico",
+    tecle_electrico: "tecle_electrico",
+
+    "tecle manual": "tecle_manual",
+    tecle_manual: "tecle_manual",
+
+    "tecle de palanca": "tecle_palanca",
+    "tecle palanca": "tecle_palanca",
+    tecle_palanca: "tecle_palanca",
+
+    winche: "winche",
+    tirfor: "tirfor",
+    minifor: "minifor",
+
+    "transpaleta electrica": "transpaleta_electrica",
+    transpaleta: "transpaleta_electrica",
+    transpaleta_electrica: "transpaleta_electrica",
+  };
+
+  return equivalencias[texto] || texto.replace(/\s+/g, "_");
 }
 
 function normalizarCategoria(valor: unknown): string {
@@ -114,7 +216,8 @@ function normalizarCategoria(valor: unknown): string {
     texto.includes("freno") ||
     texto.includes("limitador") ||
     texto.includes("gancho") ||
-    texto.includes("pestillo")
+    texto.includes("pestillo") ||
+    texto.includes("traba")
   ) {
     return "Sistema de seguridad";
   }
@@ -135,6 +238,7 @@ function normalizarCategoria(valor: unknown): string {
     texto.includes("cable de acero") ||
     texto.includes("tambor") ||
     texto.includes("elevacion") ||
+    texto.includes("traccion") ||
     texto.includes("eslinga")
   ) {
     return "Sistema de elevación / tracción";
@@ -158,106 +262,281 @@ function normalizarCategoria(valor: unknown): string {
   }
 
   if (
+    texto.includes("hidraulic") ||
+    texto.includes("bomba") ||
+    texto.includes("cilindro") ||
+    texto.includes("valvula") ||
+    texto.includes("aceite")
+  ) {
+    return "Sistema hidráulico";
+  }
+
+  if (
     texto.includes("mecan") ||
     texto.includes("engranaje") ||
+    texto.includes("pinon") ||
     texto.includes("rodamiento") ||
-    texto.includes("lubricacion")
+    texto.includes("lubricacion") ||
+    texto.includes("eje")
   ) {
     return "Sistema mecánico";
+  }
+
+  if (
+    texto.includes("operatividad") ||
+    texto.includes("prueba") ||
+    texto.includes("ruido")
+  ) {
+    return "Operatividad";
   }
 
   return "General";
 }
 
-function extraerItemsDesdeSections(payload: PayloadDiagnosticoIA): ChecklistItemNormalizado[] {
-  const checklist = payload.checklist;
+function crearItemNormalizado(
+  itemOriginal: any,
+  respuestaOriginal: any,
+  nombreSeccion: string,
+  estadoForzado?: EstadoChecklist,
+): ChecklistItemNormalizado | null {
+  const item = itemOriginal || {};
+  const respuesta = respuestaOriginal || {};
+
+  const id =
+    textoSeguro(item.id) ||
+    textoSeguro(item.key) ||
+    textoSeguro(item.label) ||
+    textoSeguro(item.nombre);
+
+  const nombre =
+    textoSeguro(item.label) ||
+    textoSeguro(item.nombre) ||
+    textoSeguro(item.titulo) ||
+    textoSeguro(item.name) ||
+    id ||
+    "Ítem checklist";
+
+  const estado =
+    estadoForzado ||
+    normalizarEstado(
+      respuesta.estado ||
+        respuesta.resultado ||
+        item.estado ||
+        item.resultado,
+    );
+
+  if (!estado) {
+    return null;
+  }
+
+  const sistema =
+    textoSeguro(item.sistema) ||
+    textoSeguro(item.categoria) ||
+    textoSeguro(item.seccion) ||
+    nombreSeccion ||
+    "general";
+
+  return {
+    id: id || nombre,
+    nombre,
+    estado,
+    categoria: normalizarCategoria(`${sistema} ${nombre}`),
+    observacion:
+      textoSeguro(respuesta.observacion) ||
+      textoSeguro(respuesta.observación) ||
+      textoSeguro(respuesta.comentario) ||
+      textoSeguro(respuesta.detalle),
+    acciones: normalizarListaTexto(respuesta.acciones),
+    accionOtro:
+      textoSeguro(respuesta.accion_otro) ||
+      textoSeguro(respuesta.accionOtro),
+    repuestoNombre:
+      textoSeguro(respuesta.repuesto_nombre) ||
+      textoSeguro(respuesta.repuestoNombre),
+    repuestoCantidad:
+      textoSeguro(
+        respuesta.repuesto_cantidad ||
+          respuesta.repuestoCantidad ||
+          "1",
+      ) || "1",
+    criticidad: normalizarCriticidad(
+      item.criticidad || respuesta.criticidad,
+    ),
+    sistema,
+    afectaSeguridad: Boolean(
+      item.afectaSeguridad ||
+        item.afecta_seguridad ||
+        respuesta.afectaSeguridad ||
+        respuesta.afecta_seguridad,
+    ),
+  };
+}
+
+function extraerItemsDesdeSecciones(
+  payload: PayloadDiagnosticoIA,
+): ChecklistItemNormalizado[] {
+  const checklist = payload.checklist || {};
   const respuestasExternas = payload.respuestas || {};
 
-  if (!checklist?.sections || !Array.isArray(checklist.sections)) return [];
+  const secciones = Array.isArray(checklist.sections)
+    ? checklist.sections
+    : Array.isArray(checklist.secciones)
+      ? checklist.secciones
+      : [];
+
+  if (!secciones.length) {
+    return [];
+  }
 
   const items: ChecklistItemNormalizado[] = [];
 
-  checklist.sections.forEach((section: any) => {
-    const nombreSeccion = textoSeguro(section.nombre || section.titulo || section.label || section.id);
-    const listaItems = Array.isArray(section.items) ? section.items : [];
+  secciones.forEach((seccion: any) => {
+    const nombreSeccion =
+      textoSeguro(seccion.nombre) ||
+      textoSeguro(seccion.titulo) ||
+      textoSeguro(seccion.label) ||
+      textoSeguro(seccion.id);
 
-    listaItems.forEach((item: any) => {
-      const itemId = textoSeguro(item.id || item.key || item.label || item.nombre);
-      const respuesta = item.respuesta || respuestasExternas[itemId] || {};
-      const estado = normalizarEstado(respuesta.estado || respuesta.resultado || item.estado);
+    const listaItems = Array.isArray(seccion.items)
+      ? seccion.items
+      : [];
 
-      if (!estado) return;
+    listaItems.forEach((registro: any) => {
+      const item =
+        registro?.item && typeof registro.item === "object"
+          ? registro.item
+          : registro;
 
-      const nombre =
-        textoSeguro(item.label) ||
-        textoSeguro(item.nombre) ||
-        textoSeguro(item.titulo) ||
-        textoSeguro(item.name) ||
-        itemId ||
-        "Ítem checklist";
+      const itemId =
+        textoSeguro(item?.id) ||
+        textoSeguro(item?.key) ||
+        textoSeguro(item?.label) ||
+        textoSeguro(item?.nombre);
 
-      const categoriaBase =
-        textoSeguro(item.sistema) ||
-        textoSeguro(item.categoria) ||
-        textoSeguro(item.seccion) ||
-        nombreSeccion;
+      const respuesta =
+        registro?.respuesta ||
+        item?.respuesta ||
+        respuestasExternas[itemId] ||
+        {};
 
-      items.push({
-        id: itemId || nombre,
-        nombre,
-        estado,
-        categoria: normalizarCategoria(`${categoriaBase} ${nombre}`),
-        observacion:
-          textoSeguro(respuesta.observacion) ||
-          textoSeguro(respuesta.observación) ||
-          textoSeguro(respuesta.comentario) ||
-          textoSeguro(respuesta.detalle),
-        acciones: Array.isArray(respuesta.acciones) ? respuesta.acciones.map(String) : [],
-        repuestoNombre: textoSeguro(respuesta.repuesto_nombre || respuesta.repuestoNombre),
-        repuestoCantidad: textoSeguro(respuesta.repuesto_cantidad || respuesta.repuestoCantidad || "1"),
-        afectaSeguridad: Boolean(item.afectaSeguridad || item.afecta_seguridad),
-      });
+      const normalizado = crearItemNormalizado(
+        item,
+        respuesta,
+        nombreSeccion,
+      );
+
+      if (normalizado) {
+        items.push(normalizado);
+      }
     });
   });
 
   return items;
 }
 
-function extraerItemsDesdeItemsMalos(payload: PayloadDiagnosticoIA): ChecklistItemNormalizado[] {
-  const itemsMalos = Array.isArray(payload.itemsMalos) ? payload.itemsMalos : [];
+function extraerItemsDesdeRespuestas(
+  payload: PayloadDiagnosticoIA,
+): ChecklistItemNormalizado[] {
+  const respuestas = payload.respuestas || {};
 
-  return itemsMalos
-    .map((registro: any) => {
-      const item = registro.item || {};
-      const respuesta = registro.respuesta || {};
-      const nombre =
-        textoSeguro(item.label) ||
-        textoSeguro(item.nombre) ||
-        textoSeguro(item.titulo) ||
-        textoSeguro(item.name) ||
-        textoSeguro(item.id) ||
-        "Ítem observado";
+  if (!respuestas || typeof respuestas !== "object") {
+    return [];
+  }
 
-      return {
-        id: textoSeguro(item.id) || nombre,
-        nombre,
-        estado: "malo" as EstadoChecklist,
-        categoria: normalizarCategoria(`${item.sistema || item.categoria || ""} ${nombre}`),
-        observacion: textoSeguro(respuesta.observacion),
-        acciones: Array.isArray(respuesta.acciones) ? respuesta.acciones.map(String) : [],
-        repuestoNombre: textoSeguro(respuesta.repuesto_nombre),
-        repuestoCantidad: textoSeguro(respuesta.repuesto_cantidad || "1"),
-        afectaSeguridad: Boolean(item.afectaSeguridad || item.afecta_seguridad),
-      };
-    })
-    .filter((item) => item.nombre);
+  return Object.entries(respuestas)
+    .map(([itemId, respuesta]) =>
+      crearItemNormalizado(
+        {
+          id: itemId,
+          label: itemId,
+        },
+        respuesta,
+        "General",
+      ),
+    )
+    .filter(
+      (item): item is ChecklistItemNormalizado => Boolean(item),
+    );
 }
 
-function deduplicarItems(items: ChecklistItemNormalizado[]) {
+function extraerItemsDesdeItemsMalos(
+  payload: PayloadDiagnosticoIA,
+): ChecklistItemNormalizado[] {
+  const itemsRaiz = Array.isArray(payload.itemsMalos)
+    ? payload.itemsMalos
+    : [];
+
+  const itemsChecklist = Array.isArray(payload.checklist?.itemsMalos)
+    ? payload.checklist.itemsMalos
+    : [];
+
+  const registros = [...itemsRaiz, ...itemsChecklist];
+
+  return registros
+    .map((registro: any) => {
+      const item =
+        registro?.item && typeof registro.item === "object"
+          ? registro.item
+          : registro;
+
+      const respuesta =
+        registro?.respuesta ||
+        item?.respuesta ||
+        {};
+
+      return crearItemNormalizado(
+        item,
+        respuesta,
+        textoSeguro(item?.sistema || item?.categoria),
+        "malo",
+      );
+    })
+    .filter(
+      (item): item is ChecklistItemNormalizado => Boolean(item),
+    );
+}
+
+function completarItem(
+  anterior: ChecklistItemNormalizado,
+  nuevo: ChecklistItemNormalizado,
+): ChecklistItemNormalizado {
+  const estado =
+    anterior.estado === "malo" || nuevo.estado === "malo"
+      ? "malo"
+      : anterior.estado === "regular" || nuevo.estado === "regular"
+        ? "regular"
+        : "bueno";
+
+  return {
+    ...anterior,
+    ...nuevo,
+    estado,
+    nombre: nuevo.nombre || anterior.nombre,
+    categoria: nuevo.categoria || anterior.categoria,
+    observacion: nuevo.observacion || anterior.observacion,
+    acciones:
+      nuevo.acciones.length > 0
+        ? nuevo.acciones
+        : anterior.acciones,
+    accionOtro: nuevo.accionOtro || anterior.accionOtro,
+    repuestoNombre:
+      nuevo.repuestoNombre || anterior.repuestoNombre,
+    repuestoCantidad:
+      nuevo.repuestoCantidad || anterior.repuestoCantidad,
+    criticidad: nuevo.criticidad || anterior.criticidad,
+    sistema: nuevo.sistema || anterior.sistema,
+    afectaSeguridad:
+      nuevo.afectaSeguridad || anterior.afectaSeguridad,
+  };
+}
+
+function deduplicarItems(
+  items: ChecklistItemNormalizado[],
+): ChecklistItemNormalizado[] {
   const mapa = new Map<string, ChecklistItemNormalizado>();
 
   items.forEach((item) => {
-    const clave = `${item.id}-${item.nombre}`;
+    const clave = item.id || item.nombre;
     const anterior = mapa.get(clave);
 
     if (!anterior) {
@@ -265,155 +544,158 @@ function deduplicarItems(items: ChecklistItemNormalizado[]) {
       return;
     }
 
-    if (anterior.estado !== "malo" && item.estado === "malo") {
-      mapa.set(clave, item);
-    }
+    mapa.set(clave, completarItem(anterior, item));
   });
 
   return Array.from(mapa.values());
 }
 
-function extraerItemsChecklist(payload: PayloadDiagnosticoIA): ChecklistItemNormalizado[] {
-  const desdeSections = extraerItemsDesdeSections(payload);
-  const desdeMalos = extraerItemsDesdeItemsMalos(payload);
-  return deduplicarItems([...desdeSections, ...desdeMalos]);
+function extraerItemsChecklist(
+  payload: PayloadDiagnosticoIA,
+): ChecklistItemNormalizado[] {
+  const desdeSecciones = extraerItemsDesdeSecciones(payload);
+  const desdeRespuestas = extraerItemsDesdeRespuestas(payload);
+  const desdeItemsMalos = extraerItemsDesdeItemsMalos(payload);
+
+  return deduplicarItems([
+    ...desdeSecciones,
+    ...desdeRespuestas,
+    ...desdeItemsMalos,
+  ]);
 }
 
-function nombreEquipo(payload: PayloadDiagnosticoIA) {
+function obtenerTipoEquipo(payload: PayloadDiagnosticoIA): string {
   const equipo = payload.equipo || {};
+
+  return normalizarTipoEquipo(
+    equipo.tipoEquipo ||
+      equipo.tipo ||
+      equipo.equipo ||
+      equipo.nombreChecklist,
+  );
+}
+
+function nombreEquipo(payload: PayloadDiagnosticoIA): string {
+  const equipo = payload.equipo || {};
+
+  const tipoVisible =
+    textoSeguro(equipo.nombreChecklist) ||
+    textoSeguro(equipo.equipo) ||
+    textoSeguro(equipo.tipoEquipo || equipo.tipo) ||
+    "Equipo";
+
   return [
-    textoSeguro(equipo.tipoEquipo || equipo.tipo),
+    tipoVisible,
     textoSeguro(equipo.marca),
     textoSeguro(equipo.modelo),
     textoSeguro(equipo.capacidad),
   ]
     .filter(Boolean)
-    .join(" ") || "Equipo";
+    .join(" ");
 }
 
-function construirTextoTecnicoNatural(
-  payload: PayloadDiagnosticoIA,
-  items: ChecklistItemNormalizado[],
-) {
-  const equipo = nombreEquipo(payload).toLowerCase();
-  const malos = items.filter((item) => item.estado === "malo");
-  const regulares = items.filter((item) => item.estado === "regular");
-  const observados = [...malos, ...regulares];
 
-  if (!observados.length) {
-    return `El ${equipo} no presenta observaciones críticas registradas en el checklist. Se recomienda realizar una prueba funcional final y mantener el programa de mantenimiento preventivo antes de liberar el equipo.`;
-  }
+function conocimientoPorComponente(
+  conocimiento: ConocimientoSeleccionado[],
+  componenteId: string,
+): ConocimientoSeleccionado | null {
+  return (
+    conocimiento.find(
+      (registro) => registro.componente_id === componenteId,
+    ) || null
+  );
+}
 
-  const detalle = observados
-    .map((item) => {
-      const obs = item.observacion ? ` (${item.observacion})` : "";
-      return `${item.nombre}${obs}`;
+function accionLegible(accion: string): string {
+  if (accion === "repuesto") return "reemplazo";
+  if (accion === "reparacion") return "reparación";
+  if (accion === "ajuste") return "ajuste";
+  if (accion === "mantencion") return "mantención";
+
+  return accion || "revisión técnica";
+}
+
+function accionesLegibles(item: ChecklistItemNormalizado): string {
+  const acciones = item.acciones
+    .map((accion) => {
+      if (accion === "otro" && item.accionOtro) {
+        return item.accionOtro;
+      }
+
+      return accionLegible(accion);
     })
-    .join(", ");
+    .filter(Boolean);
 
-  const haySeguridad = observados.some(
-    (item) =>
-      item.afectaSeguridad ||
-      item.categoria === "Sistema de seguridad" ||
-      item.categoria === "Sistema de elevación / tracción" ||
-      normalizarTexto(item.nombre).includes("freno") ||
-      normalizarTexto(item.nombre).includes("gancho") ||
-      normalizarTexto(item.nombre).includes("cable") ||
-      normalizarTexto(item.nombre).includes("cadena"),
+  return acciones.join(", ");
+}
+
+function criticidadItem(
+  item: ChecklistItemNormalizado,
+  conocimiento: ConocimientoSeleccionado[],
+): "baja" | "media" | "alta" | "critica" {
+  const conocimientoItem = conocimientoPorComponente(
+    conocimiento,
+    item.id,
   );
 
-  if (haySeguridad) {
-    return `El ${equipo} presenta deficiencias en componentes relevantes para su operación segura: ${detalle}. Estas condiciones pueden comprometer la seguridad del equipo durante la operación, por lo que se recomienda no liberarlo hasta realizar la corrección correspondiente y ejecutar una prueba funcional posterior.`;
+  if (conocimientoItem?.criticidad) {
+    return conocimientoItem.criticidad;
   }
 
-  return `El ${equipo} presenta observaciones técnicas en los siguientes puntos: ${detalle}. Se recomienda corregir estas condiciones antes de su liberación, verificar funcionamiento general y dejar registro de los trabajos realizados.`;
-}
-
-function construirProcedimientoLocal(items: ChecklistItemNormalizado[]) {
-  const observados = items.filter((item) => item.estado !== "bueno");
-
-  if (!observados.length) {
-    return ["Realizar validación final y prueba funcional del equipo."];
+  if (
+    item.criticidad === "baja" ||
+    item.criticidad === "media" ||
+    item.criticidad === "alta" ||
+    item.criticidad === "critica"
+  ) {
+    return item.criticidad;
   }
 
-  const pasos = observados.map((item) => {
-    const nombre = item.nombre.toLowerCase();
+  if (item.afectaSeguridad) {
+    return "alta";
+  }
 
-    if (normalizarTexto(nombre).includes("freno")) {
-      return `Revisar, ajustar o reemplazar componente de freno asociado a ${item.nombre}.`;
-    }
-
-    if (normalizarTexto(nombre).includes("cable") || normalizarTexto(nombre).includes("cadena")) {
-      return `Revisar condición de ${item.nombre} y reemplazar si presenta desgaste, deformación o daño visible.`;
-    }
-
-    if (normalizarTexto(nombre).includes("gancho")) {
-      return `Revisar apertura, seguro y deformación de ${item.nombre}; reemplazar si no cumple condición segura.`;
-    }
-
-    if (normalizarTexto(nombre).includes("enchufe") || normalizarTexto(nombre).includes("alimentacion")) {
-      return `Normalizar alimentación eléctrica asociada a ${item.nombre}.`;
-    }
-
-    return `Corregir observación registrada en ${item.nombre}.`;
-  });
-
-  pasos.push("Ejecutar prueba funcional posterior a la reparación antes de liberar el equipo.");
-  return pasos;
+  return item.estado === "malo" ? "media" : "baja";
 }
 
-function construirRepuestosLocal(items: ChecklistItemNormalizado[]) {
-  const repuestos = items
-    .filter((item) => item.estado !== "bueno")
-    .flatMap((item) => {
-      if (item.repuestoNombre) {
-        return [
-          {
-            cantidad: Number(item.repuestoCantidad || 1) || 1,
-            nombre: item.repuestoNombre,
-            prioridad: item.estado === "malo" ? "alta" : "media",
-            motivo: `Ítem observado en checklist: ${item.nombre}`,
-          },
-        ];
-      }
-
-      if (item.acciones.includes("repuesto")) {
-        return [
-          {
-            cantidad: 1,
-            nombre: item.nombre,
-            prioridad: item.estado === "malo" ? "alta" : "media",
-            motivo: `El checklist indica necesidad de repuesto en ${item.nombre}.`,
-          },
-        ];
-      }
-
-      return [];
-    });
-
-  return repuestos;
-}
-
-function clasificarRiesgo(items: ChecklistItemNormalizado[]) {
-  const malos = items.filter((item) => item.estado === "malo");
-  const observados = items.filter((item) => item.estado !== "bueno");
-  const haySeguridad = observados.some(
-    (item) =>
-      item.afectaSeguridad ||
-      item.categoria === "Sistema de seguridad" ||
-      item.categoria === "Sistema de elevación / tracción" ||
-      normalizarTexto(item.nombre).includes("freno") ||
-      normalizarTexto(item.nombre).includes("gancho") ||
-      normalizarTexto(item.nombre).includes("cable") ||
-      normalizarTexto(item.nombre).includes("cadena"),
+function clasificarRiesgo(
+  items: ChecklistItemNormalizado[],
+  conocimiento: ConocimientoSeleccionado[],
+): RiesgoDiagnostico {
+  const observados = items.filter(
+    (item) => item.estado !== "bueno",
   );
 
-  if (malos.length >= 2 || haySeguridad) {
+  const criticidades = observados.map((item) =>
+    criticidadItem(item, conocimiento),
+  );
+
+  const existeCritica = criticidades.includes("critica");
+
+  const existeAlta = criticidades.includes("alta");
+
+  const existeSeguridad = observados.some(
+    (item) =>
+      item.afectaSeguridad ||
+      conocimientoPorComponente(conocimiento, item.id)
+        ?.afecta_seguridad,
+  );
+
+  if (existeCritica) {
+    return {
+      nivel: "critico",
+      clasificacion: "No Apto",
+      justificacion:
+        "Se registran hallazgos críticos que deben ser corregidos y validados antes de liberar el equipo.",
+    };
+  }
+
+  if (existeAlta || existeSeguridad) {
     return {
       nivel: "alto",
       clasificacion: "No Apto",
       justificacion:
-        "Existen observaciones en componentes que pueden afectar la operación segura del equipo.",
+        "Se registran observaciones que pueden afectar la seguridad o la operación del equipo.",
     };
   }
 
@@ -422,7 +704,7 @@ function clasificarRiesgo(items: ChecklistItemNormalizado[]) {
       nivel: "medio",
       clasificacion: "Apto con observaciones",
       justificacion:
-        "El equipo presenta observaciones que deben corregirse o validarse antes de su liberación definitiva.",
+        "El equipo presenta observaciones técnicas que deben corregirse o validarse antes de su liberación definitiva.",
     };
   }
 
@@ -430,183 +712,634 @@ function clasificarRiesgo(items: ChecklistItemNormalizado[]) {
     nivel: "bajo",
     clasificacion: "Apto",
     justificacion:
-      "No se registran observaciones críticas en el checklist informado.",
+      "No se registran componentes en mal estado en el checklist informado.",
   };
+}
+
+function construirDetalleHallazgoLocal(
+  item: ChecklistItemNormalizado,
+  conocimiento: ConocimientoSeleccionado[],
+): string {
+  const registro = conocimientoPorComponente(
+    conocimiento,
+    item.id,
+  );
+
+  const partes: string[] = [];
+
+  partes.push(
+    `${item.nombre} fue marcado como ${
+      item.estado === "malo" ? "malo" : "observado"
+    } en el checklist.`,
+  );
+
+  if (item.observacion) {
+    partes.push(
+      `El técnico registró la observación: ${item.observacion}.`,
+    );
+  }
+
+  const acciones = accionesLegibles(item);
+
+  if (acciones) {
+    partes.push(`La acción indicada es: ${acciones}.`);
+  }
+
+  if (registro?.riesgo_operacional) {
+    partes.push(
+      `Efecto operacional: ${registro.riesgo_operacional}.`,
+    );
+  } else if (item.afectaSeguridad) {
+    partes.push(
+      "La condición debe considerarse relevante para la seguridad operacional hasta que sea corregida y comprobada.",
+    );
+  }
+
+  if (registro?.criterio_liberacion) {
+    partes.push(
+      `Condición de liberación: ${registro.criterio_liberacion}.`,
+    );
+  }
+
+  return partes.join(" ");
+}
+
+function construirTextoTecnicoNatural(
+  payload: PayloadDiagnosticoIA,
+  items: ChecklistItemNormalizado[],
+  conocimiento: ConocimientoSeleccionado[],
+): string {
+  const equipo = nombreEquipo(payload).toLowerCase();
+
+  const observados = items.filter(
+    (item) => item.estado !== "bueno",
+  );
+
+  if (!observados.length) {
+    return `El ${equipo} no presenta componentes marcados como malos en el checklist. Antes de su liberación se debe completar la validación funcional final correspondiente al equipo.`;
+  }
+
+  const riesgo = clasificarRiesgo(items, conocimiento);
+
+  const introduccion =
+    riesgo.clasificacion === "No Apto"
+      ? `El ${equipo} presenta hallazgos que requieren intervención antes de su liberación.`
+      : `El ${equipo} presenta observaciones técnicas que deben ser revisadas antes de cerrar el diagnóstico.`;
+
+  const detalles = observados.map((item) =>
+    construirDetalleHallazgoLocal(item, conocimiento),
+  );
+
+  const cierre =
+    riesgo.clasificacion === "No Apto"
+      ? "El equipo no debe ser liberado mientras permanezcan pendientes las correcciones y las pruebas posteriores requeridas."
+      : "La liberación debe quedar condicionada a la corrección de las observaciones y a la validación funcional final.";
+
+  return [introduccion, ...detalles, cierre].join(" ");
+}
+
+function procedimientoBasePorAccion(
+  item: ChecklistItemNormalizado,
+): string {
+  const nombre = item.nombre.toLowerCase();
+
+  if (item.acciones.includes("repuesto")) {
+    const repuesto =
+      item.repuestoNombre || item.nombre;
+
+    return `Reemplazar ${repuesto.toLowerCase()} por un componente compatible con el equipo y verificar su correcta instalación.`;
+  }
+
+  if (item.acciones.includes("reparacion")) {
+    return `Reparar ${nombre} de acuerdo con la condición registrada por el técnico y comprobar su funcionamiento posterior.`;
+  }
+
+  if (item.acciones.includes("ajuste")) {
+    return `Realizar el ajuste de ${nombre} y verificar que opere dentro de una condición funcional segura.`;
+  }
+
+  if (item.acciones.includes("mantencion")) {
+    return `Ejecutar la mantención de ${nombre}, incluyendo limpieza, revisión y validación funcional.`;
+  }
+
+  if (item.acciones.includes("otro") && item.accionOtro) {
+    return `${item.accionOtro} en ${nombre} y registrar el resultado de la intervención.`;
+  }
+
+  return `Revisar técnicamente ${nombre}, corregir la condición observada y validar su funcionamiento.`;
+}
+
+function construirProcedimientoLocal(
+  items: ChecklistItemNormalizado[],
+  conocimiento: ConocimientoSeleccionado[],
+) {
+  const observados = items.filter(
+    (item) => item.estado !== "bueno",
+  );
+
+  if (!observados.length) {
+    return [
+      "Realizar prueba funcional final antes de liberar el equipo.",
+    ];
+  }
+
+  const pasos: string[] = [];
+
+  observados.forEach((item) => {
+    const registro = conocimientoPorComponente(
+      conocimiento,
+      item.id,
+    );
+
+    const trabajo =
+      registro?.procedimiento_recomendado ||
+      procedimientoBasePorAccion(item);
+
+    pasos.push(trabajo);
+
+    if (registro?.prueba_posterior) {
+      pasos.push(registro.prueba_posterior);
+    }
+  });
+
+  pasos.push(
+    "Registrar las correcciones realizadas y efectuar una validación funcional final antes de definir la liberación del equipo.",
+  );
+
+  return Array.from(new Set(pasos.filter(Boolean)));
+}
+
+function construirRepuestosLocal(
+  items: ChecklistItemNormalizado[],
+) {
+  return items
+    .filter(
+      (item) =>
+        item.estado !== "bueno" &&
+        item.acciones.includes("repuesto"),
+    )
+    .map((item) => ({
+      cantidad:
+        Number(item.repuestoCantidad || 1) || 1,
+      nombre:
+        item.repuestoNombre ||
+        item.nombre,
+      prioridad:
+        item.afectaSeguridad || item.estado === "malo"
+          ? "alta"
+          : "media",
+      motivo:
+        item.observacion ||
+        `${item.nombre} marcado como malo en el checklist.`,
+    }));
+}
+
+function construirHallazgosLocales(
+  items: ChecklistItemNormalizado[],
+  conocimiento: ConocimientoSeleccionado[],
+) {
+  const observados = items.filter(
+    (item) => item.estado !== "bueno",
+  );
+
+  if (!observados.length) {
+    return [
+      {
+        categoria: "General",
+        estado: "correcto",
+        detalle:
+          "El checklist no registra componentes marcados como malos.",
+        evidenciaChecklist: [],
+        severidad: "baja",
+      },
+    ];
+  }
+
+  return observados.map((item) => {
+    const criticidad = criticidadItem(
+      item,
+      conocimiento,
+    );
+
+    return {
+      categoria: item.categoria,
+      estado:
+        criticidad === "critica"
+          ? "critico"
+          : item.estado === "malo"
+            ? "deficiente"
+            : "observado",
+      detalle: construirDetalleHallazgoLocal(
+        item,
+        conocimiento,
+      ),
+      evidenciaChecklist: [
+        item.nombre,
+        ...(item.observacion
+          ? [item.observacion]
+          : []),
+      ],
+      severidad: criticidad,
+    };
+  });
 }
 
 function generarDiagnosticoLocal(
   payload: PayloadDiagnosticoIA,
   items: ChecklistItemNormalizado[],
+  conocimiento: ConocimientoSeleccionado[],
 ) {
   const equipo = nombreEquipo(payload);
-  const observados = items.filter((item) => item.estado !== "bueno");
-  const riesgo = clasificarRiesgo(items);
-  const textoTecnicoNatural = construirTextoTecnicoNatural(payload, items);
-  const procedimiento = construirProcedimientoLocal(items);
-  const repuestos = construirRepuestosLocal(items);
-  const horasMin = observados.length ? Math.max(1, Math.ceil(observados.length * 0.75)) : 0.5;
-  const horasMax = observados.length ? Math.max(2, Math.ceil(observados.length * 1.5)) : 1;
+  const observados = items.filter(
+    (item) => item.estado !== "bueno",
+  );
+
+  const riesgo = clasificarRiesgo(
+    items,
+    conocimiento,
+  );
+
+  const textoTecnicoNatural =
+    construirTextoTecnicoNatural(
+      payload,
+      items,
+      conocimiento,
+    );
+
+  const procedimiento =
+    construirProcedimientoLocal(
+      items,
+      conocimiento,
+    );
+
+  const repuestos =
+    construirRepuestosLocal(items);
 
   return {
     resumenEjecutivo: {
       equipoLlegado: equipo,
       estadoGeneral: observados.length
-        ? `Equipo con ${observados.length} observación(es) técnica(s) registradas en checklist.`
-        : "Equipo sin observaciones críticas registradas en checklist.",
+        ? `Equipo con ${observados.length} hallazgo(s) técnico(s) registrado(s) en el checklist.`
+        : "Equipo sin componentes marcados como malos en el checklist.",
       nivelRiesgo: riesgo.nivel,
       conclusion:
         riesgo.clasificacion === "Apto"
-          ? "Equipo apto según checklist, sujeto a validación funcional final."
-          : "Equipo requiere corrección y validación técnica antes de ser liberado.",
+          ? "Equipo sujeto a validación funcional final."
+          : "Equipo sujeto a corrección y validación antes de su liberación.",
     },
-    hallazgosTecnicos: observados.length
-      ? observados.map((item) => ({
-          categoria: item.categoria,
-          estado: item.estado === "malo" ? "deficiente" : "observado",
-          detalle: `${item.nombre}${item.observacion ? `: ${item.observacion}` : ""}`,
-          evidenciaChecklist: [item.nombre],
-          severidad: item.estado === "malo" ? "alta" : "media",
-        }))
-      : [
-          {
-            categoria: "General",
-            estado: "correcto",
-            detalle: "Checklist sin observaciones críticas registradas.",
-            evidenciaChecklist: [],
-            severidad: "baja",
-          },
-        ],
+
+    hallazgosTecnicos:
+      construirHallazgosLocales(
+        items,
+        conocimiento,
+      ),
+
     causaProbable: observados.length
       ? [
           {
-            causa: "Desgaste operacional, falta de mantenimiento preventivo o condición de uso",
+            causa:
+              "La causa exacta debe confirmarse mediante inspección técnica.",
             justificacion:
-              "Las observaciones registradas en checklist corresponden a componentes que normalmente se deterioran por uso, falta de mantención o exigencia operacional.",
-            confianza: "media",
+              "El checklist identifica la condición observada, pero no permite afirmar una causa no registrada por el técnico.",
+            confianza: "baja",
           },
         ]
       : [
           {
-            causa: "Sin causa de falla evidente",
-            justificacion: "El checklist no registra fallas críticas suficientes para establecer una causa de falla.",
+            causa:
+              "Sin causa de falla identificada.",
+            justificacion:
+              "No se registran componentes malos suficientes para establecer una causa.",
             confianza: "baja",
           },
         ],
+
     riesgo: {
       clasificacion: riesgo.clasificacion,
       justificacion: riesgo.justificacion,
     },
-    procedimientoRecomendado: procedimiento.map((trabajo, index) => ({
-      paso: index + 1,
-      trabajo,
-      prioridad: index === procedimiento.length - 1 ? "media" : riesgo.nivel === "alto" ? "alta" : "media",
-      requiereRepuesto: repuestos.length > 0 && index === 0,
-      observacion: "Validar físicamente en taller antes de cotizar o liberar.",
-    })),
+
+    procedimientoRecomendado:
+      procedimiento.map((trabajo, index) => ({
+        paso: index + 1,
+        trabajo,
+        prioridad:
+          riesgo.nivel === "critico"
+            ? "critica"
+            : riesgo.nivel === "alto"
+              ? "alta"
+              : "media",
+        requiereRepuesto:
+          index === 0 && repuestos.length > 0,
+        observacion:
+          "Validar físicamente en taller y registrar el resultado.",
+      })),
+
     repuestosSugeridos: repuestos,
+
     horasEstimadas: {
-      minimo: horasMin,
-      maximo: horasMax,
-      detalle: "Estimación preliminar calculada según cantidad y severidad de observaciones registradas.",
-      supuesto: "Debe ser ajustada por el jefe técnico según inspección física y disponibilidad de repuestos.",
+      minimo: observados.length
+        ? Math.max(1, observados.length)
+        : 0.5,
+      maximo: observados.length
+        ? Math.max(2, observados.length * 2)
+        : 1,
+      detalle:
+        "Estimación preliminar basada en la cantidad de hallazgos.",
+      supuesto:
+        "Las horas deben ser revisadas y ajustadas por el jefe técnico.",
     },
+
     observacionesCliente:
       riesgo.clasificacion === "Apto"
-        ? "El equipo no presenta observaciones críticas según la revisión registrada. Se recomienda mantener mantenimiento preventivo periódico."
-        : "El equipo presenta observaciones técnicas que deben corregirse antes de su liberación. MJ Industrial informará los trabajos y repuestos requeridos.",
+        ? "El equipo queda sujeto a validación funcional final."
+        : "El equipo presenta observaciones técnicas que deben ser corregidas antes de su liberación.",
+
     textoTecnicoNatural,
-    confianzaDiagnostico: observados.length ? "media" : "baja",
-    conocimientoUtilizado: [],
-    advertencias: [],
+
+    confianzaDiagnostico:
+      conocimiento.length > 0
+        ? "media"
+        : "baja",
+
+    conocimientoUtilizado:
+      conocimiento.map((registro) => ({
+        registroId: registro.id,
+        componenteId:
+          registro.componente_id,
+        fallaClave: registro.falla_clave,
+        puntaje: registro.puntaje,
+      })),
+
+    advertencias:
+      conocimiento.length > 0
+        ? []
+        : [
+            "No se encontraron registros técnicos aplicables en la biblioteca para los componentes observados.",
+          ],
   };
 }
 
 function construirPromptSistema() {
   return `
-Eres el Jefe Técnico Senior de MJ Industrial, empresa especialista en izaje y manejo de carga.
+Eres el Jefe Técnico Senior de MJ Industrial, empresa especialista en equipos de izaje y manejo de carga.
 
-Debes diagnosticar equipos como tecles eléctricos, tecles manuales, tecles palanca, winches, tirfor, minifor y transpaletas eléctricas.
+Debes analizar tecles eléctricos, tecles manuales, tecles de palanca, winches, tirfor, minifor y transpaletas eléctricas.
 
-Tu respuesta debe ser JSON válido, sin markdown, sin texto adicional.
+Tu respuesta debe ser exclusivamente JSON válido, sin markdown y sin texto adicional.
 
-El diagnóstico debe sonar como un técnico senior real, no como una lista genérica de IA.
+REGLAS OBLIGATORIAS:
 
-Reglas:
-- No inventes datos fuera del checklist.
-- Usa lenguaje técnico, directo y natural.
-- Prioriza seguridad operacional.
-- Si hay observaciones en freno, gancho, cable, cadena, limitador, estructura o alimentación eléctrica, considera riesgo alto o no apto.
-- El campo textoTecnicoNatural debe ser un párrafo claro similar a un informe técnico de taller.
-- Los repuestos solo deben sugerirse si están justificados por checklist o por una falla evidente.
-- Las horas son estimadas y editables por el jefe técnico.
+1. El checklist y las observaciones escritas por el técnico son la fuente principal de información.
+
+2. La Biblioteca Técnica solo debe utilizarse cuando corresponda al mismo tipo de equipo y al mismo componente.
+
+3. No inventes:
+- Mediciones.
+- Porcentajes de desgaste.
+- Pruebas ya realizadas.
+- Causas no observadas.
+- Repuestos no seleccionados.
+- Normas no entregadas.
+- Datos de marca, modelo o capacidad no informados.
+
+4. No reemplaces la observación del técnico por una falla más específica que no esté sustentada.
+
+5. Para cada componente malo debes explicar:
+- Qué fue observado.
+- Qué acción seleccionó el técnico.
+- Qué efecto puede tener en la operación.
+- Qué condición debe cumplirse antes de liberar el equipo.
+
+6. Debes diferenciar:
+- Reemplazo.
+- Reparación.
+- Ajuste.
+- Mantención.
+- Otra acción.
+
+7. Los repuestos deben respetar exactamente el nombre y cantidad ingresados en el checklist.
+
+8. No sugieras repuestos cuando el técnico no seleccionó la acción "repuesto".
+
+9. No agrupes todos los componentes en una sola frase genérica.
+
+10. El procedimiento debe tener acciones concretas y ordenadas para los hallazgos actuales.
+
+11. El procedimiento debe incluir las pruebas posteriores relevantes que aparezcan en la biblioteca.
+
+12. Un equipo con una condición crítica o de seguridad pendiente no debe ser liberado.
+
+13. El campo textoTecnicoNatural debe ser un informe técnico claro, profesional y comprensible.
+
+14. Las horas son preliminares y siempre deben quedar sujetas a revisión del jefe técnico.
 `.trim();
 }
 
-function construirPromptUsuario(payload: PayloadDiagnosticoIA, items: ChecklistItemNormalizado[]) {
+function construirPromptUsuario(
+  payload: PayloadDiagnosticoIA,
+  items: ChecklistItemNormalizado[],
+  conocimiento: ConocimientoSeleccionado[],
+) {
   return JSON.stringify({
     instruccion:
-      "Genera diagnóstico técnico para MJ Industrial. Devuelve exclusivamente JSON válido con la estructura indicada.",
+      "Genera un diagnóstico técnico para MJ Industrial utilizando exclusivamente la información entregada.",
+
     estructura_obligatoria: {
       resumenEjecutivo: {
         equipoLlegado: "string",
         estadoGeneral: "string",
-        nivelRiesgo: "bajo | medio | alto | critico",
+        nivelRiesgo:
+          "bajo | medio | alto | critico",
         conclusion: "string",
       },
+
       hallazgosTecnicos: [
         {
           categoria: "string",
-          estado: "correcto | observado | deficiente | critico",
+          estado:
+            "correcto | observado | deficiente | critico",
           detalle: "string",
           evidenciaChecklist: ["string"],
-          severidad: "baja | media | alta | critica",
+          severidad:
+            "baja | media | alta | critica",
         },
       ],
+
       causaProbable: [
         {
           causa: "string",
           justificacion: "string",
-          confianza: "baja | media | alta",
+          confianza:
+            "baja | media | alta",
         },
       ],
+
       riesgo: {
-        clasificacion: "Apto | Apto con observaciones | No Apto",
+        clasificacion:
+          "Apto | Apto con observaciones | No Apto",
         justificacion: "string",
       },
+
       procedimientoRecomendado: [
         {
           paso: 1,
           trabajo: "string",
-          prioridad: "baja | media | alta | critica",
+          prioridad:
+            "baja | media | alta | critica",
           requiereRepuesto: true,
           observacion: "string",
         },
       ],
+
       repuestosSugeridos: [
         {
           cantidad: 1,
           nombre: "string",
-          prioridad: "baja | media | alta | critica",
+          prioridad:
+            "baja | media | alta | critica",
           motivo: "string",
         },
       ],
+
       horasEstimadas: {
         minimo: 1,
         maximo: 2,
         detalle: "string",
         supuesto: "string",
       },
+
       observacionesCliente: "string",
-      textoTecnicoNatural: "Párrafo técnico natural, estilo informe de taller MJ Industrial.",
-      confianzaDiagnostico: "baja | media | alta",
-      conocimientoUtilizado: [],
+
+      textoTecnicoNatural:
+        "Informe técnico natural y específico.",
+
+      confianzaDiagnostico:
+        "baja | media | alta",
+
+      conocimientoUtilizado: [
+        {
+          registroId: "string",
+          componenteId: "string",
+          fallaClave: "string",
+        },
+      ],
+
       advertencias: ["string"],
     },
-    equipo: payload.equipo || {},
-    problemaReportado: payload.problemaReportado || "",
-    observacionesIngreso: payload.observacionesIngreso || payload.observaciones || "",
+
+    tipoEquipo:
+      obtenerTipoEquipo(payload),
+
+    equipo:
+      payload.equipo || {},
+
+    problemaReportado:
+      payload.problemaReportado || "",
+
+    observacionesIngreso:
+      payload.observacionesIngreso ||
+      payload.observaciones ||
+      "",
+
     checklistNormalizado: items,
+
+    bibliotecaTecnicaRelevante:
+      prepararConocimientoParaOpenAI(
+        conocimiento,
+      ),
   });
+}
+
+function normalizarDiagnosticoOpenAI(
+  diagnosticoOriginal: any,
+  payload: PayloadDiagnosticoIA,
+  items: ChecklistItemNormalizado[],
+  conocimiento: ConocimientoSeleccionado[],
+) {
+  const respaldo = generarDiagnosticoLocal(
+    payload,
+    items,
+    conocimiento,
+  );
+
+  const diagnostico =
+    diagnosticoOriginal &&
+    typeof diagnosticoOriginal === "object"
+      ? diagnosticoOriginal
+      : {};
+
+  const repuestosExactos =
+    construirRepuestosLocal(items);
+
+  return {
+    ...respaldo,
+    ...diagnostico,
+
+    resumenEjecutivo: {
+      ...respaldo.resumenEjecutivo,
+      ...(diagnostico.resumenEjecutivo || {}),
+    },
+
+    hallazgosTecnicos:
+      Array.isArray(
+        diagnostico.hallazgosTecnicos,
+      ) &&
+      diagnostico.hallazgosTecnicos.length > 0
+        ? diagnostico.hallazgosTecnicos
+        : respaldo.hallazgosTecnicos,
+
+    causaProbable:
+      Array.isArray(
+        diagnostico.causaProbable,
+      ) &&
+      diagnostico.causaProbable.length > 0
+        ? diagnostico.causaProbable
+        : respaldo.causaProbable,
+
+    riesgo: {
+      ...respaldo.riesgo,
+      ...(diagnostico.riesgo || {}),
+    },
+
+    procedimientoRecomendado:
+      Array.isArray(
+        diagnostico.procedimientoRecomendado,
+      ) &&
+      diagnostico.procedimientoRecomendado.length > 0
+        ? diagnostico.procedimientoRecomendado
+        : respaldo.procedimientoRecomendado,
+
+    repuestosSugeridos: repuestosExactos,
+
+    horasEstimadas: {
+      ...respaldo.horasEstimadas,
+      ...(diagnostico.horasEstimadas || {}),
+    },
+
+    textoTecnicoNatural:
+      textoSeguro(
+        diagnostico.textoTecnicoNatural,
+      ) ||
+      respaldo.textoTecnicoNatural,
+
+    conocimientoUtilizado:
+      conocimiento.map((registro) => ({
+        registroId: registro.id,
+        componenteId:
+          registro.componente_id,
+        fallaClave:
+          registro.falla_clave,
+        puntaje:
+          registro.puntaje,
+      })),
+
+    advertencias: Array.isArray(
+      diagnostico.advertencias,
+    )
+      ? diagnostico.advertencias
+      : respaldo.advertencias,
+  };
 }
 
 async function guardarDiagnosticoEnOrden(
@@ -615,120 +1348,245 @@ async function guardarDiagnosticoEnOrden(
   fuente: string,
 ) {
   const supabase = crearSupabaseAdmin();
-  const ordenId = payload.ordenId || payload.equipoId;
 
-  if (!supabase || !ordenId) return;
+  const ordenId =
+    payload.ordenId ||
+    payload.equipoId;
+
+  if (!supabase || !ordenId) {
+    return;
+  }
 
   const { error } = await supabase
     .from("ordenes")
     .update({
       diagnostico_ia_json: diagnostico,
-      diagnostico_ia_version: "mj-senior-v2",
+      diagnostico_ia_version:
+        "mj-biblioteca-v1",
       diagnostico_ia_fuente: fuente,
-      diagnostico_ia_generado_en: new Date().toISOString(),
+      diagnostico_ia_generado_en:
+        new Date().toISOString(),
     })
     .eq("id", ordenId);
 
   if (error) {
-    console.error("Error guardando diagnóstico IA en orden:", error);
+    console.error(
+      "Error guardando diagnóstico IA en orden:",
+      error,
+    );
   }
 }
 
-export async function POST(request: NextRequest) {
-  let payload: PayloadDiagnosticoIA | null = null;
+async function obtenerConocimiento(
+  payload: PayloadDiagnosticoIA,
+  items: ChecklistItemNormalizado[],
+): Promise<ConocimientoSeleccionado[]> {
+  const supabase = crearSupabaseAdmin();
+
+  if (!supabase) {
+    return [];
+  }
+
+  const tipoEquipo =
+    obtenerTipoEquipo(payload);
+
+  if (!tipoEquipo) {
+    return [];
+  }
+
+  return buscarConocimientoRelevante(
+    supabase,
+    tipoEquipo,
+    items,
+    3,
+  );
+}
+
+export async function POST(
+  request: NextRequest,
+) {
+  let payload: PayloadDiagnosticoIA | null =
+    null;
 
   try {
-    payload = (await request.json()) as PayloadDiagnosticoIA;
-    const items = extraerItemsChecklist(payload);
+    payload =
+      (await request.json()) as PayloadDiagnosticoIA;
+
+    const items =
+      extraerItemsChecklist(payload);
+
+    const conocimiento =
+      await obtenerConocimiento(
+        payload,
+        items,
+      );
+
     const openai = crearOpenAI();
 
     if (!openai) {
       const diagnosticoLocal = {
-  ...generarDiagnosticoLocal(payload, items),
-  advertencias: [
-    "Diagnóstico generado por motor local porque OPENAI_API_KEY no está disponible.",
-  ],
-};
-      await guardarDiagnosticoEnOrden(payload, diagnosticoLocal, "local_sin_openai_key");
+        ...generarDiagnosticoLocal(
+          payload,
+          items,
+          conocimiento,
+        ),
+
+        advertencias: [
+          "Diagnóstico generado por el Motor MJ porque OPENAI_API_KEY no está disponible.",
+        ],
+      };
+
+      await guardarDiagnosticoEnOrden(
+        payload,
+        diagnosticoLocal,
+        "local_sin_openai_key",
+      );
 
       return NextResponse.json({
         ok: true,
         fuente: "local_sin_openai_key",
+        conocimientoEncontrado:
+          conocimiento.length,
+        itemsNormalizados: items.length,
         diagnostico: diagnosticoLocal,
       });
     }
 
     try {
-      const completion = await openai.chat.completions.create({
-        model: MODELO_DIAGNOSTICO,
-        temperature: 0.15,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content: construirPromptSistema(),
+      const completion =
+        await openai.chat.completions.create({
+          model: MODELO_DIAGNOSTICO,
+          temperature: 0.1,
+          response_format: {
+            type: "json_object",
           },
-          {
-            role: "user",
-            content: construirPromptUsuario(payload, items),
-          },
-        ],
-      });
+          messages: [
+            {
+              role: "system",
+              content:
+                construirPromptSistema(),
+            },
+            {
+              role: "user",
+              content:
+                construirPromptUsuario(
+                  payload,
+                  items,
+                  conocimiento,
+                ),
+            },
+          ],
+        });
 
-      const contenido = completion.choices[0]?.message?.content;
+      const contenido =
+        completion.choices[0]
+          ?.message?.content;
 
       if (!contenido) {
-        throw new Error("OpenAI no entregó contenido.");
+        throw new Error(
+          "OpenAI no entregó contenido.",
+        );
       }
 
-      const diagnostico = JSON.parse(contenido);
+      const respuestaOpenAI =
+        JSON.parse(contenido);
 
-      if (!diagnostico.textoTecnicoNatural) {
-        diagnostico.textoTecnicoNatural = construirTextoTecnicoNatural(payload, items);
-      }
+      const diagnostico =
+        normalizarDiagnosticoOpenAI(
+          respuestaOpenAI,
+          payload,
+          items,
+          conocimiento,
+        );
 
-      await guardarDiagnosticoEnOrden(payload, diagnostico, "openai");
+      await guardarDiagnosticoEnOrden(
+        payload,
+        diagnostico,
+        "openai_biblioteca",
+      );
 
       return NextResponse.json({
         ok: true,
-        fuente: "openai",
+        fuente: "openai_biblioteca",
+        conocimientoEncontrado:
+          conocimiento.length,
+        itemsNormalizados: items.length,
         diagnostico,
       });
     } catch (error) {
-      console.error("OpenAI falló, usando diagnóstico local:", error);
+      console.error(
+        "OpenAI falló, usando Motor MJ:",
+        error,
+      );
 
       const diagnosticoLocal = {
-  ...generarDiagnosticoLocal(payload, items),
-  advertencias: [
-    "Diagnóstico generado por motor local porque OpenAI no respondió correctamente.",
-  ],
-};
+        ...generarDiagnosticoLocal(
+          payload,
+          items,
+          conocimiento,
+        ),
 
-      await guardarDiagnosticoEnOrden(payload, diagnosticoLocal, "local_respaldo_openai");
+        advertencias: [
+          "Diagnóstico generado por el Motor MJ porque OpenAI no respondió correctamente.",
+        ],
+      };
+
+      await guardarDiagnosticoEnOrden(
+        payload,
+        diagnosticoLocal,
+        "local_respaldo_openai",
+      );
 
       return NextResponse.json({
         ok: true,
-        fuente: "local_respaldo_openai",
+        fuente:
+          "local_respaldo_openai",
+        conocimientoEncontrado:
+          conocimiento.length,
+        itemsNormalizados: items.length,
         diagnostico: diagnosticoLocal,
       });
     }
   } catch (error) {
-    console.error("Error en /api/diagnostico-ia:", error);
+    console.error(
+      "Error en /api/diagnostico-ia:",
+      error,
+    );
 
     if (payload) {
-      const items = extraerItemsChecklist(payload);
-      const diagnosticoLocal = {
-  ...generarDiagnosticoLocal(payload, items),
-  advertencias: [
-    "Diagnóstico generado por motor local por error general en la API.",
-  ],
-};
+      const items =
+        extraerItemsChecklist(payload);
 
-      await guardarDiagnosticoEnOrden(payload, diagnosticoLocal, "local_error_api");
+      const conocimiento =
+        await obtenerConocimiento(
+          payload,
+          items,
+        );
+
+      const diagnosticoLocal = {
+        ...generarDiagnosticoLocal(
+          payload,
+          items,
+          conocimiento,
+        ),
+
+        advertencias: [
+          "Diagnóstico generado por el Motor MJ debido a un error general de la API.",
+        ],
+      };
+
+      await guardarDiagnosticoEnOrden(
+        payload,
+        diagnosticoLocal,
+        "local_error_api",
+      );
 
       return NextResponse.json({
         ok: true,
         fuente: "local_error_api",
+        conocimientoEncontrado:
+          conocimiento.length,
+        itemsNormalizados: items.length,
         diagnostico: diagnosticoLocal,
       });
     }
@@ -736,9 +1594,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         ok: false,
-        error: "No se pudo generar el diagnóstico IA.",
+        error:
+          "No se pudo generar el diagnóstico IA.",
       },
-      { status: 500 },
+      {
+        status: 500,
+      },
     );
   }
 }
