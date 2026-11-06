@@ -194,6 +194,29 @@ function resumenTrabajoEjecutado(actual: TrabajoEquipo) {
   return lineas.join("\n");
 }
 
+// Solo se sincronizan datos técnicos estructurados. Las fotografías y los
+// documentos requieren Supabase Storage y se abordarán en otra etapa.
+function datosTrabajoPersistibles(actual: TrabajoEquipo) {
+  return {
+    cotizacion_estado: actual.cotizacion_estado,
+    observacion_cotizacion: actual.observacion_cotizacion,
+    referencia_trabajo: actual.referencia_trabajo,
+    referencia_repuestos: actual.referencia_repuestos,
+    trabajo_realizado: resumenTrabajoEjecutado(actual),
+    repuestos_cambiados: actual.repuestos_cambiados,
+    reparaciones_realizadas: actual.reparaciones_realizadas,
+    ajustes_realizados: actual.ajustes_realizados,
+    mantencion_limpieza_realizada: actual.mantencion_limpieza_realizada,
+    prueba_funcional: actual.prueba_funcional,
+    prueba_carga: actual.prueba_carga,
+    equipo_limpio_entrega: actual.equipo_limpio_entrega,
+    equipo_liberado: actual.resultado_final === "listo_entrega",
+    horas_reales: actual.horas_reales,
+    observaciones: actual.observaciones,
+    resultado_final: actual.resultado_final,
+  };
+}
+
 function etiquetaResultado(resultado: ResultadoFinalTrabajo) {
   if (resultado === "listo_entrega") return "Listo para entrega/despacho";
   if (resultado === "pendiente_repuesto") return "Pendiente por repuesto";
@@ -245,14 +268,46 @@ export default function TrabajoOT({
         equiposBase = equiposIniciales;
       }
 
+      // La base de datos es la fuente de verdad para los datos del trabajo.
+      // LocalStorage solo se conserva para compatibilidad con OT antiguas
+      // y para archivos aún no migrados a Supabase Storage.
+      const idsEquipos = equiposBase.map((equipo) => equipo.id);
+      const { data: trabajosGuardados, error: errorTrabajos } = idsEquipos.length
+        ? await supabase
+            .from("trabajo_ot")
+            .select("orden_id,datos_trabajo")
+            .in("orden_id", idsEquipos)
+        : { data: [], error: null };
+
+      if (errorTrabajos) throw new Error(`No se pudo leer trabajo_ot: ${errorTrabajos.message}`);
+
+      const registrosPorEquipo = new Map<string, Record<string, any>>(
+        (trabajosGuardados || []).map((registro: any): [string, Record<string, any>] => [
+          registro.orden_id as string,
+          (registro.datos_trabajo || {}) as Record<string, any>,
+        ]),
+      );
+
       const estadoInicial: Record<string, TrabajoEquipo> = {};
 
       equiposBase.forEach((equipo) => {
-        const base = generarTrabajoBase(equipo.id);
+        const baseLocal = generarTrabajoBase(equipo.id);
+        const guardado = registrosPorEquipo.get(equipo.id);
+        const base = guardado
+          ? {
+              ...baseLocal,
+              ...guardado,
+              cotizacion_estado: guardado.cotizacion_estado || "pendiente",
+              resultado_final: guardado.resultado_final || "pendiente",
+            }
+          : baseLocal;
 
         estadoInicial[equipo.id] = {
           ...trabajoVacio(),
           ...base,
+          // Los archivos locales aún no están sincronizados.
+          fotos_egreso: baseLocal.fotos_egreso || [],
+          documentos: baseLocal.documentos || [],
         };
       });
 
@@ -413,6 +468,25 @@ export default function TrabajoOT({
     }));
 
     try {
+      const datosPersistibles = datosTrabajoPersistibles(actual);
+      const { error: errorGuardarDb } = await supabase
+        .from("trabajo_ot")
+        .upsert(
+          {
+            orden_id: equipoId,
+            descripcion: datosPersistibles.trabajo_realizado,
+            observaciones: actual.observaciones,
+            datos_trabajo: datosPersistibles,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "orden_id" },
+        );
+
+      if (errorGuardarDb) {
+        throw new Error(`No se pudo guardar el trabajo en Supabase: ${errorGuardarDb.message}`);
+      }
+
+      // Mantiene compatibilidad con las funciones existentes de la aplicación.
       guardarEquipoTrabajo(equipoId, {
         trabajo: {
           cotizacion_estado: actual.cotizacion_estado,
@@ -450,24 +524,28 @@ export default function TrabajoOT({
               ? "listo"
               : "trabajo";
 
-        await supabase
+        const { error: errorEstadoEquipo } = await supabase
           .from("ordenes")
           .update({ estado: nuevoEstado })
           .eq("id", equipoId);
+        if (errorEstadoEquipo) throw new Error(errorEstadoEquipo.message);
 
-        if (ordenId) {
-          await supabase
+        if (ordenId && ordenId !== equipoId) {
+          const { error: errorEstadoMadre } = await supabase
             .from("ordenes")
             .update({ estado: nuevoEstado })
             .eq("id", ordenId);
+          if (errorEstadoMadre) throw new Error(errorEstadoMadre.message);
 
-          await supabase
+          // Mantener el comportamiento existente de las órdenes por lote.
+          const { error: errorEstadosHijos } = await supabase
             .from("ordenes")
             .update({ estado: nuevoEstado })
             .eq("orden_padre_id", ordenId);
-
-          onEstadoActualizado?.(nuevoEstado);
+          if (errorEstadosHijos) throw new Error(errorEstadosHijos.message);
         }
+
+        onEstadoActualizado?.(nuevoEstado);
       }
 
       setTrabajos((prev) => ({
