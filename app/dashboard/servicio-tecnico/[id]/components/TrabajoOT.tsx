@@ -2,10 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../../../../lib/supabase";
-import {
-  guardarEquipoTrabajo,
-  obtenerEquipoTrabajo,
-} from "../lib/equipoTrabajoStore";
+import { obtenerEquipoTrabajo } from "../lib/equipoTrabajoStore";
 
 type Props = {
   ordenId?: string;
@@ -28,6 +25,7 @@ type FotoEgreso = {
   id: string;
   nombre: string;
   url: string;
+  storage_path?: string;
 };
 
 type DocumentoTrabajo = {
@@ -36,6 +34,7 @@ type DocumentoTrabajo = {
   nombre: string;
   comentario: string;
   url: string;
+  storage_path?: string;
 };
 
 type EstadoCotizacionTrabajo = "pendiente" | "aprobada" | "rechazada";
@@ -166,14 +165,45 @@ function generarTrabajoBase(equipoId: string): Partial<TrabajoEquipo> {
   };
 }
 
-function archivoADataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
+// Los archivos se almacenan en el bucket existente "reportes" de Supabase.
+// En trabajo_ot solo se guardan rutas y URLs, nunca archivos base64.
+const BUCKET_TRABAJO = "reportes";
 
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("No se pudo leer el archivo"));
-    reader.readAsDataURL(file);
+function nombreArchivoSeguro(nombre: string) {
+  return nombre
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .slice(0, 120);
+}
+
+async function subirArchivoTrabajo(
+  equipoId: string,
+  archivo: Blob,
+  nombre: string,
+  grupo: "fotos" | "documentos",
+) {
+  const ruta = `trabajo/${equipoId}/${grupo}/${crearId()}-${nombreArchivoSeguro(nombre)}`;
+  const { error } = await supabase.storage.from(BUCKET_TRABAJO).upload(ruta, archivo, {
+    contentType: archivo.type || "application/octet-stream",
+    upsert: false,
   });
+  if (error) throw new Error(`No se pudo subir ${nombre}: ${error.message}`);
+  const { data } = supabase.storage.from(BUCKET_TRABAJO).getPublicUrl(ruta);
+  return { url: data.publicUrl, storage_path: ruta };
+}
+
+// Compatibilidad con imágenes/documentos antiguos que quedaron como base64.
+async function migrarArchivoLocal(
+  equipoId: string,
+  url: string,
+  nombre: string,
+  grupo: "fotos" | "documentos",
+) {
+  if (!url.startsWith("data:")) return null;
+  const respuesta = await fetch(url);
+  const archivo = await respuesta.blob();
+  return subirArchivoTrabajo(equipoId, archivo, nombre, grupo);
 }
 
 function resumenTrabajoEjecutado(actual: TrabajoEquipo) {
@@ -214,6 +244,8 @@ function datosTrabajoPersistibles(actual: TrabajoEquipo) {
     horas_reales: actual.horas_reales,
     observaciones: actual.observaciones,
     resultado_final: actual.resultado_final,
+    fotos_egreso: actual.fotos_egreso,
+    documentos: actual.documentos,
   };
 }
 
@@ -235,6 +267,7 @@ export default function TrabajoOT({
   const [equipos, setEquipos] = useState<Equipo[]>([]);
   const [trabajos, setTrabajos] = useState<Record<string, TrabajoEquipo>>({});
   const [loading, setLoading] = useState(false);
+  const [subiendoArchivos, setSubiendoArchivos] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     cargarDatos();
@@ -305,9 +338,12 @@ export default function TrabajoOT({
         estadoInicial[equipo.id] = {
           ...trabajoVacio(),
           ...base,
-          // Los archivos locales aún no están sincronizados.
-          fotos_egreso: baseLocal.fotos_egreso || [],
-          documentos: baseLocal.documentos || [],
+          fotos_egreso: Array.isArray(guardado?.fotos_egreso)
+            ? guardado.fotos_egreso
+            : baseLocal.fotos_egreso || [],
+          documentos: Array.isArray(guardado?.documentos)
+            ? guardado.documentos
+            : baseLocal.documentos || [],
         };
       });
 
@@ -338,55 +374,68 @@ export default function TrabajoOT({
   }
 
   async function agregarFotos(equipoId: string, files: FileList | null) {
-    if (soloLectura || !files?.length) return;
-
-    const actual = trabajos[equipoId] || trabajoVacio();
-    const nuevasFotos: FotoEgreso[] = [];
-
-    for (const file of Array.from(files)) {
-      const url = await archivoADataUrl(file);
-
-      nuevasFotos.push({
-        id: crearId(),
-        nombre: file.name,
-        url,
-      });
+    if (soloLectura || !files?.length || subiendoArchivos[equipoId]) return;
+    setSubiendoArchivos((prev) => ({ ...prev, [equipoId]: true }));
+    try {
+      const nuevasFotos: FotoEgreso[] = [];
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith("image/")) throw new Error("Selecciona una imagen válida.");
+        const subida = await subirArchivoTrabajo(equipoId, file, file.name, "fotos");
+        nuevasFotos.push({ id: crearId(), nombre: file.name, ...subida });
+        setTrabajos((prev) => ({
+          ...prev,
+          [equipoId]: {
+            ...(prev[equipoId] || trabajoVacio()),
+            fotos_egreso: [...(prev[equipoId]?.fotos_egreso || []), nuevasFotos[nuevasFotos.length - 1]],
+            guardadoOk: false,
+          },
+        }));
+      }
+    } catch (e: any) {
+      alert(e?.message || "No se pudieron subir las fotografías.");
+    } finally {
+      setSubiendoArchivos((prev) => ({ ...prev, [equipoId]: false }));
     }
-
-    actualizarCampo(equipoId, "fotos_egreso", [
-      ...actual.fotos_egreso,
-      ...nuevasFotos,
-    ]);
   }
 
   function eliminarFoto(equipoId: string, fotoId: string) {
     if (soloLectura) return;
-
-    const actual = trabajos[equipoId] || trabajoVacio();
-
-    actualizarCampo(
-      equipoId,
-      "fotos_egreso",
-      actual.fotos_egreso.filter((foto) => foto.id !== fotoId),
-    );
+    // No borrar en Storage antes de guardar para no romper documentos ya registrados.
+    setTrabajos((prev) => ({
+      ...prev,
+      [equipoId]: {
+        ...(prev[equipoId] || trabajoVacio()),
+        fotos_egreso: (prev[equipoId]?.fotos_egreso || []).filter((f) => f.id !== fotoId),
+        guardadoOk: false,
+      },
+    }));
   }
 
   async function agregarDocumento(equipoId: string, file: File | null) {
-    if (soloLectura || !file) return;
-
-    const actual = trabajos[equipoId] || trabajoVacio();
-    const url = await archivoADataUrl(file);
-
-    actualizarCampo(equipoId, "documentos", [
-      ...actual.documentos,
-      {
+    if (soloLectura || !file || subiendoArchivos[equipoId]) return;
+    setSubiendoArchivos((prev) => ({ ...prev, [equipoId]: true }));
+    try {
+      const subida = await subirArchivoTrabajo(equipoId, file, file.name, "documentos");
+      const documento: DocumentoTrabajo = {
         id: crearId(),
         tipo: "Certificado",
         nombre: file.name,
         comentario: "",
-        url,
-      },
-    ]);
+        ...subida,
+      };
+      setTrabajos((prev) => ({
+        ...prev,
+        [equipoId]: {
+          ...(prev[equipoId] || trabajoVacio()),
+          documentos: [...(prev[equipoId]?.documentos || []), documento],
+          guardadoOk: false,
+        },
+      }));
+    } catch (e: any) {
+      alert(e?.message || "No se pudo subir el documento.");
+    } finally {
+      setSubiendoArchivos((prev) => ({ ...prev, [equipoId]: false }));
+    }
   }
 
   function actualizarDocumento(
@@ -433,7 +482,7 @@ export default function TrabajoOT({
       actualizarOrden?: boolean;
     },
   ) {
-    if (soloLectura) return;
+    if (soloLectura || subiendoArchivos[equipoId]) return;
 
     const actualBase = trabajos[equipoId] || trabajoVacio();
     const actual: TrabajoEquipo = {
@@ -468,7 +517,24 @@ export default function TrabajoOT({
     }));
 
     try {
-      const datosPersistibles = datosTrabajoPersistibles(actual);
+      // Migrar al guardar las posibles fotos/documentos antiguos en base64.
+      // La información y las nuevas URLs solo se publican en la OT después del upsert.
+      const fotosPersistidas: FotoEgreso[] = [];
+      for (const foto of actual.fotos_egreso) {
+        const migrada = await migrarArchivoLocal(equipoId, foto.url, foto.nombre, "fotos");
+        fotosPersistidas.push(migrada ? { ...foto, ...migrada } : foto);
+      }
+      const documentosPersistidos: DocumentoTrabajo[] = [];
+      for (const doc of actual.documentos) {
+        const migrado = await migrarArchivoLocal(equipoId, doc.url, doc.nombre, "documentos");
+        documentosPersistidos.push(migrado ? { ...doc, ...migrado } : doc);
+      }
+      const actualPersistido = {
+        ...actual,
+        fotos_egreso: fotosPersistidas,
+        documentos: documentosPersistidos,
+      };
+      const datosPersistibles = datosTrabajoPersistibles(actualPersistido);
       const { error: errorGuardarDb } = await supabase
         .from("trabajo_ot")
         .upsert(
@@ -486,35 +552,8 @@ export default function TrabajoOT({
         throw new Error(`No se pudo guardar el trabajo en Supabase: ${errorGuardarDb.message}`);
       }
 
-      // Mantiene compatibilidad con las funciones existentes de la aplicación.
-      guardarEquipoTrabajo(equipoId, {
-        trabajo: {
-          cotizacion_estado: actual.cotizacion_estado,
-          cotizacion_aprobada:
-            actual.cotizacion_estado === "aprobada"
-              ? true
-              : actual.cotizacion_estado === "rechazada"
-                ? false
-                : null,
-          observacion_cotizacion: actual.observacion_cotizacion,
-          referencia_trabajo: actual.referencia_trabajo,
-          referencia_repuestos: actual.referencia_repuestos,
-          trabajo_realizado: resumenTrabajoEjecutado(actual),
-          repuestos_cambiados: actual.repuestos_cambiados,
-          reparaciones_realizadas: actual.reparaciones_realizadas,
-          ajustes_realizados: actual.ajustes_realizados,
-          mantencion_limpieza_realizada: actual.mantencion_limpieza_realizada,
-          prueba_funcional: actual.prueba_funcional,
-          prueba_carga: actual.prueba_carga,
-          equipo_limpio_entrega: actual.equipo_limpio_entrega,
-          equipo_liberado: actual.resultado_final === "listo_entrega",
-          horas_reales: actual.horas_reales,
-          observaciones: actual.observaciones,
-          resultado_final: actual.resultado_final,
-          fotos_egreso: actual.fotos_egreso as any,
-          documentos: actual.documentos as any,
-        },
-      } as any);
+      // No escribir en localStorage: los archivos base64 superan su cuota.
+      // La fuente de verdad del trabajo es Supabase.
 
       if (opciones?.actualizarOrden !== false && !edicionHistorica) {
         const nuevoEstado =
@@ -552,7 +591,7 @@ export default function TrabajoOT({
         ...prev,
         [equipoId]: {
           ...(prev[equipoId] || trabajoVacio()),
-          ...actual,
+          ...actualPersistido,
           guardando: false,
           guardadoOk: true,
         },
@@ -705,7 +744,7 @@ export default function TrabajoOT({
                   <button
                     type="button"
                     onClick={() => aprobarCotizacion(equipo.id)}
-                    disabled={actual.guardando}
+                    disabled={actual.guardando || subiendoArchivos[equipo.id]}
                     className="rounded-xl bg-green-600 px-5 py-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
                     {actual.guardando ? "Guardando..." : "Cotización aprobada"}
@@ -714,7 +753,7 @@ export default function TrabajoOT({
                   <button
                     type="button"
                     onClick={() => rechazarCotizacion(equipo.id)}
-                    disabled={actual.guardando}
+                    disabled={actual.guardando || subiendoArchivos[equipo.id]}
                     className="rounded-xl bg-red-600 px-5 py-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
                     {actual.guardando ? "Guardando..." : "Cotización rechazada"}
@@ -737,7 +776,7 @@ export default function TrabajoOT({
                 <button
                   type="button"
                   onClick={() => aprobarCotizacion(equipo.id)}
-                  disabled={actual.guardando}
+                  disabled={actual.guardando || subiendoArchivos[equipo.id]}
                   className="mt-4 rounded-xl bg-green-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
                   Reabrir como cotización aprobada
@@ -920,6 +959,9 @@ export default function TrabajoOT({
                     className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
                   />
 
+                  {subiendoArchivos[equipo.id] && (
+                    <p className="mt-2 text-xs font-semibold text-blue-700">Subiendo archivo a Supabase...</p>
+                  )}
                   {!!actual.fotos_egreso.length && (
                     <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
                       {actual.fotos_egreso.map((foto) => (
@@ -1094,7 +1136,7 @@ export default function TrabajoOT({
                     <button
                       type="button"
                       onClick={() => guardarTrabajo(equipo.id)}
-                      disabled={actual.guardando}
+                      disabled={actual.guardando || subiendoArchivos[equipo.id]}
                       className={`rounded-xl px-5 py-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300 ${
                         actual.guardadoOk ? "bg-green-600" : "bg-blue-600"
                       } ${edicionHistorica ? "md:col-span-2" : ""}`}
@@ -1116,7 +1158,7 @@ export default function TrabajoOT({
                             resultadoFinal: "listo_entrega",
                           })
                         }
-                        disabled={actual.guardando}
+                        disabled={actual.guardando || subiendoArchivos[equipo.id]}
                         className="rounded-xl bg-green-700 px-5 py-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
                       >
                         Listo para entrega/despacho
