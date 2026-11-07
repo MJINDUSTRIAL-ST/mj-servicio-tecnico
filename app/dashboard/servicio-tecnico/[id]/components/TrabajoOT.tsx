@@ -268,6 +268,8 @@ export default function TrabajoOT({
   const [trabajos, setTrabajos] = useState<Record<string, TrabajoEquipo>>({});
   const [loading, setLoading] = useState(false);
   const [subiendoArchivos, setSubiendoArchivos] = useState<Record<string, boolean>>({});
+  const [trabajosBloqueados, setTrabajosBloqueados] = useState<Record<string, boolean>>({});
+  const [cierresExistentes, setCierresExistentes] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     cargarDatos();
@@ -322,10 +324,33 @@ export default function TrabajoOT({
       );
 
       const estadoInicial: Record<string, TrabajoEquipo> = {};
+      const bloqueosIniciales: Record<string, boolean> = {};
+      const cierresIniciales: Record<string, boolean> = {};
 
       equiposBase.forEach((equipo) => {
         const baseLocal = generarTrabajoBase(equipo.id);
         const guardado = registrosPorEquipo.get(equipo.id);
+        // Los cierres antiguos ya registrados también comienzan bloqueados.
+        // La sola aprobación comercial no bloquea el formulario de trabajo.
+        const tieneCierreAnterior = Boolean(
+          guardado && (
+            guardado.cierre_guardado === true ||
+            (guardado.cierre_guardado !== false && (
+              guardado.repuestos_cambiados ||
+              guardado.reparaciones_realizadas ||
+              guardado.ajustes_realizados ||
+              guardado.mantencion_limpieza_realizada ||
+              guardado.prueba_funcional ||
+              guardado.prueba_carga ||
+              guardado.equipo_limpio_entrega ||
+              textoSeguro(guardado.observaciones) ||
+              (Array.isArray(guardado.fotos_egreso) && guardado.fotos_egreso.length > 0) ||
+              (Array.isArray(guardado.documentos) && guardado.documentos.length > 0)
+            ))
+          )
+        );
+        bloqueosIniciales[equipo.id] = tieneCierreAnterior || edicionHistorica;
+        cierresIniciales[equipo.id] = tieneCierreAnterior || edicionHistorica;
         const base = guardado
           ? {
               ...baseLocal,
@@ -349,6 +374,8 @@ export default function TrabajoOT({
 
       setEquipos(equiposBase);
       setTrabajos(estadoInicial);
+      setTrabajosBloqueados(bloqueosIniciales);
+      setCierresExistentes(cierresIniciales);
     } catch (e: any) {
       alert(e.message || "No se pudo cargar el trabajo");
     } finally {
@@ -361,7 +388,7 @@ export default function TrabajoOT({
     campo: K,
     valor: TrabajoEquipo[K],
   ) {
-    if (soloLectura) return;
+    if (soloLectura || trabajosBloqueados[equipoId]) return;
 
     setTrabajos((prev) => ({
       ...prev,
@@ -374,7 +401,7 @@ export default function TrabajoOT({
   }
 
   async function agregarFotos(equipoId: string, files: FileList | null) {
-    if (soloLectura || !files?.length || subiendoArchivos[equipoId]) return;
+    if (soloLectura || trabajosBloqueados[equipoId] || !files?.length || subiendoArchivos[equipoId]) return;
     setSubiendoArchivos((prev) => ({ ...prev, [equipoId]: true }));
     try {
       const nuevasFotos: FotoEgreso[] = [];
@@ -399,7 +426,7 @@ export default function TrabajoOT({
   }
 
   function eliminarFoto(equipoId: string, fotoId: string) {
-    if (soloLectura) return;
+    if (soloLectura || trabajosBloqueados[equipoId]) return;
     // No borrar en Storage antes de guardar para no romper documentos ya registrados.
     setTrabajos((prev) => ({
       ...prev,
@@ -412,7 +439,7 @@ export default function TrabajoOT({
   }
 
   async function agregarDocumento(equipoId: string, file: File | null) {
-    if (soloLectura || !file || subiendoArchivos[equipoId]) return;
+    if (soloLectura || trabajosBloqueados[equipoId] || !file || subiendoArchivos[equipoId]) return;
     setSubiendoArchivos((prev) => ({ ...prev, [equipoId]: true }));
     try {
       const subida = await subirArchivoTrabajo(equipoId, file, file.name, "documentos");
@@ -444,7 +471,7 @@ export default function TrabajoOT({
     campo: keyof DocumentoTrabajo,
     valor: string,
   ) {
-    if (soloLectura) return;
+    if (soloLectura || trabajosBloqueados[equipoId]) return;
 
     const actual = trabajos[equipoId] || trabajoVacio();
 
@@ -463,7 +490,7 @@ export default function TrabajoOT({
   }
 
   function eliminarDocumento(equipoId: string, documentoId: string) {
-    if (soloLectura) return;
+    if (soloLectura || trabajosBloqueados[equipoId]) return;
 
     const actual = trabajos[equipoId] || trabajoVacio();
 
@@ -482,7 +509,7 @@ export default function TrabajoOT({
       actualizarOrden?: boolean;
     },
   ) {
-    if (soloLectura || subiendoArchivos[equipoId]) return;
+    if (soloLectura || trabajosBloqueados[equipoId] || subiendoArchivos[equipoId]) return;
 
     const actualBase = trabajos[equipoId] || trabajoVacio();
     const actual: TrabajoEquipo = {
@@ -534,7 +561,13 @@ export default function TrabajoOT({
         fotos_egreso: fotosPersistidas,
         documentos: documentosPersistidos,
       };
-      const datosPersistibles = datosTrabajoPersistibles(actualPersistido);
+      const datosPersistibles = {
+        ...datosTrabajoPersistibles(actualPersistido),
+        // Aprobar/rechazar la cotización no equivale a cerrar el trabajo.
+        cierre_guardado: opciones?.cotizacionEstado
+          ? Boolean((actualBase as any).cierre_guardado)
+          : true,
+      };
       const { error: errorGuardarDb } = await supabase
         .from("trabajo_ot")
         .upsert(
@@ -596,6 +629,10 @@ export default function TrabajoOT({
           guardadoOk: true,
         },
       }));
+      if (!opciones?.cotizacionEstado) {
+        setCierresExistentes((prev) => ({ ...prev, [equipoId]: true }));
+        setTrabajosBloqueados((prev) => ({ ...prev, [equipoId]: true }));
+      }
     } catch (e: any) {
       alert(e.message || "No se pudo guardar el trabajo");
 
@@ -639,28 +676,41 @@ export default function TrabajoOT({
 
   return (
     <section className="space-y-5">
-      {soloLectura && (
-        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-800">
-          Trabajo guardado. Presiona Modificar etapa para habilitar cambios.
-        </div>
-      )}
-
-      <fieldset
-        disabled={soloLectura}
-        className="m-0 min-w-0 space-y-5 border-0 p-0 disabled:opacity-100"
-      >
       {equipos.map((equipo, index) => {
         const actual = trabajos[equipo.id] || trabajoVacio();
         const cotizacionPendiente = actual.cotizacion_estado === "pendiente";
         const cotizacionAprobada = actual.cotizacion_estado === "aprobada";
         const cotizacionRechazada = actual.cotizacion_estado === "rechazada";
         const listoParaEntrega = actual.resultado_final === "listo_entrega";
+        const bloqueado = soloLectura || Boolean(trabajosBloqueados[equipo.id]);
 
         return (
           <div
             key={equipo.id}
             className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
           >
+            {cierresExistentes[equipo.id] && (
+              <div className={`mb-4 flex flex-col gap-3 rounded-xl border p-4 md:flex-row md:items-center md:justify-between ${bloqueado ? "border-green-200 bg-green-50" : "border-amber-200 bg-amber-50"}`}>
+                <div>
+                  <p className="text-sm font-bold text-slate-900">
+                    {bloqueado ? "Trabajo guardado" : "Modificando Trabajo"}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-600">
+                    {bloqueado ? "La información está bloqueada para evitar cambios accidentales." : "Guarda los cambios para volver a bloquear la etapa."}
+                  </p>
+                </div>
+                {bloqueado && !soloLectura && (
+                  <button
+                    type="button"
+                    onClick={() => setTrabajosBloqueados((prev) => ({ ...prev, [equipo.id]: false }))}
+                    className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white"
+                  >
+                    Modificar etapa
+                  </button>
+                )}
+              </div>
+            )}
+            <fieldset disabled={bloqueado} className="m-0 min-w-0 space-y-5 border-0 p-0 disabled:opacity-100">
             <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">
@@ -1168,10 +1218,10 @@ export default function TrabajoOT({
                 )}
               </div>
             )}
+            </fieldset>
           </div>
         );
       })}
-      </fieldset>
     </section>
   );
 }

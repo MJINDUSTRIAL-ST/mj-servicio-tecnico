@@ -2074,21 +2074,10 @@ export default function DetalleOrdenPage() {
 
           {tab === "trabajo" && (
             <>
-              {etapaActualIndex > 5 && (
-                <ControlEtapaGuardada
-                  titulo="Trabajo"
-                  enEdicion={etapaEnEdicion("trabajo")}
-                  onCambiar={() => alternarEdicionEtapa("trabajo")}
-                />
-              )}
-
               {estadoActual === "Listo" || estadoActual === "Entregado" ? (
                 <>
                   <TrabajoOT
                     ordenId={orden.id}
-                    soloLectura={
-                      etapaActualIndex > 5 && !etapaEnEdicion("trabajo")
-                    }
                     edicionHistorica={etapaActualIndex > 5}
                   />
 
@@ -2316,11 +2305,8 @@ export default function DetalleOrdenPage() {
               ) : (
                 <TrabajoOT
                   ordenId={orden.id}
-                  soloLectura={
-                    etapaActualIndex > 5 && !etapaEnEdicion("trabajo")
-                  }
                   edicionHistorica={etapaActualIndex > 5}
-                  onEstadoActualizado={(estado) => {
+                  onEstadoActualizado={(estado: string) => {
                     setOrden((prev) => {
                       if (!prev) return prev;
                       return { ...prev, estado };
