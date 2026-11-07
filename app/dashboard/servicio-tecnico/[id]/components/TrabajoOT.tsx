@@ -509,7 +509,12 @@ export default function TrabajoOT({
       actualizarOrden?: boolean;
     },
   ) {
-    if (soloLectura || trabajosBloqueados[equipoId] || subiendoArchivos[equipoId]) return;
+    // El formulario permanece bloqueado, pero permite confirmar la transición a Listo.
+    if (
+      soloLectura ||
+      subiendoArchivos[equipoId] ||
+      (trabajosBloqueados[equipoId] && opciones?.resultadoFinal !== "listo_entrega")
+    ) return;
 
     const actualBase = trabajos[equipoId] || trabajoVacio();
     const actual: TrabajoEquipo = {
@@ -1200,25 +1205,23 @@ export default function TrabajoOT({
                             : "Guardar avance"}
                     </button>
 
-                    {!edicionHistorica && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          guardarTrabajo(equipo.id, {
-                            resultadoFinal: "listo_entrega",
-                          })
-                        }
-                        disabled={actual.guardando || subiendoArchivos[equipo.id]}
-                        className="rounded-xl bg-green-700 px-5 py-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-                      >
-                        Listo para entrega/despacho
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
             )}
             </fieldset>
+            {/* La transición a Listo no forma parte de los campos editables.
+                El cierre ya guardado puede pasar a Listo sin desbloquear la ficha. */}
+            {cotizacionAprobada && !edicionHistorica && !soloLectura && !listoParaEntrega && (
+              <button
+                type="button"
+                onClick={() => guardarTrabajo(equipo.id, { resultadoFinal: "listo_entrega" })}
+                disabled={actual.guardando || subiendoArchivos[equipo.id]}
+                className="mt-3 w-full rounded-xl bg-green-700 px-5 py-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                Listo para entrega/despacho
+              </button>
+            )}
           </div>
         );
       })}
