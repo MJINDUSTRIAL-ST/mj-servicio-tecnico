@@ -37,6 +37,53 @@ type DocumentoTrabajo = {
   storage_path?: string;
 };
 
+type InformeFinalIA = {
+  resumenTecnico: string;
+  trabajosEjecutados: string;
+  pruebasYVerificaciones: string;
+  condicionFinal: string;
+  pendientesYObservaciones: string;
+};
+
+type RegistroInformeFinal = {
+  informe: InformeFinalIA;
+  estado: "borrador" | "aprobado";
+  generado_at?: string;
+  aprobado_at?: string | null;
+};
+
+const CAMPOS_INFORME: Array<{ key: keyof InformeFinalIA; label: string }> = [
+  { key: "resumenTecnico", label: "Resumen técnico final" },
+  { key: "trabajosEjecutados", label: "Trabajos efectivamente ejecutados" },
+  { key: "pruebasYVerificaciones", label: "Pruebas y verificaciones" },
+  { key: "condicionFinal", label: "Condición final del equipo" },
+  { key: "pendientesYObservaciones", label: "Pendientes y observaciones" },
+];
+
+function normalizarInforme(valor: unknown): InformeFinalIA {
+  const data = valor && typeof valor === "object" ? (valor as Record<string, unknown>) : {};
+  return {
+    resumenTecnico: textoSeguro(data.resumenTecnico),
+    trabajosEjecutados: textoSeguro(data.trabajosEjecutados),
+    pruebasYVerificaciones: textoSeguro(data.pruebasYVerificaciones),
+    condicionFinal: textoSeguro(data.condicionFinal),
+    pendientesYObservaciones: textoSeguro(data.pendientesYObservaciones),
+  };
+}
+
+function leerRegistroInforme(valor: unknown): RegistroInformeFinal | null {
+  if (!valor || typeof valor !== "object") return null;
+  const data = valor as Record<string, unknown>;
+  const informe = normalizarInforme(data.informe);
+  if (!informe.resumenTecnico && !informe.condicionFinal) return null;
+  return {
+    informe,
+    estado: data.estado === "aprobado" ? "aprobado" : "borrador",
+    generado_at: textoSeguro(data.generado_at),
+    aprobado_at: textoSeguro(data.aprobado_at) || null,
+  };
+}
+
 type EstadoCotizacionTrabajo = "pendiente" | "aprobada" | "rechazada";
 
 type ResultadoFinalTrabajo =
@@ -270,6 +317,9 @@ export default function TrabajoOT({
   const [subiendoArchivos, setSubiendoArchivos] = useState<Record<string, boolean>>({});
   const [trabajosBloqueados, setTrabajosBloqueados] = useState<Record<string, boolean>>({});
   const [cierresExistentes, setCierresExistentes] = useState<Record<string, boolean>>({});
+  const [informesFinales, setInformesFinales] = useState<Record<string, RegistroInformeFinal | null>>({});
+  const [generandoInformes, setGenerandoInformes] = useState<Record<string, boolean>>({});
+  const [guardandoInformes, setGuardandoInformes] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     cargarDatos();
@@ -326,10 +376,12 @@ export default function TrabajoOT({
       const estadoInicial: Record<string, TrabajoEquipo> = {};
       const bloqueosIniciales: Record<string, boolean> = {};
       const cierresIniciales: Record<string, boolean> = {};
+      const informesIniciales: Record<string, RegistroInformeFinal | null> = {};
 
       equiposBase.forEach((equipo) => {
         const baseLocal = generarTrabajoBase(equipo.id);
         const guardado = registrosPorEquipo.get(equipo.id);
+        informesIniciales[equipo.id] = leerRegistroInforme(guardado?.informe_final_ia);
         // Los cierres antiguos ya registrados también comienzan bloqueados.
         // La sola aprobación comercial no bloquea el formulario de trabajo.
         const tieneCierreAnterior = Boolean(
@@ -376,6 +428,7 @@ export default function TrabajoOT({
       setTrabajos(estadoInicial);
       setTrabajosBloqueados(bloqueosIniciales);
       setCierresExistentes(cierresIniciales);
+      setInformesFinales(informesIniciales);
     } catch (e: any) {
       alert(e.message || "No se pudo cargar el trabajo");
     } finally {
@@ -566,11 +619,29 @@ export default function TrabajoOT({
         fotos_egreso: fotosPersistidas,
         documentos: documentosPersistidos,
       };
+      // Conservar el resumen técnico final al guardar el cierre operativo.
+      // Si se modifica el trabajo, una aprobación anterior vuelve a borrador.
+      const { data: filaActual, error: errorLecturaActual } = await supabase
+        .from("trabajo_ot")
+        .select("datos_trabajo")
+        .eq("orden_id", equipoId)
+        .maybeSingle();
+      if (errorLecturaActual) throw new Error(errorLecturaActual.message);
+      const datosAnteriores =
+        filaActual?.datos_trabajo && typeof filaActual.datos_trabajo === "object"
+          ? (filaActual.datos_trabajo as Record<string, any>)
+          : {};
+      const informeAnterior = leerRegistroInforme(datosAnteriores.informe_final_ia);
+      const informeConservado = informeAnterior && !opciones?.cotizacionEstado
+        ? { ...informeAnterior, estado: "borrador" as const, aprobado_at: null }
+        : informeAnterior;
       const datosPersistibles = {
+        ...datosAnteriores,
         ...datosTrabajoPersistibles(actualPersistido),
+        informe_final_ia: informeConservado,
         // Aprobar/rechazar la cotización no equivale a cerrar el trabajo.
         cierre_guardado: opciones?.cotizacionEstado
-          ? Boolean((actualBase as any).cierre_guardado)
+          ? Boolean(datosAnteriores.cierre_guardado)
           : true,
       };
       const { error: errorGuardarDb } = await supabase
@@ -635,6 +706,14 @@ export default function TrabajoOT({
         },
       }));
       if (!opciones?.cotizacionEstado) {
+        if (informesFinales[equipoId]?.estado === "aprobado") {
+          setInformesFinales((prev) => ({
+            ...prev,
+            [equipoId]: prev[equipoId]
+              ? { ...prev[equipoId]!, estado: "borrador", aprobado_at: null }
+              : null,
+          }));
+        }
         setCierresExistentes((prev) => ({ ...prev, [equipoId]: true }));
         setTrabajosBloqueados((prev) => ({ ...prev, [equipoId]: true }));
       }
@@ -649,6 +728,144 @@ export default function TrabajoOT({
         },
       }));
     }
+  }
+
+
+  async function persistirInforme(equipoId: string, registro: RegistroInformeFinal) {
+    // Actualizar exclusivamente la propiedad del informe, conservando el trabajo y archivos.
+    const { data, error: errorLectura } = await supabase
+      .from("trabajo_ot")
+      .select("datos_trabajo")
+      .eq("orden_id", equipoId)
+      .maybeSingle();
+    if (errorLectura) throw new Error(errorLectura.message);
+    if (!data) throw new Error("Primero guarda el cierre operativo del trabajo.");
+    const existente = data.datos_trabajo && typeof data.datos_trabajo === "object"
+      ? (data.datos_trabajo as Record<string, unknown>)
+      : {};
+    const { error } = await supabase
+      .from("trabajo_ot")
+      .update({
+        datos_trabajo: { ...existente, informe_final_ia: registro },
+        updated_at: new Date().toISOString(),
+      })
+      .eq("orden_id", equipoId);
+    if (error) throw new Error(error.message);
+    setInformesFinales((prev) => ({ ...prev, [equipoId]: registro }));
+  }
+
+  async function generarInformeFinal(equipo: Equipo) {
+    if (!cierresExistentes[equipo.id] || !trabajosBloqueados[equipo.id]) {
+      alert("Primero guarda el trabajo. Si estás editándolo, guarda los cambios antes de generar el informe.");
+      return;
+    }
+    if (informesFinales[equipo.id]?.estado === "aprobado") {
+      alert("El informe ya está aprobado. Para regenerarlo, primero habilita su edición.");
+      return;
+    }
+    setGenerandoInformes((prev) => ({ ...prev, [equipo.id]: true }));
+    try {
+      const { data: diagnosticoDb, error: errorDiagnostico } = await supabase
+        .from("diagnosticos")
+        .select("hallazgos,procedimiento,repuestos")
+        .eq("orden_id", equipo.id)
+        .maybeSingle();
+      if (errorDiagnostico) throw new Error(errorDiagnostico.message);
+
+      const { data: sesion, error: errorSesion } = await supabase.auth.getSession();
+      const accessToken = sesion.session?.access_token;
+      if (errorSesion || !accessToken) {
+        throw new Error("Debes iniciar sesión nuevamente para utilizar el resumen técnico con IA.");
+      }
+
+      const actual = trabajos[equipo.id] || trabajoVacio();
+      const respuesta = await fetch("/api/informe-final-ia", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          equipo: {
+            tipo: equipo.equipo || "",
+            marca: equipo.marca || "",
+            modelo: equipo.modelo || "",
+            numero_serie: equipo.numero_serie || "",
+          },
+          diagnostico: {
+            hallazgos: diagnosticoDb?.hallazgos || "",
+            procedimiento: diagnosticoDb?.procedimiento || "",
+            repuestos: diagnosticoDb?.repuestos || "",
+          },
+          procedimientoAprobado: actual.referencia_trabajo,
+          trabajo: {
+            ...datosTrabajoPersistibles(actual),
+            // La referencia a repuestos aprobados no prueba qué pieza se instaló.
+            repuestos_utilizados: "",
+          },
+        }),
+      });
+      const data = await respuesta.json();
+      if (!respuesta.ok || !data?.ok) {
+        throw new Error(data?.error || "No se pudo generar el informe con IA.");
+      }
+      const informe = normalizarInforme(data.informe);
+      if (!informe.resumenTecnico || !informe.condicionFinal) {
+        throw new Error("La IA no entregó un informe técnico completo.");
+      }
+      await persistirInforme(equipo.id, {
+        informe,
+        estado: "borrador",
+        generado_at: new Date().toISOString(),
+        aprobado_at: null,
+      });
+    } catch (error: any) {
+      alert(error?.message || "Error generando el informe final.");
+    } finally {
+      setGenerandoInformes((prev) => ({ ...prev, [equipo.id]: false }));
+    }
+  }
+
+  function actualizarCampoInforme(equipoId: string, campo: keyof InformeFinalIA, valor: string) {
+    setInformesFinales((prev) => {
+      const actual = prev[equipoId];
+      if (!actual || actual.estado === "aprobado") return prev;
+      return {
+        ...prev,
+        [equipoId]: { ...actual, informe: { ...actual.informe, [campo]: valor } },
+      };
+    });
+  }
+
+  async function guardarInforme(equipoId: string, aprobar: boolean) {
+    const actual = informesFinales[equipoId];
+    if (!actual || (actual.estado === "aprobado" && aprobar)) return;
+    if (aprobar && (!actual.informe.resumenTecnico.trim() || !actual.informe.condicionFinal.trim())) {
+      alert("Completa el resumen técnico y la condición final antes de aprobar.");
+      return;
+    }
+    setGuardandoInformes((prev) => ({ ...prev, [equipoId]: true }));
+    try {
+      await persistirInforme(equipoId, {
+        ...actual,
+        estado: aprobar ? "aprobado" : "borrador",
+        aprobado_at: aprobar ? new Date().toISOString() : null,
+      });
+    } catch (error: any) {
+      alert(error?.message || "No se pudo guardar el informe técnico.");
+    } finally {
+      setGuardandoInformes((prev) => ({ ...prev, [equipoId]: false }));
+    }
+  }
+
+  function habilitarEdicionInforme(equipoId: string) {
+    const actual = informesFinales[equipoId];
+    if (!actual || !window.confirm("¿Modificar el informe aprobado? Dejará de estar aprobado hasta una nueva revisión.")) return;
+    const borrador: RegistroInformeFinal = { ...actual, estado: "borrador", aprobado_at: null };
+    setGuardandoInformes((prev) => ({ ...prev, [equipoId]: true }));
+    void persistirInforme(equipoId, borrador)
+      .catch((error: any) => alert(error?.message || "No se pudo habilitar el informe."))
+      .finally(() => setGuardandoInformes((prev) => ({ ...prev, [equipoId]: false })));
   }
 
   async function aprobarCotizacion(equipoId: string) {
@@ -1210,6 +1427,82 @@ export default function TrabajoOT({
               </div>
             )}
             </fieldset>
+            {cotizacionAprobada && cierresExistentes[equipo.id] && (
+              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Informe técnico final con IA</h3>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Borrador revisable por el responsable técnico. Solo utiliza trabajos y pruebas registrados.
+                    </p>
+                  </div>
+                  {informesFinales[equipo.id]?.estado === "aprobado" && (
+                    <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-800">
+                      Informe aprobado
+                    </span>
+                  )}
+                </div>
+                {!soloLectura && informesFinales[equipo.id]?.estado !== "aprobado" && (
+                  <button
+                    type="button"
+                    onClick={() => generarInformeFinal(equipo)}
+                    disabled={Boolean(generandoInformes[equipo.id] || guardandoInformes[equipo.id] || !trabajosBloqueados[equipo.id])}
+                    className="mt-4 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                  >
+                    {generandoInformes[equipo.id]
+                      ? "Generando resumen..."
+                      : informesFinales[equipo.id]
+                        ? "Regenerar borrador con IA"
+                        : "Generar resumen técnico final con IA"}
+                  </button>
+                )}
+                {informesFinales[equipo.id] && (
+                  <div className="mt-4 space-y-4">
+                    {CAMPOS_INFORME.map(({ key, label }) => (
+                      <div key={key}>
+                        <label className="mb-2 block text-sm font-bold text-slate-700">{label}</label>
+                        <textarea
+                          rows={key === "resumenTecnico" ? 5 : 3}
+                          value={informesFinales[equipo.id]?.informe[key] || ""}
+                          onChange={(event) => actualizarCampoInforme(equipo.id, key, event.target.value)}
+                          disabled={soloLectura || informesFinales[equipo.id]?.estado === "aprobado" || Boolean(guardandoInformes[equipo.id])}
+                          className="w-full resize-y rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                        />
+                      </div>
+                    ))}
+                    {!soloLectura && informesFinales[equipo.id]?.estado === "aprobado" ? (
+                      <button
+                        type="button"
+                        onClick={() => habilitarEdicionInforme(equipo.id)}
+                        disabled={Boolean(guardandoInformes[equipo.id])}
+                        className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white disabled:bg-slate-300"
+                      >
+                        Modificar informe final
+                      </button>
+                    ) : !soloLectura ? (
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <button
+                          type="button"
+                          onClick={() => guardarInforme(equipo.id, false)}
+                          disabled={Boolean(guardandoInformes[equipo.id])}
+                          className="rounded-xl bg-slate-700 px-4 py-3 text-sm font-bold text-white disabled:bg-slate-300"
+                        >
+                          Guardar borrador
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => guardarInforme(equipo.id, true)}
+                          disabled={Boolean(guardandoInformes[equipo.id])}
+                          className="rounded-xl bg-green-700 px-4 py-3 text-sm font-bold text-white disabled:bg-slate-300"
+                        >
+                          Aprobar informe técnico final
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            )}
             {/* La transición a Listo no forma parte de los campos editables.
                 El cierre ya guardado puede pasar a Listo sin desbloquear la ficha. */}
             {cotizacionAprobada && !edicionHistorica && !soloLectura && !listoParaEntrega && (
