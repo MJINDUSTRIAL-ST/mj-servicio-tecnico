@@ -92,6 +92,47 @@ type Reporte = {
   reporte_fotos?: ReporteFoto[];
 };
 
+type FotoEgresoCliente = {
+  id?: string;
+  nombre?: string;
+  url?: string;
+};
+
+type DocumentoTrabajoCliente = {
+  id?: string;
+  tipo?: string;
+  nombre?: string;
+  url?: string;
+};
+
+type InformeTecnicoAprobado = {
+  resumenTecnico?: string;
+  trabajosEjecutados?: string;
+  pruebasYVerificaciones?: string;
+  condicionFinal?: string;
+  pendientesYObservaciones?: string;
+};
+
+type DatosTrabajoCliente = {
+  cotizacion_estado?: string;
+  trabajo_realizado?: string;
+  repuestos_cambiados?: boolean;
+  reparaciones_realizadas?: boolean;
+  ajustes_realizados?: boolean;
+  mantencion_limpieza_realizada?: boolean;
+  prueba_funcional?: boolean;
+  prueba_carga?: boolean;
+  equipo_limpio_entrega?: boolean;
+  resultado_final?: string;
+  fotos_egreso?: FotoEgresoCliente[];
+  documentos?: DocumentoTrabajoCliente[];
+  informe_final_ia?: {
+    estado?: string;
+    informe?: InformeTecnicoAprobado;
+    aprobado_at?: string | null;
+  };
+};
+
 type ClientePortal = {
   id: string;
 };
@@ -476,6 +517,7 @@ export default function DetalleServicioClientePage() {
     []
   );
   const [reportes, setReportes] = useState<Reporte[]>([]);
+  const [datosTrabajo, setDatosTrabajo] = useState<DatosTrabajoCliente | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [generandoPdf, setGenerandoPdf] = useState(false);
@@ -509,6 +551,25 @@ export default function DetalleServicioClientePage() {
   const cotizacionEstado = useMemo(() => {
     return estadoCotizacion(estadoCliente);
   }, [estadoCliente]);
+
+  // Solo se muestra al cliente el informe expresamente aprobado por MJ Industrial.
+  const informeAprobado = useMemo(() => {
+    const registro = datosTrabajo?.informe_final_ia;
+    return registro?.estado === "aprobado" ? registro.informe || null : null;
+  }, [datosTrabajo]);
+
+  const fotosEgreso = useMemo(() =>
+    Array.isArray(datosTrabajo?.fotos_egreso)
+      ? datosTrabajo.fotos_egreso.filter((foto) => Boolean(foto.url))
+      : [],
+  [datosTrabajo]);
+
+  const documentosTrabajoCliente = useMemo(() =>
+    Array.isArray(datosTrabajo?.documentos)
+      ? datosTrabajo.documentos.filter((doc) => Boolean(doc.url) &&
+          ["certificado", "test de carga", "manual", "ficha técnica"].includes((doc.tipo || "").toLowerCase()))
+      : [],
+  [datosTrabajo]);
 
   const entregaCompletada = useMemo(() => {
     return Boolean(
@@ -582,6 +643,7 @@ export default function DetalleServicioClientePage() {
 
     const [
       { data: diagnosticoData },
+      { data: trabajoData, error: trabajoError },
       { data: checklistFotosData },
       { data: documentosData },
       { data: reportesData, error: reportesError },
@@ -593,6 +655,12 @@ export default function DetalleServicioClientePage() {
       supabase
         .from("diagnosticos")
         .select("*")
+        .eq("orden_id", ordenAutorizada.id)
+        .maybeSingle(),
+
+      supabase
+        .from("trabajo_ot")
+        .select("datos_trabajo")
         .eq("orden_id", ordenAutorizada.id)
         .maybeSingle(),
 
@@ -635,6 +703,10 @@ export default function DetalleServicioClientePage() {
         .maybeSingle(),
     ]);
 
+    if (trabajoError) {
+      console.error("No se pudo cargar el cierre técnico:", trabajoError);
+    }
+
     if (reportesError) {
       setError(reportesError.message);
       setLoading(false);
@@ -661,6 +733,7 @@ export default function DetalleServicioClientePage() {
 
     setOrden(ordenAutorizada);
     setDiagnostico((diagnosticoData as Diagnostico) || null);
+    setDatosTrabajo((trabajoData?.datos_trabajo as DatosTrabajoCliente) || null);
     setChecklistFotos((checklistFotosData || []) as ChecklistFoto[]);
     setDocumentosIngreso((documentosData || []) as OrdenDocumento[]);
     setReportes(reportesOrdenados);
@@ -836,6 +909,11 @@ export default function DetalleServicioClientePage() {
         }))
       );
 
+      const fotosEgresoPDF = fotosEgreso.map((foto, index) => ({
+        url: foto.url || "",
+        nombre: foto.nombre || `Foto egreso ${index + 1}`,
+      }));
+
       const fotosEntregaPDF = solicitudLogistica?.entrega_foto_url
         ? [
             {
@@ -847,8 +925,6 @@ export default function DetalleServicioClientePage() {
             },
           ]
         : [];
-
-      const ultimoReporte = reportes[0];
 
       const html = `<!doctype html>
 <html lang="es">
@@ -1123,19 +1199,17 @@ export default function DetalleServicioClientePage() {
     ${renderFotosPDF("Fotos del diagnóstico / checklist", fotosChecklistPDF)}
 
     ${
-      tipo === "final"
+      tipo === "final" && informeAprobado
         ? `<section class="section">
-            <h3>Trabajo realizado / cierre operativo</h3>
-            <p><strong>Descripción:</strong><br />${textoConSaltos(
-              ultimoReporte?.descripcion || "Sin descripción final registrada."
-            )}</p>
-            <p style="margin-top:8px;"><strong>Hallazgos / acciones:</strong><br />${textoConSaltos(
-              ultimoReporte?.acciones ||
-                ultimoReporte?.hallazgos ||
-                "Sin acciones finales registradas."
-            )}</p>
+            <h3>Informe técnico final aprobado</h3>
+            <p><strong>Resumen técnico:</strong><br />${textoConSaltos(informeAprobado.resumenTecnico)}</p>
+            <p style="margin-top:8px;"><strong>Trabajos ejecutados:</strong><br />${textoConSaltos(informeAprobado.trabajosEjecutados)}</p>
+            <p style="margin-top:8px;"><strong>Pruebas y verificaciones:</strong><br />${textoConSaltos(informeAprobado.pruebasYVerificaciones)}</p>
+            <p style="margin-top:8px;"><strong>Condición final:</strong><br />${textoConSaltos(informeAprobado.condicionFinal)}</p>
+            <p style="margin-top:8px;"><strong>Pendientes y observaciones:</strong><br />${textoConSaltos(informeAprobado.pendientesYObservaciones)}</p>
           </section>
-          ${renderFotosPDF("Fotos de trabajo / egreso", fotosReportesPDF)}`
+          ${renderFotosPDF("Fotografías de egreso", fotosEgresoPDF)}
+          ${renderFotosPDF("Fotos de reportes técnicos", fotosReportesPDF)}`
         : ""
     }
 
@@ -1409,6 +1483,77 @@ export default function DetalleServicioClientePage() {
         )}
       </section>
 
+       {diagnostico && indicePorEstado[estadoCliente] >= 1 && (
+         <section className="rounded-3xl bg-white p-6 shadow-sm">
+           <h2 className="mb-3 text-xl font-bold text-slate-900">Diagnóstico técnico</h2>
+           <p className="mb-4 text-sm text-slate-500">Resultados registrados para este equipo.</p>
+           <InfoBlock label="Hallazgos" value={diagnostico.hallazgos} />
+           <InfoBlock label="Procedimiento recomendado" value={diagnostico.procedimiento} />
+           <InfoBlock label="Repuestos recomendados" value={diagnostico.repuestos} />
+         </section>
+       )}
+
+       {indicePorEstado[estadoCliente] >= 2 && (
+         <section className="rounded-3xl bg-white p-6 shadow-sm">
+           <h2 className="mb-3 text-xl font-bold text-slate-900">Cotización y aprobación</h2>
+           <InfoItem label="Estado comercial" value={cotizacionEstado} />
+           <p className="mt-3 text-sm text-slate-600">
+             {cotizacionEstado === "Aprobada"
+               ? "La cotización fue aprobada y se autorizó continuar con el servicio."
+               : cotizacionEstado === "Rechazada"
+                 ? "La cotización fue rechazada."
+                 : "La cotización se encuentra en revisión o pendiente de aprobación."}
+           </p>
+         </section>
+       )}
+
+       {indicePorEstado[estadoCliente] >= 4 && (
+         <section className="rounded-3xl bg-white p-6 shadow-sm">
+           <h2 className="mb-3 text-xl font-bold text-slate-900">Reparación y trabajo</h2>
+           <p className="mb-3 text-sm text-slate-600">
+             {informeAprobado
+               ? "Los resultados finales fueron revisados y aprobados por MJ Industrial."
+               : "El equipo se encuentra en la etapa de trabajo. El detalle técnico final estará disponible una vez aprobado."}
+           </p>
+           {informeAprobado ? (
+             <>
+               <InfoBlock label="Resumen técnico final" value={informeAprobado.resumenTecnico} />
+               <InfoBlock label="Trabajos ejecutados" value={informeAprobado.trabajosEjecutados} />
+               <InfoBlock label="Pruebas y verificaciones" value={informeAprobado.pruebasYVerificaciones} />
+               <InfoBlock label="Condición final" value={informeAprobado.condicionFinal} />
+               <InfoBlock label="Observaciones y pendientes" value={informeAprobado.pendientesYObservaciones} />
+             </>
+           ) : null}
+           {informeAprobado && fotosEgreso.length > 0 && (
+             <div className="mt-5">
+               <h3 className="mb-3 text-base font-semibold text-slate-900">Fotografías de egreso</h3>
+               <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                 {fotosEgreso.map((foto, index) => (
+                   <a key={foto.id || `${foto.url}-${index}`} href={foto.url} target="_blank"
+                     rel="noopener noreferrer" className="overflow-hidden rounded-xl border bg-slate-100">
+                     <img src={foto.url} alt={foto.nombre || `Foto egreso ${index + 1}`}
+                       className="h-40 w-full object-cover" />
+                   </a>
+                 ))}
+               </div>
+             </div>
+           )}
+           {informeAprobado && documentosTrabajoCliente.length > 0 && (
+             <div className="mt-5">
+               <h3 className="mb-3 text-base font-semibold text-slate-900">Documentos finales</h3>
+               <div className="flex flex-wrap gap-3">
+                 {documentosTrabajoCliente.map((doc, index) => (
+                   <a key={doc.id || index} href={doc.url} target="_blank" rel="noopener noreferrer"
+                     className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
+                     {doc.nombre || doc.tipo || `Documento ${index + 1}`}
+                   </a>
+                 ))}
+               </div>
+             </div>
+           )}
+         </section>
+       )}
+
       <section className="rounded-3xl bg-white p-6 shadow-sm">
         <h2 className="mb-6 text-xl font-bold text-slate-900">
           Historial de reportes
@@ -1502,14 +1647,14 @@ export default function DetalleServicioClientePage() {
       <section className="grid gap-5 lg:grid-cols-3">
         <InfoActionCard
           titulo="Diagnóstico técnico"
-          estado={diagnostico ? "Disponible" : "Pendiente"}
+          estado={diagnostico && indicePorEstado[estadoCliente] >= 1 ? "Disponible" : "Pendiente"}
           texto={
             diagnostico
               ? "El informe técnico de diagnóstico ya está disponible para esta orden."
               : "El diagnóstico técnico todavía no está disponible."
           }
           boton="Descargar informe técnico PDF"
-          disabled={!diagnostico || generandoPdf}
+          disabled={!diagnostico || indicePorEstado[estadoCliente] < 1 || generandoPdf}
           onClick={() => generarPDF("diagnostico")}
         />
 
@@ -1533,17 +1678,17 @@ export default function DetalleServicioClientePage() {
         <InfoActionCard
           titulo="Informe técnico final"
           estado={
-            puedeDescargarFinal(estadoCliente) ? "Disponible" : "Pendiente"
+            informeAprobado && puedeDescargarFinal(estadoCliente) ? "Disponible" : "Pendiente"
           }
           texto={
             puedeDescargarFinal(estadoCliente)
               ? entregaCompletada
                 ? "El informe técnico final incluye la evidencia de entrega registrada por Logística."
                 : "El informe técnico final ya puede ser descargado."
-              : "El informe final estará disponible cuando el equipo avance a trabajo, listo para entrega o entregado."
+              : "El informe final estará disponible cuando el responsable técnico lo apruebe."
           }
           boton="Descargar informe final PDF"
-          disabled={!puedeDescargarFinal(estadoCliente) || generandoPdf}
+          disabled={!informeAprobado || !puedeDescargarFinal(estadoCliente) || generandoPdf}
           onClick={() => generarPDF("final")}
         />
       </section>
