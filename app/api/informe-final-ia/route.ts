@@ -219,6 +219,36 @@ export async function POST(request: NextRequest) {
         detalle,
         informe.pendientesYObservaciones,
       ].filter(Boolean).join("\n");
+    } else if (acciones.length > 0) {
+      // Si todas las acciones están verificadas, la IA no puede afirmar que
+      // faltan evaluaciones. La condición se determina a partir del registro,
+      // no de una interpretación libre del modelo.
+      const realizadas = acciones.filter((accion) => accion.estado === "realizada");
+      const excluidas = acciones.filter((accion) => accion.estado === "no_aplica");
+      const pruebasRegistradas = datos.trabajo.prueba_funcional && datos.trabajo.prueba_carga;
+      const cierreListo = datos.trabajo.resultado_final === "listo_entrega";
+
+      if (cierreListo && pruebasRegistradas && excluidas.length === 0 && realizadas.length === acciones.length) {
+        informe.condicionFinal =
+          "Según el registro del cierre técnico, todas las acciones aprobadas fueron realizadas y las pruebas funcional y de carga se registraron satisfactorias. Equipo señalado como listo para entrega/despacho, sujeto a la aprobación del responsable técnico.";
+      } else if (cierreListo && excluidas.length > 0) {
+        informe.condicionFinal =
+          "Las acciones aprobadas fueron revisadas; algunas se clasificaron como no aplicables con justificación. La condición de liberación requiere validación expresa del responsable técnico.";
+      } else if (cierreListo && !pruebasRegistradas) {
+        informe.condicionFinal =
+          "Las acciones aprobadas fueron revisadas, pero no consta el registro satisfactorio de ambas pruebas (funcional y de carga). No se declara aptitud para servicio hasta su verificación técnica.";
+      } else {
+        informe.condicionFinal =
+          "Todas las acciones aprobadas fueron revisadas. La condición final permanece pendiente de confirmación o liberación por el responsable técnico.";
+      }
+
+      const observacionesRegistradas = datos.trabajo.observaciones;
+      informe.pendientesYObservaciones = [
+        excluidas.length > 0
+          ? `Acciones declaradas no aplicables: ${excluidas.map((accion) => `${accion.descripcion} (${accion.observacion})`).join("; ")}.`
+          : "No se registran acciones aprobadas pendientes ni sin evaluar.",
+        observacionesRegistradas ? `Observación del técnico: ${observacionesRegistradas}` : "",
+      ].filter(Boolean).join("\n");
     }
 
     return NextResponse.json({ ok: true, informe, estado: "borrador", fuente: "openai" });
