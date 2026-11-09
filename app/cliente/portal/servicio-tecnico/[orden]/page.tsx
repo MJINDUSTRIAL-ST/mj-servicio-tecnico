@@ -910,15 +910,33 @@ export default function DetalleServicioClientePage() {
           ? "Retiro en taller agendado correctamente."
           : "Solicitud de despacho enviada correctamente."
       );
-    } catch (errorSolicitud) {
-      console.error(errorSolicitud);
+    } catch (errorSolicitud: unknown) {
+      // Supabase devuelve errores PostgREST como objetos planos, no como Error.
+      // Mostrar message, code y details permite identificar el motivo exacto.
+      console.error("Error al registrar solicitud logística:", errorSolicitud);
 
-      const mensaje =
-        errorSolicitud instanceof Error
-          ? errorSolicitud.message
-          : "No se pudo registrar la solicitud.";
+      const errorSupabase =
+        errorSolicitud && typeof errorSolicitud === "object"
+          ? (errorSolicitud as {
+              message?: string;
+              code?: string;
+              details?: string;
+              hint?: string;
+            })
+          : null;
 
-      alert(mensaje);
+      const detalle = [
+        errorSupabase?.message ||
+          (errorSolicitud instanceof Error ? errorSolicitud.message : null) ||
+          "No se pudo registrar la solicitud.",
+        errorSupabase?.code ? `Código: ${errorSupabase.code}` : null,
+        errorSupabase?.details ? `Detalle: ${errorSupabase.details}` : null,
+        errorSupabase?.hint ? `Sugerencia: ${errorSupabase.hint}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      alert(`No se pudo registrar la solicitud.\n\n${detalle}`);
     } finally {
       setGuardandoEntrega(false);
     }
