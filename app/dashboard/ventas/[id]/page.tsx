@@ -57,6 +57,15 @@ type Retiro = {
   created_at?: string | null;
 };
 
+type AgendaVenta = {
+  id: string;
+  estado: string;
+  fecha: string | null;
+  hora: string | null;
+  direccion: string | null;
+  observacion: string | null;
+};
+
 const ESTADOS_DESPACHO = [
   "Cotizada",
   "Aprobada",
@@ -166,6 +175,13 @@ export default function DetalleVentaPage() {
 
   const [venta, setVenta] = useState<Venta | null>(null);
   const [retiro, setRetiro] = useState<Retiro | null>(null);
+  const [agendaVenta, setAgendaVenta] = useState<AgendaVenta | null>(null);
+  const [fechaDespacho, setFechaDespacho] = useState("");
+  const [horaDespacho, setHoraDespacho] = useState("");
+  const [direccionDespacho, setDireccionDespacho] = useState("");
+  const [observacionDespacho, setObservacionDespacho] = useState("");
+  const [guardandoDespacho, setGuardandoDespacho] = useState(false);
+  const [mensajeDespacho, setMensajeDespacho] = useState("");
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [editando, setEditando] = useState(false);
@@ -225,18 +241,39 @@ export default function DetalleVentaPage() {
     setFechaCertificado(ventaData.fecha_certificado || "");
     setVencimientoCertificado(ventaData.vencimiento_certificado || "");
 
-    const { data: retiroData } = await supabase
+    // El portal registra tanto retiros como solicitudes de despacho en «retiros».
+    // La Agenda Operativa se consulta por separado: no se crean registros duplicados.
+    const { data: solicitudes, error: errorSolicitudes } = await supabase
       .from("retiros")
       .select("*")
-      .eq("tipo", "venta")
       .eq("referencia_id", ventaData.id)
       .order("created_at", { ascending: false })
-      .limit(1);
+      .limit(10);
 
-    if (retiroData && retiroData.length > 0) {
-      setRetiro(retiroData[0] as Retiro);
+    if (errorSolicitudes) console.error("Error consultando solicitudes:", errorSolicitudes);
+    const solicitud = ((solicitudes || []) as Retiro[]).find(
+      (r) => r.tipo === "despacho" || r.tipo === "venta"
+    ) || null;
+    setRetiro(solicitud);
+
+    const numeroVenta = ventaData.numero || ventaData.codigo || "";
+    if (numeroVenta) {
+      const { data: agendaDatos, error: errorAgenda } = await supabase
+        .from("agenda_logistica")
+        .select("id, estado, fecha, hora, direccion, observacion")
+        .eq("origen", "venta")
+        .eq("codigo_ot", numeroVenta)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (errorAgenda) console.error("Error consultando agenda de venta:", errorAgenda);
+      const agendado = (agendaDatos?.[0] || null) as AgendaVenta | null;
+      setAgendaVenta(agendado);
+      setFechaDespacho(agendado?.fecha || solicitud?.fecha_retiro || "");
+      setHoraDespacho(agendado?.hora?.slice(0, 5) || solicitud?.hora_retiro?.slice(0, 5) || "");
+      setDireccionDespacho(agendado?.direccion || "");
+      setObservacionDespacho(agendado?.observacion || "");
     } else {
-      setRetiro(null);
+      setAgendaVenta(null);
     }
 
     setLoading(false);
@@ -245,14 +282,14 @@ export default function DetalleVentaPage() {
   const estadoBase = normalizarEstado(venta?.estado);
 
   const estadoActual =
-    retiro?.estado === "Agendado"
+    retiro?.tipo === "venta" && retiro.estado === "Agendado"
       ? "Retiro agendado"
-      : retiro?.estado === "Retirado"
+      : retiro?.tipo === "venta" && retiro.estado === "Retirado"
         ? "Entregado"
         : estadoBase;
 
   const estadosFlujo =
-    retiro?.estado === "Agendado" || retiro?.estado === "Retirado"
+    (retiro?.tipo === "venta" && (retiro.estado === "Agendado" || retiro.estado === "Retirado"))
       ? ESTADOS_RETIRO
       : ESTADOS_DESPACHO;
 
@@ -263,6 +300,101 @@ export default function DetalleVentaPage() {
 
     return estadosFlujo[index + 1];
   }, [estadoActual, estadosFlujo]);
+
+  const despachoSolicitado = retiro?.tipo === "despacho";
+  const esperandoEleccion = estadoBase === "Lista para despacho" && !retiro;
+  const sinProgramarDespacho =
+    estadoBase === "Lista para despacho" && despachoSolicitado &&
+    !agendaVenta;
+  const avanceBloqueado = esperandoEleccion || sinProgramarDespacho ||
+    (despachoSolicitado && estadoBase === "Despachado" && agendaVenta?.estado !== "realizado");
+
+  async function programarDespachoVenta() {
+    if (!venta || !retiro || retiro.tipo !== "despacho") return;
+    if (!fechaDespacho || !horaDespacho || !direccionDespacho.trim()) {
+      setMensajeDespacho("Completa fecha, hora y dirección de entrega.");
+      return;
+    }
+    if (fechaDespacho < new Date().toLocaleDateString("en-CA")) {
+      setMensajeDespacho("Selecciona una fecha de hoy en adelante.");
+      return;
+    }
+    const numeroVenta = venta.numero || venta.codigo;
+    if (!numeroVenta) {
+      setMensajeDespacho("La venta no tiene número para vincularla con Logística.");
+      return;
+    }
+    setGuardandoDespacho(true);
+    setMensajeDespacho("");
+    try {
+      const ahora = new Date().toISOString();
+      const agendaPayload = {
+        tipo: "despacho",
+        estado: "agendado",
+        fecha: fechaDespacho,
+        hora: horaDespacho,
+        cliente: venta.cliente || "Cliente",
+        contacto: venta.cliente || null,
+        email: venta.cliente_email || null,
+        direccion: direccionDespacho.trim(),
+        observacion: observacionDespacho.trim() || null,
+        producto_equipo: venta.producto || venta.descripcion || null,
+        codigo_ot: numeroVenta,
+        origen: "venta",
+        updated_at: ahora,
+      };
+      // Si ya hay un evento de esta venta, se actualiza: nunca insertar dos por reprogramar.
+      const resultadoAgenda = agendaVenta
+        ? await supabase.from("agenda_logistica")
+            .update(agendaPayload).eq("id", agendaVenta.id).select("id").single()
+        : await supabase.from("agenda_logistica")
+            .insert(agendaPayload).select("id").single();
+      if (resultadoAgenda.error) throw new Error(resultadoAgenda.error.message);
+
+      // El portal cliente lee la tabla «retiros» para mostrar la programación.
+      const { error: errorRetiro } = await supabase.from("retiros")
+        .update({
+          estado: "Programado",
+          fecha_retiro: fechaDespacho,
+          hora_retiro: horaDespacho,
+          observaciones: observacionDespacho.trim() || "Despacho programado por MJ Industrial",
+        })
+        .eq("id", retiro.id);
+      if (errorRetiro) {
+        setMensajeDespacho(
+          "Agendado en Logística, pero no se actualizó el portal: " + errorRetiro.message
+        );
+        await cargarVenta();
+        return;
+      }
+      await cargarVenta();
+      setMensajeDespacho("Despacho programado y registrado en Agenda Operativa.");
+      if (venta.cliente_email) {
+        try {
+          const respuesta = await fetch("/api/enviar-correo-programacion-despacho", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: venta.cliente_email,
+              producto: venta.producto || "Equipo",
+              fecha: fechaDespacho,
+              hora: horaDespacho,
+              numero: numeroVenta,
+            }),
+          });
+          if (!respuesta.ok) {
+            setMensajeDespacho("Despacho registrado, pero falló el correo de aviso.");
+          }
+        } catch {
+          setMensajeDespacho("Despacho registrado, pero falló el correo de aviso.");
+        }
+      }
+    } catch (error) {
+      setMensajeDespacho(error instanceof Error ? error.message : "Error al agendar despacho.");
+    } finally {
+      setGuardandoDespacho(false);
+    }
+  }
 
   async function subirArchivoEtapa(
     archivo: File | null,
@@ -358,6 +490,10 @@ export default function DetalleVentaPage() {
 
   async function guardarYAvanzarEstado() {
     if (!venta?.id || !siguienteEstado) return;
+    if (avanceBloqueado) {
+      alert("Primero debe registrarse la elección del cliente y programarse el despacho. La entrega se confirma desde Logística.");
+      return;
+    }
 
     if (!responsableEtapa) {
       alert("Debes seleccionar un responsable.");
@@ -866,32 +1002,75 @@ export default function DetalleVentaPage() {
           </div>
         </section>
 
-        {retiro ? (
-          <section
-            style={{
-              backgroundColor: retiro.estado === "Retirado" ? "#ecfdf5" : "#f0fdf4",
-              border: "1px solid #bbf7d0",
-              borderRadius: 18,
-              padding: 22,
-              marginBottom: 18,
-            }}
-          >
-            <h2 style={{ margin: "0 0 16px", fontSize: 18, color: "#166534" }}>
-              {retiro.estado === "Retirado"
-                ? "Producto retirado / entregado"
-                : "Retiro agendado"}
+        {estadoBase === "Lista para despacho" && (
+          <section style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 18, padding: 22, marginBottom: 18 }}>
+            <h2 style={{ margin: "0 0 10px", fontSize: 19, color: "#1e3a8a" }}>
+              Coordinación de entrega con Logística
             </h2>
+            {!retiro ? (
+              <p style={{ color: "#475569" }}>El producto está listo. Esperando que el cliente solicite despacho o agende retiro en su portal.</p>
+            ) : retiro.tipo === "despacho" ? (
+              <>
+                <p style={{ color: "#1e40af", fontWeight: 700 }}>
+                  Solicitud de despacho recibida · {agendaVenta ? "Programado en Agenda Operativa" : "Pendiente de programación"}
+                </p>
+                <p style={{ color: "#475569", fontSize: 13 }}>
+                  Coordina con Logística la fecha, hora y dirección. Al guardar, el despacho aparecerá en la Agenda Operativa y el cliente verá su programación.
+                </p>
+                {agendaVenta?.estado === "realizado" ? (
+                  <p style={{ color: "#166534", fontWeight: 700 }}>La entrega ya figura realizada en Logística.</p>
+                ) : (
+                  <>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 16 }}>
+                      <label style={{ color: "#334155", fontWeight: 700, fontSize: 13 }}>
+                        Fecha de despacho
+                        <input type="date" value={fechaDespacho} onChange={(e) => setFechaDespacho(e.target.value)}
+                          style={{ display: "block", width: "100%", padding: 11, marginTop: 5, border: "1px solid #cbd5e1", borderRadius: 10 }} />
+                      </label>
+                      <label style={{ color: "#334155", fontWeight: 700, fontSize: 13 }}>
+                        Hora
+                        <input type="time" value={horaDespacho} onChange={(e) => setHoraDespacho(e.target.value)}
+                          style={{ display: "block", width: "100%", padding: 11, marginTop: 5, border: "1px solid #cbd5e1", borderRadius: 10 }} />
+                      </label>
+                    </div>
+                    <label style={{ display: "block", marginTop: 12, color: "#334155", fontWeight: 700, fontSize: 13 }}>
+                      Dirección de entrega
+                      <input value={direccionDespacho} onChange={(e) => setDireccionDespacho(e.target.value)}
+                        placeholder="Dirección y comuna acordadas con el cliente"
+                        style={{ display: "block", width: "100%", padding: 11, marginTop: 5, border: "1px solid #cbd5e1", borderRadius: 10 }} />
+                    </label>
+                    <label style={{ display: "block", marginTop: 12, color: "#334155", fontWeight: 700, fontSize: 13 }}>
+                      Observaciones (opcional)
+                      <textarea value={observacionDespacho} onChange={(e) => setObservacionDespacho(e.target.value)}
+                        rows={2} style={{ display: "block", width: "100%", padding: 11, marginTop: 5, border: "1px solid #cbd5e1", borderRadius: 10 }} />
+                    </label>
+                    <button type="button" onClick={programarDespachoVenta} disabled={guardandoDespacho}
+                      style={{ background: "#2563eb", color: "white", border: "none", borderRadius: 10, padding: "12px 17px", marginTop: 14, fontWeight: 800, cursor: "pointer", opacity: guardandoDespacho ? 0.6 : 1 }}>
+                      {guardandoDespacho ? "Guardando..." : agendaVenta ? "Actualizar programación" : "Guardar y agregar a Agenda Operativa"}
+                    </button>
+                  </>
+                )}
+                {mensajeDespacho && <p style={{ color: "#1e40af", fontSize: 13 }}>{mensajeDespacho}</p>}
+              </>
+            ) : (
+              <>
+                <p style={{ fontWeight: 700, color: "#166534" }}>Retiro en taller solicitado por el cliente</p>
+                <Campo label="Estado" value={retiro.estado} />
+                <Campo label="Fecha" value={retiro.fecha_retiro} />
+                <Campo label="Hora" value={retiro.hora_retiro} />
+                <Campo label="Observaciones" value={retiro.observaciones} />
+              </>
+            )}
+          </section>
+        )}
 
-            <div style={{ display: "grid", gap: 10 }}>
-              <Campo label="Producto" value={retiro.producto_equipo} />
-              <Campo label="Fecha retiro" value={retiro.fecha_retiro} />
-              <Campo label="Hora retiro" value={retiro.hora_retiro} />
-              <Campo label="Estado" value={retiro.estado} />
-              <Campo label="Observaciones" value={retiro.observaciones} />
-              {retiro.fecha_retirado ? (
-                <Campo label="Retirado el" value={formatFecha(retiro.fecha_retirado)} />
-              ) : null}
-            </div>
+        {retiro && estadoBase !== "Lista para despacho" ? (
+          <section style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 18, padding: 22, marginBottom: 18 }}>
+            <h2 style={{ margin: "0 0 12px", fontSize: 18 }}>Coordinación de entrega</h2>
+            <Campo label="Tipo" value={retiro.tipo === "despacho" ? "Despacho" : "Retiro en taller"} />
+            <Campo label="Estado" value={retiro.estado} />
+            <Campo label="Fecha" value={retiro.fecha_retiro} />
+            <Campo label="Hora" value={retiro.hora_retiro} />
           </section>
         ) : null}
 
@@ -1154,7 +1333,7 @@ export default function DetalleVentaPage() {
           )}
         </section>
 
-        {mostrarFormularioAvance && siguienteEstado ? (
+        {mostrarFormularioAvance && siguienteEstado && !avanceBloqueado ? (
           <section
             style={{
               backgroundColor: "white",
@@ -1251,22 +1430,24 @@ export default function DetalleVentaPage() {
 
           <button
             onClick={() => {
-              if (siguienteEstado) setMostrarFormularioAvance(true);
+              if (siguienteEstado && !avanceBloqueado) setMostrarFormularioAvance(true);
             }}
-            disabled={!siguienteEstado || guardando}
+            disabled={!siguienteEstado || guardando || avanceBloqueado}
             style={{
-              backgroundColor: siguienteEstado ? "#2563eb" : "#94a3b8",
+              backgroundColor: siguienteEstado && !avanceBloqueado ? "#2563eb" : "#94a3b8",
               color: "white",
               border: "none",
               borderRadius: 12,
               padding: "14px 20px",
               fontWeight: 900,
-              cursor: siguienteEstado && !guardando ? "pointer" : "not-allowed",
+              cursor: siguienteEstado && !guardando && !avanceBloqueado ? "pointer" : "not-allowed",
             }}
           >
             {guardando
               ? "Guardando..."
-              : siguienteEstado
+              : avanceBloqueado
+                ? "Esperando coordinación / confirmación logística"
+                : siguienteEstado
                 ? estadoActual === "Retiro agendado"
                   ? "→ Marcar como entregado"
                   : `→ Siguiente etapa: ${mostrarEstado(siguienteEstado)}`
