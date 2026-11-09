@@ -40,6 +40,7 @@ type Orden = {
   problema_reportado: string | null;
   observaciones_iniciales: string | null;
   fotos_estado_inicial: string | string[] | null;
+  orden_padre_id?: string | null;
 };
 
 type Diagnostico = {
@@ -511,6 +512,7 @@ export default function DetalleServicioClientePage() {
   const ordenId = Array.isArray(params.orden) ? params.orden[0] : params.orden;
 
   const [orden, setOrden] = useState<Orden | null>(null);
+  const [equiposDelLote, setEquiposDelLote] = useState<Orden[]>([]);
   const [diagnostico, setDiagnostico] = useState<Diagnostico | null>(null);
   const [checklistFotos, setChecklistFotos] = useState<ChecklistFoto[]>([]);
   const [documentosIngreso, setDocumentosIngreso] = useState<OrdenDocumento[]>(
@@ -635,11 +637,61 @@ export default function DetalleServicioClientePage() {
       }
     }
 
+    // Un equipo del lote puede heredar el acceso autorizado a su orden madre.
+    // Se comprueba primero que realmente pertenece a esa orden.
+    if (!ordenAutorizada) {
+      const { data: equipoSolicitado } = await supabase
+        .from("ordenes")
+        .select("*")
+        .eq("id", ordenId)
+        .maybeSingle();
+
+      const padreId = (equipoSolicitado as Orden | null)?.orden_padre_id;
+      if (padreId) {
+        const { data: padreDirecto } = await supabase
+          .from("ordenes")
+          .select("id")
+          .eq("id", padreId)
+          .eq("cliente_email", email)
+          .maybeSingle();
+
+        let tieneAccesoPadre = Boolean(padreDirecto?.id);
+        if (!tieneAccesoPadre) {
+          const { data: clienteActual } = await supabase
+            .from("clientes")
+            .select("id")
+            .eq("email", email)
+            .maybeSingle();
+          if (clienteActual?.id) {
+            const { data: permisoPadre } = await supabase
+              .from("orden_clientes_acceso")
+              .select("id")
+              .eq("orden_id", padreId)
+              .eq("cliente_id", clienteActual.id)
+              .maybeSingle();
+            tieneAccesoPadre = Boolean(permisoPadre?.id);
+          }
+        }
+        if (tieneAccesoPadre) ordenAutorizada = equipoSolicitado as Orden;
+      }
+    }
+
     if (!ordenAutorizada) {
       setError("Orden no encontrada o sin permiso de acceso");
       setLoading(false);
       return;
     }
+
+    // Si es una OT madre, cargar los equipos asociados. La autorización
+    // de acceso a la orden madre se validó antes de esta consulta.
+    const { data: hijosData, error: hijosError } = await supabase
+      .from("ordenes")
+      .select("id,codigo,equipo,estado,marca,modelo,numero_serie,prioridad,created_at,orden_padre_id")
+      .eq("orden_padre_id", ordenAutorizada.id)
+      .order("codigo", { ascending: true });
+
+    if (hijosError) console.error("No se pudo cargar los equipos del lote:", hijosError);
+    setEquiposDelLote((hijosData || []) as Orden[]);
 
     const [
       { data: diagnosticoData },
@@ -1370,6 +1422,54 @@ export default function DetalleServicioClientePage() {
           </span>
         </div>
       </section>
+
+      {equiposDelLote.length > 0 && (
+        <section className="rounded-3xl bg-white p-6 shadow-sm">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">Equipos de esta orden</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                {equiposDelLote.length} equipos con seguimiento técnico individual.
+              </p>
+            </div>
+            <span className="rounded-full bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700">
+              Lote de {equiposDelLote.length} equipos
+            </span>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            {equiposDelLote.map((equipo) => {
+              const estadoEquipo = normalizarEstadoCliente(equipo.estado);
+              return (
+                <Link
+                  key={equipo.id}
+                  href={`/cliente/portal/servicio-tecnico/${equipo.id}`}
+                  className="block rounded-2xl border border-slate-200 bg-slate-50 p-5 transition hover:border-blue-300 hover:bg-blue-50"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900">{equipo.codigo}</h3>
+                      <p className="mt-1 text-sm font-semibold text-slate-700">
+                        {equipo.equipo || "Equipo sin nombre"}
+                      </p>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-bold ${getBadgeClass(estadoEquipo)}`}>
+                      {estadoEquipo}
+                    </span>
+                  </div>
+                  {(equipo.marca || equipo.modelo || equipo.numero_serie) && (
+                    <p className="mt-3 text-sm text-slate-500">
+                      {[equipo.marca, equipo.modelo, equipo.numero_serie ? `Serie: ${equipo.numero_serie}` : null]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  )}
+                  <p className="mt-4 text-sm font-bold text-blue-700">Ver seguimiento del equipo →</p>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <section className="rounded-3xl bg-white p-6 shadow-sm">
         <h2 className="mb-6 text-xl font-bold text-slate-900">
