@@ -29,9 +29,14 @@ type Venta = {
   fecha?: string | null;
   fecha_venta?: string | null;
   created_at?: string | null;
+  cotizacion_url?: string | null;
   factura_url?: string | null;
   orden_compra_url?: string | null;
+  ficha_tecnica_url?: string | null;
+  manual_url?: string | null;
   certificado_url?: string | null;
+  fecha_certificado?: string | null;
+  vencimiento_certificado?: string | null;
   documento_url?: string | null;
   imagen_url?: string | null;
   tecnico_responsable?: string | null;
@@ -81,6 +86,17 @@ const PERSONAL_TECNICO = [
 ];
 
 const STORAGE_BUCKET = "ventas";
+
+const DOCUMENTOS_VENTA = [
+  { campo: "orden_compra_url", etiqueta: "Orden de compra" },
+  { campo: "factura_url", etiqueta: "Factura" },
+  { campo: "ficha_tecnica_url", etiqueta: "Ficha técnica" },
+  { campo: "manual_url", etiqueta: "Manual de operaciones" },
+  { campo: "certificado_url", etiqueta: "Certificado" },
+] as const;
+
+type CampoDocumento = (typeof DOCUMENTOS_VENTA)[number]["campo"];
+
 
 function normalizarEstado(estado?: string | null) {
   if (!estado) return "Cotizada";
@@ -163,6 +179,15 @@ export default function DetalleVentaPage() {
   const [pdfEtapa, setPdfEtapa] = useState<File | null>(null);
   const [fotoEtapa, setFotoEtapa] = useState<File | null>(null);
 
+  // Los documentos del producto se incorporan después de crear la venta.
+  const [archivosDocumentos, setArchivosDocumentos] = useState<
+    Partial<Record<CampoDocumento, File>>
+  >({});
+  const [fechaCertificado, setFechaCertificado] = useState("");
+  const [vencimientoCertificado, setVencimientoCertificado] = useState("");
+  const [guardandoDocumentos, setGuardandoDocumentos] = useState(false);
+  const [mensajeDocumentos, setMensajeDocumentos] = useState("");
+
   useEffect(() => {
     cargarVenta();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -197,6 +222,8 @@ export default function DetalleVentaPage() {
     setVenta(ventaData);
     setProducto(ventaData.producto || ventaData.descripcion || "");
     setDetalle(ventaData.detalle || "");
+    setFechaCertificado(ventaData.fecha_certificado || "");
+    setVencimientoCertificado(ventaData.vencimiento_certificado || "");
 
     const { data: retiroData } = await supabase
       .from("retiros")
@@ -411,6 +438,96 @@ export default function DetalleVentaPage() {
     }
   }
 
+  async function guardarDocumentos() {
+    if (!venta?.id || guardandoDocumentos) return;
+
+    const pendientes = DOCUMENTOS_VENTA.filter(
+      (doc) => archivosDocumentos[doc.campo]
+    );
+    const cambioFechas =
+      fechaCertificado !== (venta.fecha_certificado || "") ||
+      vencimientoCertificado !== (venta.vencimiento_certificado || "");
+
+    if (pendientes.length === 0 && !cambioFechas) {
+      setMensajeDocumentos("Selecciona un documento o modifica las fechas.");
+      return;
+    }
+
+    const reemplazos = pendientes.filter((doc) => Boolean(venta[doc.campo]));
+    if (
+      reemplazos.length > 0 &&
+      !window.confirm(
+        `Se reemplazará el enlace del documento: ${reemplazos
+          .map((doc) => doc.etiqueta)
+          .join(", ")}. ¿Continuar?`
+      )
+    ) {
+      return;
+    }
+
+    setGuardandoDocumentos(true);
+    setMensajeDocumentos("");
+
+    try {
+      const cambios: Record<string, string | null> = {};
+      for (const doc of pendientes) {
+        const archivo = archivosDocumentos[doc.campo];
+        if (!archivo) continue;
+        if (
+          archivo.type !== "application/pdf" &&
+          !archivo.name.toLowerCase().endsWith(".pdf")
+        ) {
+          throw new Error(`${doc.etiqueta}: debes seleccionar un PDF.`);
+        }
+
+        const nombre = limpiarNombreArchivo(archivo.name);
+        const ruta = `${venta.id}/documentos/${doc.campo}-${Date.now()}-${nombre}`;
+        const { error: errorSubida } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .upload(ruta, archivo, {
+            cacheControl: "3600",
+            contentType: "application/pdf",
+            upsert: false,
+          });
+        if (errorSubida) {
+          throw new Error(`No se pudo subir ${doc.etiqueta}: ${errorSubida.message}`);
+        }
+        cambios[doc.campo] = supabase.storage
+          .from(STORAGE_BUCKET)
+          .getPublicUrl(ruta).data.publicUrl;
+      }
+
+      if (cambioFechas) {
+        cambios.fecha_certificado = fechaCertificado || null;
+        cambios.vencimiento_certificado = vencimientoCertificado || null;
+      }
+
+      const { data, error } = await supabase
+        .from("ventas")
+        .update(cambios)
+        .eq("id", venta.id)
+        .select("*")
+        .single();
+
+      if (error) throw new Error(`No se pudieron guardar los documentos: ${error.message}`);
+
+      setVenta(data as Venta);
+      setArchivosDocumentos({});
+      setMensajeDocumentos("Documentos guardados correctamente.");
+      // Limpiar el valor visual de los archivos seleccionados.
+      DOCUMENTOS_VENTA.forEach((doc) => {
+        const input = document.getElementById(`documento-${doc.campo}`) as HTMLInputElement | null;
+        if (input) input.value = "";
+      });
+    } catch (e) {
+      const mensaje = e instanceof Error ? e.message : "Error al guardar documentos.";
+      setMensajeDocumentos(mensaje);
+      alert(mensaje);
+    } finally {
+      setGuardandoDocumentos(false);
+    }
+  }
+
   async function guardarCambios() {
     if (!venta?.id) return;
 
@@ -463,11 +580,14 @@ export default function DetalleVentaPage() {
   const badge = badgeEstado(estadoActual);
 
   const documentos = [
-    { label: "Factura", url: venta.factura_url },
+    { label: "Cotización", url: venta.cotizacion_url },
     { label: "Orden de Compra", url: venta.orden_compra_url },
+    { label: "Factura", url: venta.factura_url },
+    { label: "Ficha Técnica", url: venta.ficha_tecnica_url },
+    { label: "Manual de Operaciones", url: venta.manual_url },
     { label: "Certificado", url: venta.certificado_url },
-    { label: "Documento", url: venta.documento_url },
-  ].filter((doc) => doc.url);
+    { label: "Documento adicional", url: venta.documento_url },
+  ].filter((doc) => Boolean(doc.url));
 
   const historial = Array.isArray(venta.historial_estados)
     ? venta.historial_estados
@@ -815,6 +935,111 @@ export default function DetalleVentaPage() {
               ))}
             </div>
           )}
+        </section>
+
+        <section
+          style={{
+            backgroundColor: "white",
+            border: "1px solid #e2e8f0",
+            borderRadius: 18,
+            padding: 22,
+            marginBottom: 18,
+          }}
+        >
+          <h2 style={{ margin: "0 0 8px", fontSize: 18 }}>
+            Agregar documentos a la venta
+          </h2>
+          <p style={{ color: "#64748b", fontSize: 13, marginBottom: 18 }}>
+            La cotización se incorpora al crear la venta. La orden de compra es opcional.
+            La factura, ficha técnica, manual y certificado se pueden agregar aquí posteriormente.
+          </p>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+              gap: 14,
+            }}
+          >
+            {DOCUMENTOS_VENTA.map((doc) => (
+              <label
+                key={doc.campo}
+                style={{
+                  background: "#f8fafc",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 12,
+                  padding: 14,
+                  display: "grid",
+                  gap: 8,
+                  fontSize: 13,
+                }}
+              >
+                <strong>{doc.etiqueta}</strong>
+                <span style={{ color: venta[doc.campo] ? "#15803d" : "#64748b" }}>
+                  {venta[doc.campo] ? "Archivo disponible" : "Pendiente de cargar"}
+                </span>
+                <input
+                  id={`documento-${doc.campo}`}
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  disabled={guardandoDocumentos}
+                  onChange={(e) => {
+                    const archivo = e.target.files?.[0];
+                    setArchivosDocumentos((prev) => {
+                      const nuevos = { ...prev };
+                      if (archivo) nuevos[doc.campo] = archivo;
+                      else delete nuevos[doc.campo];
+                      return nuevos;
+                    });
+                    setMensajeDocumentos("");
+                  }}
+                />
+              </label>
+            ))}
+          </div>
+
+          <div style={{ marginTop: 18, display: "flex", flexWrap: "wrap", gap: 14 }}>
+            <label style={{ display: "grid", gap: 6, fontSize: 13 }}>
+              <strong>Fecha del test (opcional)</strong>
+              <input
+                type="date"
+                value={fechaCertificado}
+                onChange={(e) => setFechaCertificado(e.target.value)}
+                style={{ border: "1px solid #cbd5e1", borderRadius: 9, padding: 10 }}
+              />
+            </label>
+            <label style={{ display: "grid", gap: 6, fontSize: 13 }}>
+              <strong>Vencimiento certificado (opcional)</strong>
+              <input
+                type="date"
+                value={vencimientoCertificado}
+                onChange={(e) => setVencimientoCertificado(e.target.value)}
+                style={{ border: "1px solid #cbd5e1", borderRadius: 9, padding: 10 }}
+              />
+            </label>
+          </div>
+
+          <div style={{ marginTop: 18, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={guardarDocumentos}
+              disabled={guardandoDocumentos}
+              style={{
+                border: "none",
+                borderRadius: 12,
+                backgroundColor: "#2563eb",
+                color: "white",
+                padding: "13px 18px",
+                fontWeight: 800,
+                cursor: guardandoDocumentos ? "not-allowed" : "pointer",
+                opacity: guardandoDocumentos ? 0.7 : 1,
+              }}
+            >
+              {guardandoDocumentos ? "Guardando documentos..." : "Guardar documentos"}
+            </button>
+            {mensajeDocumentos ? (
+              <span style={{ color: "#475569", fontSize: 13 }}>{mensajeDocumentos}</span>
+            ) : null}
+          </div>
         </section>
 
         {venta.imagen_url ? (

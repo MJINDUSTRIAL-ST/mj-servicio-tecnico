@@ -20,16 +20,10 @@ export default function NuevaVentaPage() {
   const [numero, setNumero] = useState("");
   const [producto, setProducto] = useState("");
   const [descripcion, setDescripcion] = useState("");
-  const [estado, setEstado] = useState("Cotizada");
   const [fechaVenta, setFechaVenta] = useState("");
-  const [fechaCertificado, setFechaCertificado] = useState("");
-  const [vencimientoCertificado, setVencimientoCertificado] = useState("");
 
-  const [factura, setFactura] = useState<File | null>(null);
+  const [cotizacion, setCotizacion] = useState<File | null>(null);
   const [ordenCompra, setOrdenCompra] = useState<File | null>(null);
-  const [fichaTecnica, setFichaTecnica] = useState<File | null>(null);
-  const [manual, setManual] = useState<File | null>(null);
-  const [certificado, setCertificado] = useState<File | null>(null);
 
   const [guardando, setGuardando] = useState(false);
 
@@ -71,7 +65,7 @@ export default function NuevaVentaPage() {
     cargarDatos();
   }, []);
 
-async function subirPDF(file: File | null, tipo: string) {
+  async function subirPDF(file: File | null, tipo: string) {
   if (!file) return null;
 
   const nombreLimpio = file.name
@@ -131,14 +125,16 @@ async function subirPDF(file: File | null, tipo: string) {
       return;
     }
 
+    if (!cotizacion) {
+      alert("Adjunta la cotización PDF");
+      return;
+    }
+
     setGuardando(true);
 
     try {
-      const facturaUrl = await subirPDF(factura, "factura");
+      const cotizacionUrl = await subirPDF(cotizacion, "cotizacion");
       const ordenCompraUrl = await subirPDF(ordenCompra, "orden-compra");
-      const fichaTecnicaUrl = await subirPDF(fichaTecnica, "ficha-tecnica");
-      const manualUrl = await subirPDF(manual, "manual");
-      const certificadoUrl = await subirPDF(certificado, "certificado");
 
       const { error } = await supabase.from("ventas").insert([
         {
@@ -147,15 +143,10 @@ async function subirPDF(file: File | null, tipo: string) {
           cliente_email: clienteSeleccionado.email.trim().toLowerCase(),
           producto,
           descripcion,
-          estado,
+          estado: "Cotizada",
           fecha_venta: fechaVenta || new Date().toISOString().slice(0, 10),
-          fecha_certificado: fechaCertificado || null,
-          vencimiento_certificado: vencimientoCertificado || null,
-          factura_url: facturaUrl,
+          cotizacion_url: cotizacionUrl,
           orden_compra_url: ordenCompraUrl,
-          ficha_tecnica_url: fichaTecnicaUrl,
-          manual_url: manualUrl,
-          certificado_url: certificadoUrl,
         },
       ]);
 
@@ -184,7 +175,7 @@ async function subirPDF(file: File | null, tipo: string) {
       <div className="mb-8">
         <h1 className="text-3xl font-bold">Nueva Venta</h1>
         <p className="mt-2 text-slate-500">
-          Ingreso de venta y documentos reales del cliente.
+          Registra una venta en etapa Cotizada. Los documentos del producto se incorporan en etapas posteriores.
         </p>
       </div>
 
@@ -237,17 +228,10 @@ async function subirPDF(file: File | null, tipo: string) {
             <Campo label="Producto" value={producto} onChange={setProducto} />
 
             <div>
-              <label className="mb-2 block font-medium">Estado</label>
-              <select
-                value={estado}
-                onChange={(e) => setEstado(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 p-4"
-              >
-                <option>Cotizada</option>
-                <option>Pendiente</option>
-                <option>Despachada</option>
-                <option>Entregada</option>
-              </select>
+              <label className="mb-2 block font-medium">Estado inicial</label>
+              <div className="w-full rounded-xl border border-slate-200 bg-slate-100 p-4 font-semibold text-slate-700">
+                Cotizada
+              </div>
             </div>
           </div>
 
@@ -263,34 +247,14 @@ async function subirPDF(file: File | null, tipo: string) {
         </section>
 
         <section className="rounded-3xl bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-xl font-semibold">Certificado</h2>
-
+          <h2 className="mb-2 text-xl font-semibold">Documentos iniciales</h2>
+          <p className="mb-4 text-sm text-slate-500">
+            Adjunta la cotización y, si está disponible, la orden de compra.
+            La factura, ficha técnica, manual y certificado se agregan después.
+          </p>
           <div className="grid gap-5 md:grid-cols-2">
-            <Campo
-              label="Fecha test"
-              value={fechaCertificado}
-              onChange={setFechaCertificado}
-              type="date"
-            />
-
-            <Campo
-              label="Vencimiento certificado"
-              value={vencimientoCertificado}
-              onChange={setVencimientoCertificado}
-              type="date"
-            />
-          </div>
-        </section>
-
-        <section className="rounded-3xl bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-xl font-semibold">PDFs del producto</h2>
-
-          <div className="grid gap-5 md:grid-cols-2">
-            <InputPDF label="Factura PDF" onChange={setFactura} />
-            <InputPDF label="Orden de Compra PDF" onChange={setOrdenCompra} />
-            <InputPDF label="Ficha Técnica PDF" onChange={setFichaTecnica} />
-            <InputPDF label="Manual de Operaciones PDF" onChange={setManual} />
-            <InputPDF label="Certificado PDF" onChange={setCertificado} />
+            <InputPDF label="Cotización PDF (obligatoria)" onChange={setCotizacion} />
+            <InputPDF label="Orden de Compra PDF (opcional)" onChange={setOrdenCompra} />
           </div>
         </section>
 
