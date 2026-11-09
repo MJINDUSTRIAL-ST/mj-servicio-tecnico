@@ -868,7 +868,7 @@ export default function DetalleServicioClientePage() {
         .join("\n");
 
       const payload = {
-        tipo: modalidadEntrega,
+        tipo: esRetiro ? "retiro" : "despacho",
         estado: esRetiro ? "agendado" : "solicitado",
         fecha: esRetiro ? fechaRetiro : fechaHoyISO(),
         hora: esRetiro ? bloqueRetiro : null,
