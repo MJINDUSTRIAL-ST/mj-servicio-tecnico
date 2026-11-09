@@ -145,6 +145,17 @@ export async function POST(request: NextRequest) {
       procedimientoAprobado: texto(payload.procedimientoAprobado),
       trabajo: {
         trabajo_realizado: trabajoRealizado,
+        acciones_aprobadas: Array.isArray(trabajo.acciones_aprobadas)
+          ? trabajo.acciones_aprobadas.slice(0, 80).map((valor) => {
+              const accion = objeto(valor);
+              return {
+                tipo: texto(accion.tipo).slice(0, 30),
+                descripcion: texto(accion.descripcion).slice(0, 500),
+                estado: texto(accion.estado).slice(0, 30),
+                observacion: texto(accion.observacion).slice(0, 500),
+              };
+            })
+          : [],
         observaciones,
         repuestos_utilizados: texto(trabajo.repuestos_utilizados),
         repuestos_cambiados: booleano(trabajo.repuestos_cambiados),
@@ -166,7 +177,7 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: "system",
-          content: `Eres redactor de informes de Servicio Técnico de MJ Industrial, especialista en equipos de izaje. Redacta en español de Chile con lenguaje técnico profesional y preciso. Usa SOLO los hechos registrados. Distingue claramente diagnóstico y procedimientos RECOMENDADOS del trabajo REALMENTE EJECUTADO. Nunca afirmes que se cambió un repuesto solo porque fue solicitado, ni que se efectuaron pruebas por figurar en un procedimiento recomendado. Las pruebas sólo pueden presentarse como realizadas cuando sus respectivos indicadores sean true. No inventes mediciones, capacidades, porcentajes, normas, certificados, conclusiones de aptitud ni liberación. Si el estado es pendiente o faltan pruebas, expresa esa limitación y NO declares el equipo apto. No atribuyas causas o resultados no documentados. Devuelve exclusivamente un objeto JSON con estas claves de tipo string: resumenTecnico, trabajosEjecutados, pruebasYVerificaciones, condicionFinal, pendientesYObservaciones. Sé breve pero específico. El informe será un BORRADOR sujeto a revisión y aprobación del responsable técnico.`,
+          content: `Eres redactor de informes de Servicio Técnico de MJ Industrial, especialista en equipos de izaje. Redacta en español de Chile con lenguaje técnico profesional y preciso. Usa SOLO los hechos registrados. Distingue claramente diagnóstico y procedimientos RECOMENDADOS del trabajo REALMENTE EJECUTADO. La fuente de verdad para cada intervención y repuesto es trabajo.acciones_aprobadas: realizada implica ejecutada; pendiente implica no ejecutada; sin_revisar implica no verificada; no_aplica implica exclusión justificada, no ejecución. Incluye cada acción pendiente o sin evaluar en pendientesYObservaciones, con su descripción, y no la declares ejecutada. Si hay acciones pendientes o sin evaluar, no declares al equipo apto o listo para servicio incluso si resultado_final indica listo_entrega. No deduzcas de las casillas generales que todas las reparaciones se hicieron. En resumenTecnico describe el resultado de la intervención, no repitas recomendaciones como hechos. Nunca afirmes que se cambió un repuesto solo porque fue solicitado, ni que se efectuaron pruebas por figurar en un procedimiento recomendado. Las pruebas sólo pueden presentarse como realizadas cuando sus respectivos indicadores sean true. No inventes mediciones, capacidades, porcentajes, normas, certificados, conclusiones de aptitud ni liberación. Si el estado es pendiente o faltan pruebas, expresa esa limitación y NO declares el equipo apto. No atribuyas causas o resultados no documentados. Devuelve exclusivamente un objeto JSON con estas claves de tipo string: resumenTecnico, trabajosEjecutados, pruebasYVerificaciones, condicionFinal, pendientesYObservaciones. Sé breve pero específico. El informe será un BORRADOR sujeto a revisión y aprobación del responsable técnico.`,
         },
         {
           role: "user",
@@ -189,6 +200,25 @@ export async function POST(request: NextRequest) {
 
     if (!informe.resumenTecnico || !informe.condicionFinal) {
       throw new Error("La IA no generó un resumen técnico válido.");
+    }
+
+    // Regla verificable, independiente de la redacción de la IA.
+    // Una acción aprobada pendiente o sin evaluar nunca autoriza aptitud o liberación.
+    const acciones = datos.trabajo.acciones_aprobadas;
+    const sinResolver = acciones.filter((accion) =>
+      accion.estado === "pendiente" || accion.estado === "sin_revisar" ||
+      (accion.estado === "no_aplica" && !accion.observacion)
+    );
+    if (sinResolver.length > 0) {
+      informe.condicionFinal = "Equipo con intervenciones aprobadas pendientes o sin verificar. No corresponde declararlo apto para servicio ni liberarlo hasta resolver y validar las observaciones.";
+      const detalle = sinResolver.map((accion) =>
+        `- ${accion.descripcion}: ${accion.estado === "pendiente" ? "pendiente" : "sin evaluación o justificación"}`
+      ).join("\n");
+      informe.pendientesYObservaciones = [
+        "Acciones aprobadas que impiden el cierre:",
+        detalle,
+        informe.pendientesYObservaciones,
+      ].filter(Boolean).join("\n");
     }
 
     return NextResponse.json({ ok: true, informe, estado: "borrador", fuente: "openai" });

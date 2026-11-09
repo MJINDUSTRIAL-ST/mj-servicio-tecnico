@@ -93,11 +93,71 @@ type ResultadoFinalTrabajo =
   | "pendiente_validacion"
   | "no_reparable";
 
+type EstadoAccion = "sin_revisar" | "realizada" | "pendiente" | "no_aplica";
+type AccionAprobada = {
+  id: string;
+  tipo: "trabajo" | "repuesto";
+  descripcion: string;
+  estado: EstadoAccion;
+  observacion: string;
+};
+
+// Convierte los numerales del procedimiento en acciones; ignora metadatos.
+// Nunca interpreta una prioridad u observación como actividad ejecutable.
+function extraerAccionesAprobadas(procedimiento: string, repuestos: string): AccionAprobada[] {
+  const acciones: AccionAprobada[] = [];
+  const vistos = new Set<string>();
+  const agregar = (descripcion: string, tipo: "trabajo" | "repuesto") => {
+    const limpio = descripcion.replace(/^\s*(?:[-•*]\s*|\d+[.)]\s*)/, "").trim();
+    if (!limpio || /^(prioridad|requiere repuesto|no requiere repuesto|observaci[oó]n|motivo|nota|cantidad)\s*:/i.test(limpio)) return;
+    const id = `${tipo}:${limpio.toLocaleLowerCase("es").replace(/\s+/g, " ")}`;
+    if (vistos.has(id)) return;
+    vistos.add(id);
+    acciones.push({ id, tipo, descripcion: limpio, estado: "sin_revisar", observacion: "" });
+  };
+  for (const linea of procedimiento.split(/\r?\n/)) {
+    const limpio = linea.trim();
+    if (/^\d+[.)]\s+/.test(limpio) || /^[-•*]\s+/.test(limpio)) agregar(limpio, "trabajo");
+  }
+  for (const linea of repuestos.split(/\r?\n/)) {
+    const limpio = linea.trim();
+    if (!limpio || /^(prioridad|requiere repuesto|observaci[oó]n|motivo)\s*:/i.test(limpio)) continue;
+    // Los datos de repuesto pueden tener metadatos tras |, que no son otro ítem.
+    agregar(limpio.split("|")[0], "repuesto");
+  }
+  return acciones;
+}
+
+function reconciliarAcciones(
+  procedimiento: string,
+  repuestos: string,
+  anteriores: unknown,
+): AccionAprobada[] {
+  const previas = Array.isArray(anteriores) ? anteriores as Partial<AccionAprobada>[] : [];
+  return extraerAccionesAprobadas(procedimiento, repuestos).map((accion) => {
+    const anterior = previas.find((a) => a.id === accion.id);
+    const estado = anterior?.estado;
+    return {
+      ...accion,
+      estado: estado === "realizada" || estado === "pendiente" || estado === "no_aplica" ? estado : "sin_revisar",
+      observacion: typeof anterior?.observacion === "string" ? anterior.observacion : "",
+    };
+  });
+}
+
+function accionesIncompletas(acciones: AccionAprobada[]) {
+  return acciones.filter((accion) =>
+    accion.estado === "sin_revisar" || accion.estado === "pendiente" ||
+    (accion.estado === "no_aplica" && !accion.observacion.trim())
+  );
+}
+
 type TrabajoEquipo = {
   cotizacion_estado: EstadoCotizacionTrabajo;
   observacion_cotizacion: string;
   referencia_trabajo: string;
   referencia_repuestos: string;
+  acciones_aprobadas: AccionAprobada[];
   repuestos_cambiados: boolean;
   reparaciones_realizadas: boolean;
   ajustes_realizados: boolean;
@@ -124,6 +184,7 @@ function trabajoVacio(): TrabajoEquipo {
     observacion_cotizacion: "",
     referencia_trabajo: "",
     referencia_repuestos: "",
+    acciones_aprobadas: [],
     repuestos_cambiados: false,
     reparaciones_realizadas: false,
     ajustes_realizados: false,
@@ -179,6 +240,7 @@ function generarTrabajoBase(equipoId: string): Partial<TrabajoEquipo> {
     observacion_cotizacion: textoSeguro(trabajo.observacion_cotizacion),
     referencia_trabajo: referenciaTrabajo,
     referencia_repuestos: referenciaRepuestos,
+    acciones_aprobadas: reconciliarAcciones(referenciaTrabajo, referenciaRepuestos, trabajo.acciones_aprobadas),
     repuestos_cambiados: Boolean(trabajo.repuestos_cambiados),
     reparaciones_realizadas: Boolean(trabajo.reparaciones_realizadas),
     ajustes_realizados: Boolean(trabajo.ajustes_realizados),
@@ -279,6 +341,7 @@ function datosTrabajoPersistibles(actual: TrabajoEquipo) {
     observacion_cotizacion: actual.observacion_cotizacion,
     referencia_trabajo: actual.referencia_trabajo,
     referencia_repuestos: actual.referencia_repuestos,
+    acciones_aprobadas: actual.acciones_aprobadas,
     trabajo_realizado: resumenTrabajoEjecutado(actual),
     repuestos_cambiados: actual.repuestos_cambiados,
     reparaciones_realizadas: actual.reparaciones_realizadas,
@@ -421,6 +484,11 @@ export default function TrabajoOT({
           documentos: Array.isArray(guardado?.documentos)
             ? guardado.documentos
             : baseLocal.documentos || [],
+          acciones_aprobadas: reconciliarAcciones(
+            textoSeguro(base.referencia_trabajo),
+            textoSeguro(base.referencia_repuestos),
+            guardado?.acciones_aprobadas || baseLocal.acciones_aprobadas,
+          ),
         };
       });
 
@@ -451,6 +519,27 @@ export default function TrabajoOT({
         guardadoOk: false,
       },
     }));
+  }
+
+  function actualizarAccion(
+    equipoId: string,
+    id: string,
+    cambios: Partial<Pick<AccionAprobada, "estado" | "observacion">>,
+  ) {
+    if (soloLectura || trabajosBloqueados[equipoId]) return;
+    setTrabajos((prev) => {
+      const actual = prev[equipoId] || trabajoVacio();
+      return {
+        ...prev,
+        [equipoId]: {
+          ...actual,
+          acciones_aprobadas: actual.acciones_aprobadas.map((accion) =>
+            accion.id === id ? { ...accion, ...cambios } : accion
+          ),
+          guardadoOk: false,
+        },
+      };
+    });
   }
 
   async function agregarFotos(equipoId: string, files: FileList | null) {
@@ -581,6 +670,11 @@ export default function TrabajoOT({
     };
 
     if (actual.resultado_final === "listo_entrega") {
+      const sinResolver = accionesIncompletas(actual.acciones_aprobadas);
+      if (sinResolver.length) {
+        alert(`No se puede declarar Listo: ${sinResolver.length} acciones aprobadas están pendientes, sin evaluar o sin justificación. Revísalas individualmente.`);
+        return;
+      }
       if (!actual.prueba_funcional) {
         alert("Para pasar a Listo debes marcar la prueba funcional realizada OK.");
         return;
@@ -840,6 +934,11 @@ export default function TrabajoOT({
   async function guardarInforme(equipoId: string, aprobar: boolean) {
     const actual = informesFinales[equipoId];
     if (!actual || (actual.estado === "aprobado" && aprobar)) return;
+    const cierre = trabajos[equipoId] || trabajoVacio();
+    if (aprobar && accionesIncompletas(cierre.acciones_aprobadas).length > 0 && cierre.resultado_final === "listo_entrega") {
+      alert("No puedes aprobar un informe que declara el equipo listo mientras existan acciones pendientes o sin evaluar.");
+      return;
+    }
     if (aprobar && (!actual.informe.resumenTecnico.trim() || !actual.informe.condicionFinal.trim())) {
       alert("Completa el resumen técnico y la condición final antes de aprobar.");
       return;
@@ -1094,6 +1193,61 @@ export default function TrabajoOT({
                     Marca solo lo ejecutado y adjunta evidencia final. No es
                     necesario volver a escribir todo el procedimiento aprobado.
                   </p>
+
+                  <div className="mt-4 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-bold text-green-950">Verificación individual de acciones aprobadas</p>
+                      <span className="text-xs font-semibold text-green-900">
+                        {actual.acciones_aprobadas.filter((accion) => accion.estado !== "sin_revisar").length} de {actual.acciones_aprobadas.length} revisadas
+                      </span>
+                    </div>
+                    <p className="text-xs text-green-900">
+                      Indica qué se hizo realmente. Una casilla general no confirma el reemplazo de cada componente.
+                      Si seleccionas No aplica, explica por qué.
+                    </p>
+                    {actual.acciones_aprobadas.length === 0 ? (
+                      <p className="rounded-lg bg-white p-3 text-xs text-slate-600">
+                        No hay acciones individuales identificadas en el procedimiento o los repuestos aprobados.
+                        Registra los trabajos y su evidencia en las observaciones del cierre.
+                      </p>
+                    ) : actual.acciones_aprobadas.map((accion, accionIndex) => (
+                      <div key={accion.id} className="rounded-xl border border-green-100 bg-white p-3">
+                        <p className="text-sm font-semibold text-slate-800">
+                          {accionIndex + 1}. {accion.descripcion}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {accion.tipo === "repuesto" ? "Repuesto aprobado" : "Trabajo aprobado"}
+                        </p>
+                        <select
+                          value={accion.estado}
+                          onChange={(event) => actualizarAccion(equipo.id, accion.id, {
+                            estado: event.target.value as EstadoAccion,
+                          })}
+                          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        >
+                          <option value="sin_revisar">Sin evaluar</option>
+                          <option value="realizada">Realizada / instalado</option>
+                          <option value="pendiente">Pendiente</option>
+                          <option value="no_aplica">No aplica (justificar)</option>
+                        </select>
+                        {(accion.estado === "pendiente" || accion.estado === "no_aplica" || accion.estado === "realizada") && (
+                          <input
+                            type="text"
+                            value={accion.observacion}
+                            onChange={(event) => actualizarAccion(equipo.id, accion.id, { observacion: event.target.value })}
+                            placeholder={accion.estado === "no_aplica" ? "Motivo obligatorio de no aplicación" : "Detalle o evidencia de la ejecución (opcional)"}
+                            className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                          />
+                        )}
+                      </div>
+                    ))}
+                    {accionesIncompletas(actual.acciones_aprobadas).length > 0 && (
+                      <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
+                        Hay {accionesIncompletas(actual.acciones_aprobadas).length} acciones sin resolver. Puedes guardar
+                        el avance, pero no declarar el equipo listo para entrega hasta resolverlas.
+                      </p>
+                    )}
+                  </div>
 
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
                     <label className="flex items-center gap-3 rounded-xl bg-white p-4 text-sm font-bold text-slate-700">
