@@ -15,6 +15,7 @@ type Compra = {
   estado?: string | null;
   fecha_venta?: string | null;
   created_at?: string | null;
+  cotizacion_url?: string | null;
   factura_url?: string | null;
   orden_compra_url?: string | null;
   ficha_tecnica_url?: string | null;
@@ -45,20 +46,29 @@ function normalizarEstado(estado?: string | null) {
   if (!estado) return "Cotizada";
   if (estado === "Pendiente") return "Cotizada";
   if (estado === "Completada") return "Entregado";
+  if (estado === "Lista para despacho/retiro") return "Lista para despacho";
   return estado;
 }
 
 function formatFecha(fecha?: string | null) {
   if (!fecha) return "-";
 
-  try {
-    return new Date(fecha).toLocaleDateString("es-CL");
-  } catch {
-    return fecha;
+  // Los campos DATE de Supabase (YYYY-MM-DD) son fechas locales, no UTC.
+  // Interpretarlos con new Date(fecha) puede mostrar el día anterior en Chile.
+  const fechaSoloDia = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fecha);
+  if (fechaSoloDia) {
+    return `${fechaSoloDia[3]}-${fechaSoloDia[2]}-${fechaSoloDia[1]}`;
   }
+
+  const fechaConHora = new Date(fecha);
+  if (Number.isNaN(fechaConHora.getTime())) return fecha;
+  return fechaConHora.toLocaleDateString("es-CL", {
+    timeZone: "America/Santiago",
+  });
 }
 
 function estadoVisible(compra: Compra, retiro: Retiro | null) {
+  if (normalizarEstado(compra.estado) === "Entregado") return "Entregado";
   if (retiro?.tipo === "despacho") {
     if (retiro.estado === "Solicitado") return "Despacho solicitado";
     if (retiro.estado === "Programado") return "Despacho programado";
@@ -66,8 +76,9 @@ function estadoVisible(compra: Compra, retiro: Retiro | null) {
     if (retiro.estado === "Entregado") return "Entregado";
   }
 
-  if (retiro?.tipo === "venta" && retiro.estado === "Agendado") {
-    return "Retiro agendado";
+  if (retiro?.tipo === "venta") {
+    if (retiro.estado === "Retirado") return "Entregado";
+    if (retiro.estado === "Agendado") return "Retiro agendado";
   }
 
   return normalizarEstado(compra.estado);
@@ -80,6 +91,7 @@ function colorEstado(estado: string) {
   if (estado === "Lista para despacho") return "bg-green-50 text-green-800";
   if (estado === "Retiro agendado") return "bg-green-50 text-green-800";
   if (estado === "Despacho solicitado") return "bg-blue-50 text-blue-800";
+  if (estado === "Despacho programado") return "bg-blue-50 text-blue-800";
   if (estado === "Despachado") return "bg-indigo-50 text-indigo-800";
   if (estado === "Entregado") return "bg-emerald-50 text-emerald-800";
 
@@ -207,20 +219,19 @@ export default function DetalleCompraPage() {
 
   let estadoActual = normalizarEstado(compra.estado);
 
-if (retiro?.tipo === "despacho") {
-  if (retiro.estado === "Despachado") {
-    estadoActual = "Despachado";
+  if (estadoActual !== "Entregado" && retiro?.tipo === "despacho") {
+    if (retiro.estado === "Despachado") estadoActual = "Despachado";
+    if (retiro.estado === "Entregado") estadoActual = "Entregado";
   }
-
-  if (retiro.estado === "Entregado") {
+  if (retiro?.tipo === "venta" && retiro.estado === "Retirado") {
     estadoActual = "Entregado";
   }
-}
 
 const estadoMostrado = estadoVisible(compra, retiro);
 const pasoActual = Math.max(ESTADOS.indexOf(estadoActual), 0);
 
   const documentos = [
+    { label: "Cotización", url: compra.cotizacion_url },
     { label: "Factura", url: compra.factura_url },
     { label: "Orden de Compra", url: compra.orden_compra_url },
     { label: "Ficha Técnica", url: compra.ficha_tecnica_url },
@@ -230,14 +241,6 @@ const pasoActual = Math.max(ESTADOS.indexOf(estadoActual), 0);
 
   return (
     <div className="mx-auto max-w-5xl">
-      <button
-        type="button"
-        onClick={() => router.push("/cliente/portal/mis-compras")}
-        className="mb-6 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
-      >
-        ← Volver atrás
-      </button>
-
       <div className="rounded-2xl bg-white p-6 shadow-sm">
         <div className="flex items-start justify-between gap-4">
           <div>
