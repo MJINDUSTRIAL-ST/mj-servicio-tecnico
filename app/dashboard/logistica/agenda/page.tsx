@@ -426,6 +426,7 @@ export default function AgendaOperativaPage() {
   const [fotoEntregaPreview, setFotoEntregaPreview] = useState("");
   const [observacionEntrega, setObservacionEntrega] = useState("");
   const [guardandoEntrega, setGuardandoEntrega] = useState(false);
+  const [sincronizandoVentaId, setSincronizandoVentaId] = useState<string | null>(null);
 
   useEffect(() => {
     cargarEventos();
@@ -697,6 +698,83 @@ export default function AgendaOperativaPage() {
     setFotoEntregaPreview(URL.createObjectURL(archivo));
   }
 
+  // Un evento de origen venta utiliza codigo_ot para guardar el número VTA-...
+  // y no una orden de Servicio Técnico. No se crea una entrega nueva.
+  async function sincronizarEntregaVenta(evento: EventoLogistica): Promise<string | null> {
+    if (evento.origen !== "venta") return null;
+
+    const numero = (evento.codigo_ot || "").trim();
+    if (!numero) return "El despacho no tiene número de venta asociado.";
+
+    // Buscamos primero por numero, y por codigo para ventas antiguas.
+    let { data: ventasEncontradas, error: errorBuscar } = await supabase
+      .from("ventas")
+      .select("id, estado")
+      .eq("numero", numero)
+      .limit(1);
+
+    if (!errorBuscar && (!ventasEncontradas || ventasEncontradas.length === 0)) {
+      const resultadoCodigo = await supabase
+        .from("ventas")
+        .select("id, estado")
+        .eq("codigo", numero)
+        .limit(1);
+      ventasEncontradas = resultadoCodigo.data;
+      errorBuscar = resultadoCodigo.error;
+    }
+
+    if (errorBuscar) return `No se pudo consultar Ventas: ${errorBuscar.message}`;
+    const ventaEncontrada = ventasEncontradas?.[0] as { id: string; estado: string | null } | undefined;
+    if (!ventaEncontrada) return `No se encontró la venta ${numero}.`;
+
+    // Evita escribir nuevamente una venta que ya está entregada.
+    if (ventaEncontrada.estado !== "Entregado") {
+      const { data: ventasActualizadas, error: errorVenta } = await supabase
+        .from("ventas")
+        .update({ estado: "Entregado" })
+        .eq("id", ventaEncontrada.id)
+        .select("id");
+      if (errorVenta) return `No se pudo actualizar la venta: ${errorVenta.message}`;
+      if (!ventasActualizadas?.length) return "La venta no se actualizó. Revisa permisos de Supabase.";
+    }
+
+    // El portal del cliente usa retiros para el seguimiento del despacho.
+    const { data: solicitudes, error: errorSolicitudes } = await supabase
+      .from("retiros")
+      .select("id, estado")
+      .eq("referencia_id", ventaEncontrada.id)
+      .eq("tipo", "despacho")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (errorSolicitudes) return `La venta está Entregada, pero no se pudo consultar el seguimiento: ${errorSolicitudes.message}`;
+    const solicitud = solicitudes?.[0] as { id: string; estado: string | null } | undefined;
+    if (solicitud && solicitud.estado !== "Entregado") {
+      const { data: actualizadas, error: errorRetiro } = await supabase
+        .from("retiros")
+        .update({ estado: "Entregado" })
+        .eq("id", solicitud.id)
+        .select("id");
+      if (errorRetiro) return `La venta está Entregada, pero no se actualizó el seguimiento: ${errorRetiro.message}`;
+      if (!actualizadas?.length) return "La venta está Entregada, pero el seguimiento no se actualizó.";
+    }
+
+    return null;
+  }
+
+  async function recuperarEntregaVenta(evento: EventoLogistica) {
+    if (evento.origen !== "venta" || evento.estado !== "realizado") return;
+    setSincronizandoVentaId(evento.id);
+    try {
+      const error = await sincronizarEntregaVenta(evento);
+      if (error) alert(error);
+      else alert("Venta y seguimiento sincronizados como Entregado. No se envió otro correo.");
+      await cargarEventos();
+    } finally {
+      setSincronizandoVentaId(null);
+    }
+  }
+
   async function registrarEntrega() {
     if (!eventoAEntregar) return;
 
@@ -776,6 +854,12 @@ export default function AgendaOperativaPage() {
         }
       }
 
+      // Registrar la misma entrega en Ventas / Portal Cliente.
+      // La OT se sigue actualizando solamente cuando el origen es servicio_tecnico.
+      const errorSincronizacionVenta = eventoAEntregar.origen === "venta"
+        ? await sincronizarEntregaVenta(eventoAEntregar)
+        : null;
+
       let correoEnviado = true;
 
       if (eventoAEntregar.email) {
@@ -811,24 +895,23 @@ export default function AgendaOperativaPage() {
       cerrarRegistrarEntrega(true);
       await cargarEventos();
 
-      if (!ordenActualizada && !correoEnviado) {
+      if (errorSincronizacionVenta) {
         alert(
-          "La entrega quedó registrada, pero no se pudo actualizar la OT ni enviar el correo al cliente.",
+          "La entrega y su fotografía quedaron guardadas en Logística, pero " +
+          errorSincronizacionVenta +
+          " Puedes usar 'Sincronizar venta' en el evento realizado, sin repetir la entrega." +
+          (!correoEnviado ? " Además, falló el correo de notificación." : "")
         );
         return;
       }
 
       if (!ordenActualizada) {
-        alert(
-          "La entrega quedó registrada y el correo fue enviado, pero no se pudo actualizar la OT a Entregado.",
-        );
+        alert("La entrega quedó registrada, pero no se pudo actualizar la OT a Entregado.");
         return;
       }
 
       if (!correoEnviado) {
-        alert(
-          "La entrega quedó registrada y la OT fue actualizada, pero no se pudo enviar el correo al cliente.",
-        );
+        alert("La entrega quedó registrada, pero no se pudo enviar el correo al cliente.");
         return;
       }
 
@@ -1343,7 +1426,7 @@ export default function AgendaOperativaPage() {
             >
               <div>
                 <strong>
-                  {evento.codigo_ot || "Sin OT"}
+                  {evento.codigo_ot || "Sin referencia"}
                   {" · "}
                   {evento.cliente || "Sin cliente"}
                 </strong>
@@ -1705,7 +1788,7 @@ export default function AgendaOperativaPage() {
 
                   {evento.codigo_ot ? (
                     <p className="ot">
-                      OT: {evento.codigo_ot}
+                      {evento.origen === "venta" ? "Venta" : "OT"}: {evento.codigo_ot}
                     </p>
                   ) : null}
 
@@ -1792,6 +1875,18 @@ export default function AgendaOperativaPage() {
                           Ver foto de entrega
                         </a>
                       ) : null}
+                      {evento.origen === "venta" ? (
+                        <button
+                          type="button"
+                          className="syncSaleButton"
+                          disabled={sincronizandoVentaId === evento.id}
+                          onClick={() => recuperarEntregaVenta(evento)}
+                        >
+                          {sincronizandoVentaId === evento.id
+                            ? "Sincronizando..."
+                            : "Sincronizar venta con Entregado"}
+                        </button>
+                      ) : null}
                     </div>
                   ) : (
                     <div className="eventActions">
@@ -1858,7 +1953,7 @@ export default function AgendaOperativaPage() {
 
             <div className="requestSummary">
               <div>
-                <span>OT</span>
+                <span>{despachoAProgramar.origen === "venta" ? "Venta" : "OT"}</span>
                 <strong>{despachoAProgramar.codigo_ot || "Sin OT"}</strong>
               </div>
 
@@ -1990,7 +2085,7 @@ export default function AgendaOperativaPage() {
 
             <div className="requestSummary">
               <div>
-                <span>OT</span>
+                <span>{eventoAEntregar.origen === "venta" ? "Venta" : "OT"}</span>
                 <strong>{eventoAEntregar.codigo_ot || "Sin OT"}</strong>
               </div>
 
@@ -2069,7 +2164,7 @@ export default function AgendaOperativaPage() {
 
             <p className="automaticStatusNote">
               Al confirmar, el registro cambiará automáticamente a
-              <strong> Realizado</strong>, la OT avanzará a
+              <strong> Realizado</strong>, {eventoAEntregar.origen === "venta" ? "la venta" : "la OT"} avanzará a
               <strong> Entregado</strong> y el cliente recibirá un correo.
             </p>
 
@@ -3067,6 +3162,20 @@ export default function AgendaOperativaPage() {
           font-weight: 900;
           text-decoration: none;
         }
+
+        .syncSaleButton {
+          grid-column: span 2;
+          width: 100%;
+          border: 1px solid #93c5fd;
+          border-radius: 10px;
+          background: #eff6ff;
+          color: #1d4ed8;
+          padding: 10px 12px;
+          font-size: 12px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+        .syncSaleButton:disabled { opacity: 0.6; cursor: not-allowed; }
 
         .deliveryPreview {
           overflow: hidden;
